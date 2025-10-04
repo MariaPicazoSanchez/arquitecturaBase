@@ -2,8 +2,16 @@ function Sistema() {
     this.usuarios = {};
 
     this.agregarUsuario = function(nick) {
-        this.usuarios[nick] = new Usuario(nick);
+        let res = { nick: -1 };
+        if (!this.usuarios[nick]) {
+            this.usuarios[nick] = new Usuario(nick);
+            res.nick = nick;
+        } else {
+            console.log("El nick " + nick + " está en uso");
+        }
+        return res;
     }
+
 
     this.obtenerUsuarios = function() {
         return this.usuarios;
