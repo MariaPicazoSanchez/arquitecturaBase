@@ -6,11 +6,34 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname + "/"));
 
-app.get("/", function(request, response) {
-    const contenido = fs.readFileSync(__dirname + "/client/index.html");
-    response.setHeader("Content-Type", "text/html");
-    response.send(contenido);
+app.get("/agregarUsuario/:nick", function(request, response) {
+    let nick = request.params.nick;
+    let res = sistema.agregarUsuario(nick);
+    response.send(res);
 });
+
+app.get("/obtenerUsuarios", function(request, response) {
+    let res = sistema.obtenerUsuarios();
+    response.send(res);
+});
+
+app.get("/usuarioActivo/:nick", function(request, response) {
+    let nick = request.params.nick;
+    let res = { activo: sistema.usuarioActivo(nick) };
+    response.send(res);
+});
+
+app.get("/numeroUsuarios", function(request, response) {
+    let res = { num: sistema.numeroUsuarios() };
+    response.send(res);
+});
+
+app.get("/eliminarUsuario/:nick", function(request, response) {
+    let nick = request.params.nick;
+    sistema.eliminarUsuario(nick);
+    response.send({ eliminado: nick });
+});
+
 
 app.listen(PORT, () => {
     console.log(`Servidor escuchando en puerto ${PORT}`);
