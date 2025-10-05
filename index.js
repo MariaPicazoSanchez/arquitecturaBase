@@ -4,7 +4,7 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static(__dirname + "/"));
+app.use(express.static(__dirname + "/client"));
 
 app.get("/agregarUsuario/:nick", function(request, response) {
     let nick = request.params.nick;
