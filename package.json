@@ -5,13 +5,15 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-     "test": "npx jasmine-node server"
+    "test": "npx jasmine-node server"
   },
-
   "author": "María Picazo Sánchez",
   "license": "ISC",
   "dependencies": {
-    "express": "^5.1.0"
+    "cookie-session": "^2.1.1",
+    "express": "^5.1.0",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0"
   },
   "devDependencies": {
     "jasmine-node": "^1.16.0"

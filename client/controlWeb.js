@@ -1,18 +1,25 @@
 function ControlWeb() {
-    this.mostrarAgregarUsuario = function() {
-        $("#au").empty();
-        let cadena = '<div id="mAU" class="form-group">';
-        cadena += '<label for="name">Name:</label>';
-        cadena += '<input type="text" class="form-control" id="nick">';
-        cadena += '<button id="btnAU" type="button" class="btn btn-primary mt-2">Agregar Usuario</button>';
-        cadena += '</div>';
-
+    this.mostrarAgregarUsuario=function(){
+        $('#bnv').remove();
+        $('#mAU').remove();
+        let cadena='<div id="mAU">';
+        cadena = cadena + '<div class="card"><div class="card-body">';
+        cadena = cadena +'<div class="form-group">';
+        cadena = cadena + '<label for="nick">Nick:</label>';
+        cadena = cadena + '<p><input type="text" class="form-control" id="nick" placeholder="introduce un nick"></p>';
+        cadena = cadena + '<button id="btnAU" type="submit" class="btn btn-primary">Submit</button>';
+        cadena=cadena+'<div><a href="/auth/google"><img src="./img/G.png" style="height:60px;margin-top:30px"></a></div>';
+        cadena = cadena + '</div>';
+        cadena = cadena + '</div></div></div>';
         $("#au").append(cadena);
 
         $("#btnAU").on("click", function() {
-            let nick = $("#nick").val();
-            rest.agregarUsuario(nick);
-            // $("#mAU").remove();
+            let nick = $("#nick").val().trim();
+            if (nick) {
+                rest.agregarUsuario(nick);
+            } else {
+                cw.mostrarMensaje("El nick no puede estar vacío.");
+            }
         });
     };
 
