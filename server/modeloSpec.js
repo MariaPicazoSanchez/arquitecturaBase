@@ -36,4 +36,5 @@ describe('El sistema', function() {
     sistema.eliminarUsuario("Mario");
     expect(sistema.usuarioActivo("Mario")).toBe(false);
   });
+  
 })
