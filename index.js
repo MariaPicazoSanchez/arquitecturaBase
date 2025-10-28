@@ -4,12 +4,22 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 
+const passport=require("passport");
+const cookieSession=require("cookie-session");
+const session = require('express-session');
+
+app.use(session({
+    secret: 'seguro',
+    resave: false,
+    saveUninitialized: false
+}));
+
 app.use(express.static(__dirname + "/client"));
 
-app.use(cookieSession({ 
-    name: 'Sistema',
-    keys: ['key1', 'key2']
-}));
+// app.use(cookieSession({ 
+//     name: 'Sistema',
+//     keys: ['key1', 'key2']
+// }));
 
 app.use(passport.initialize());
 app.use(passport.session());
@@ -45,8 +55,7 @@ app.get("/eliminarUsuario/:nick", function(request, response) {
 });
 
 app.get('/google/callback',
-    passport.authenticate('google', {
-    failureRedirect: '/fallo' }),
+    passport.authenticate('google', {failureRedirect: '/fallo'}),
     function(req, res) {
         res.redirect('/good'); 
 });
@@ -67,8 +76,7 @@ app.listen(PORT, () => {
     console.log(`Servidor escuchando en puerto ${PORT}`);
 });
 
-const passport=require("passport");
-const cookieSession=require("cookie-session");
+
 require("./server/passport-setup.js");
 const modelo = require("./server/modelo.js");
 let sistema = new modelo.Sistema();

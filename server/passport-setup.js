@@ -8,11 +8,11 @@ passport.deserializeUser(function(user, done) {
 });
 
 passport.use(new GoogleStrategy({
-    clientID: "1066426825741-14bm07md25p7l7b8bnbmile9oeqrivl5.apps.googleusercontent.com",
+    clientID:"1066426825741-14bm07md25p7l7b8bnbmile9oeqrivl5.apps.googleusercontent.com",
     clientSecret: "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",
     callbackURL: "http://localhost:3000/google/callback"
-},
-function(accessToken, refreshToken, profile, done) {
-    return done(null, profile);
-} 
+    },
+    function(accessToken, refreshToken, profile, done) {
+        return done(null, profile);
+    }
 ));
