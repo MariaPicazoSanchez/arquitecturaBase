@@ -102,22 +102,83 @@ app.get("/eliminarUsuario/:nick", function(request, response) {
 
 
 // One Tap: callback
-app.post(
-  "/oneTap/callback",
+app.post("/oneTap/callback",
   passport.authenticate("google-one-tap", { failureRedirect: "/fallo" }),
   (req, res) => res.redirect("/good")
 );
 
+// Registro y login tradicionales
+// app.post("/registrarUsuario", function(req, res){
+//   // sistema.registrarUsuario(req.body, function(out){
+//   //   if (out && out.email && out.email !== -1){
+//   //     res.status(201).send({ nick: out.email });
+//   //   } else {
+//   //     res.status(409).send({ nick: -1 });
+//   //   }
+//   // });
+//   try {
+//     sistema.registrarUsuario(req.body, function(out){
+//       if (out && out.email && out.email !== -1){
+//         res.status(201).json({ nick: out.email });
+//       } else if (out && out.motivo === "duplicado"){
+//         res.status(409).json({ nick: -1 });
+//       } else if (out && out.motivo === "datos-invalidos"){
+//         res.status(400).json({ nick: -1 });
+//       } else {
+//         res.status(500).json({ nick: -1 });
+//       }
+//     });
+//   } catch (err) {
+//     console.error("Error inesperado registrando usuario:", err);
+//     res.status(500).json({ nick: -1 });
+//   }
+// });
 app.post("/registrarUsuario", function(req, res){
-  sistema.registrarUsuario(req.body, function(out){
+  console.log("[/registrarUsuario] body recibido:", req.body);
+  const t0 = Date.now();
+  let responded = false;
+  const send = (status, payload) => {
+    if (responded) return;
+    responded = true;
+    console.log(`[/registrarUsuario] -> ${status} en ${Date.now()-t0}ms; payload:`, payload);
+    return res.status(status).json(payload);
+  };
+
+  try {
+    sistema.registrarUsuario(req.body, function(out){
+      console.log("[/registrarUsuario] callback del modelo:", out);
+      if (out && out.email && out.email !== -1){
+        return send(201, { nick: out.email });
+      } else {
+        // Nuestro modelo actual solo devuelve {email} o {email:-1}
+        return send(409, { nick: -1 });
+      }
+    });
+
+    setTimeout(() => {
+      if (!responded){
+        console.warn("[/registrarUsuario] SIN RESPUESTA tras 10s (posible cuelgue en modelo/CAD)");
+        send(504, { nick: -1, reason: "timeout" });
+      }
+    }, 10000);
+
+  } catch (err) {
+    console.error("[/registrarUsuario] EXCEPCIÓN sin capturar:", err);
+    send(500, { nick: -1 });
+  }
+});
+
+
+app.post('/loginUsuario', function(req, res){
+  sistema.loginUsuario(req.body, function(out){
     if (out && out.email && out.email !== -1){
-      res.status(201).send({ nick: out.email });
+      req.session.user = { email: out.email };
+      res.send({ nick: out.email });
     } else {
-      res.status(409).send({ nick: -1 });
+      res.status(401).send({ nick: -1 });
     }
   });
 });
-
 // const LocalStrategy = require('passport-local').Strategy;
 
 // passport.use(new LocalStrategy(
@@ -137,16 +198,6 @@ app.post("/registrarUsuario", function(req, res){
 // app.get("/ok", function(req, res){
 //   res.send({ nick: req.user.email });
 // });
-app.post('/loginUsuario', function(req, res){
-  sistema.loginUsuario(req.body, function(out){
-    if (out && out.email && out.email !== -1){
-      req.session.user = { email: out.email };
-      res.send({ nick: out.email });
-    } else {
-      res.status(401).send({ nick: -1 });
-    }
-  });
-});
 
 
 

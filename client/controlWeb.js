@@ -91,21 +91,31 @@ function ControlWeb() {
     this.mostrarRegistro = function(){
         $("#fmRegistro").remove();
         $("#msg").empty();
-        $("#registro").load("./cliente/registro.html", function(){
+        $("#registro").load("./registro.html", function(){
             $("#btnRegistro").on("click", function(e){
-            e.preventDefault();
-            let email = $("#email").val();
-            let pwd   = $("#pwd").val();
-            if (email && pwd){
-                rest.registrarUsuario(email, pwd);
-            }
+                e.preventDefault();
+                let email = $("#email").val();
+                let pwd   = $("#pwd").val();
+                console.log("[UI] Click Registrar:", { email, tienePwd: !!pwd });
+                if (email && pwd){
+                    rest.registrarUsuario(email, pwd);
+                }
             });
+
         });
     };
-    this.mostrarLogin = function(){
+    this.mostrarLogin = function(options){
+        let opts = options || {};
         $("#fmLogin").remove();
-        $("#msg").empty();
-        $("#registro").load("./cliente/login.html", function(){
+        // $("#msg").empty();
+        // $("#registro").load("./login.html", function(){
+        if (!opts.keepMessage){
+            $("#msg").empty();
+        }
+        $("#registro").load("./login.html", function(){
+            if (opts.email){
+                $("#emailLogin").val(opts.email);
+            }
             $("#btnLogin").on("click", function(e){
             e.preventDefault();
             let email = $("#emailLogin").val();

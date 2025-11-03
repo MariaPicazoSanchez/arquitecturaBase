@@ -5,6 +5,9 @@
   <title>Gestión de Usuarios</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28'/%3E%3Ctext x='32' y='38' font-size='28' text-anchor='middle' fill='white'%3EA%3C/text%3E%3C/svg%3E">
+
+
   <!-- Bootstrap -->
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -13,7 +16,7 @@
 
 
   <!-- jQuery -->
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <!-- <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 
   <!-- SDK de Google Identity -->
@@ -103,21 +106,22 @@
         $('#menuListarUsuarios').click(function() {
             cw.mostrarListaUsuarios();
         });
+
     });
   </script>
 
   <div class="container">
-  <h3>Sistema</h3>
-  <div id="au"></div>
-  <div id="registro"></div>
-  <div id="msg"></div>
-</div>
+    <h3>Sistema</h3>
+    <div id="au"></div>
+    <div id="registro"></div>
+    <div id="msg"></div>
+  </div>
 
 <!-- Solo cargas de librerías y tus JS, sin código inline -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="./cliente/lib/jquery.cookie.js"></script>
-<script src="./cliente/controlWeb.js"></script>
-<script src="./cliente/clienteRest.js"></script>
+<!-- <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="./client/lib/jquery.cookie.js"></script>
+<script src="./client/controlWeb.js"></script>
+<script src="./client/clienteRest.js"></script> -->
 
 </body>
 </html>
