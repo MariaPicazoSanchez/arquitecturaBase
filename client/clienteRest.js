@@ -92,6 +92,47 @@ function ClienteRest() {
         cw.salir();
     }
 
+    this.registrarUsuario = function(email, password){
+        $.ajax({
+            type: 'POST',
+            url: '/registrarUsuario',
+            data: JSON.stringify({ email, password }),
+            contentType: 'application/json',
+            success: function(data){
+            if (data.nick != -1){
+                $.cookie("nick", data.nick);
+                cw.limpiar?.();
+                cw.mostrarMensaje("Bienvenido al sistema, " + data.nick);
+                // Opcional: cw.mostrarLogin();
+            } else {
+                cw.mostrarMensaje?.("El email ya existe");
+            }
+            },
+            error: function(){ cw.mostrarMensaje?.("Error al registrar"); }
+        });
+    };
+
+    this.loginUsuario = function(email, password){
+        $.ajax({
+            type: 'POST',
+            url: '/loginUsuario',
+            data: JSON.stringify({ email, password }),
+            contentType: 'application/json',
+            success: function(data){
+            if (data.nick != -1){
+                $.cookie("nick", data.nick);
+                cw.limpiar?.();
+                cw.mostrarMensaje("Bienvenido al sistema, " + data.nick);
+                // Opcional: cw.mostrarLogin();
+            } else {
+                cw.mostrarMensaje?.("Email o contraseña incorrectos");
+            }
+            },
+            error: function(){ cw.mostrarMensaje?.("Error al iniciar sesión"); }
+        });
+    };
+    
+
 }
 
 

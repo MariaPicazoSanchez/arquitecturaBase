@@ -77,5 +77,32 @@ function ControlWeb() {
         });
     };
 
+    this.mostrarRegistro = function(){
+        $("#fmRegistro").remove();
+        $("#registro").load("./cliente/registro.html", function(){
+            $("#btnRegistro").on("click", function(e){
+            e.preventDefault();
+            let email = $("#email").val();
+            let pwd   = $("#pwd").val();
+            if (email && pwd){
+                rest.registrarUsuario(email, pwd);
+            }
+            });
+        });
+    };
+    this.mostrarLogin = function(){
+        $("#fmLogin").remove();
+        $("#registro").load("./cliente/login.html", function(){
+            $("#btnLogin").on("click", function(e){
+            e.preventDefault();
+            let email = $("#emailLogin").val();
+            let pwd   = $("#pwdLogin").val();
+            if (email && pwd){
+                rest.loginUsuario(email, pwd);
+            }
+            });
+        });
+    };
+
 
 }

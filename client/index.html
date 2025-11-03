@@ -16,10 +16,41 @@
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 
+  <!-- SDK de Google Identity -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- <script>
+    window.onload = function () {
+      const CLIENT_ID = "1066426825741-14bm07md25p7l7b8bnbmile9oeqrivl5.apps.googleusercontent.com"; 
+      const LOGIN_URI = "http://localhost:3000/oneTap/callback";
+
+      // inicializa One Tap
+      try {
+        google.accounts.id.initialize({
+          client_id: CLIENT_ID,
+          login_uri: LOGIN_URI,
+          auto_select: false
+        });
+        google.accounts.id.prompt((n) => {
+          const mt = n.getMomentType?.();
+          const nd = n.getNotDisplayedReason?.();
+          const sk = n.getSkippedReason?.();
+          console.log('OneTap:', { moment: mt, notDisplayed: nd, skipped: sk });
+          const box = document.getElementById('onetap-status');
+          if (box) box.textContent = `OneTap → moment=${mt} notDisplayed=${nd} skipped=${sk}`;
+        });
+      } catch (e) {
+        console.error("GIS init error:", e);
+        const box = document.getElementById('onetap-status');
+        if (box) box.textContent = `GIS init error: ${e.message}`;
+      }
+    }
+  </script> -->
+
+  <div id="onetap-status" style="font:12px/1.2 sans-serif; color:#666; margin-top:8px;"></div>
 
 
   <!-- Incluir Popper.js -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
 
   <!-- Tus scripts -->
   <script src="./clienteRest.js"></script>
@@ -49,6 +80,15 @@
       <h1 class="mb-3">Gestión de Usuarios</h1>
       <div id="au"></div>
   </div>
+  <!-- One Tap: configuración -->
+  <div
+    id="g_id_onload"
+    data-client_id="1066426825741-14bm07md25p7l7b8bnbmile9oeqrivl5.apps.googleusercontent.com"
+    data-login_uri="http://localhost:3000/oneTap/callback"
+    data-skip_prompt_cookie="nick"
+    data-auto_prompt="true">
+  </div>
+
   <script>
     window.rest = new ClienteRest();
     window.cw = new ControlWeb();
@@ -65,5 +105,19 @@
         });
     });
   </script>
+
+  <div class="container">
+  <h3>Sistema</h3>
+  <div id="au"></div>
+  <div id="registro"></div>
+  <div id="msg"></div>
+</div>
+
+<!-- Solo cargas de librerías y tus JS, sin código inline -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="./cliente/lib/jquery.cookie.js"></script>
+<script src="./cliente/controlWeb.js"></script>
+<script src="./cliente/clienteRest.js"></script>
+
 </body>
 </html>

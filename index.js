@@ -4,27 +4,73 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 
+require('dotenv').config();
 const passport=require("passport");
-const cookieSession=require("cookie-session");
+// const cookieSession=require("cookie-session");
 const session = require('express-session');
 
-app.use(session({
-    secret: 'seguro',
-    resave: false,
-    saveUninitialized: false
-}));
+require("./server/passport-setup.js");
+const modelo = require("./server/modelo.js");
+let sistema = new modelo.Sistema();
 
+// Configurar Express
 app.use(express.static(__dirname + "/client"));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false } // true en producción con HTTPS
+}));
 
 // app.use(cookieSession({ 
 //     name: 'Sistema',
 //     keys: ['key1', 'key2']
 // }));
 
+
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.get("/auth/google",passport.authenticate('google', { scope: ['profile','email'] }));
+// --------------------
+// Rutas
+// --------------------
+
+app.get("/auth/google",
+    passport.authenticate('google', { scope: ['profile','email'] })
+);
+
+app.get('/google/callback',
+    passport.authenticate('google', {failureRedirect: '/fallo'}),
+    function(req, res) {
+        res.redirect('/good'); 
+});
+
+app.get("/good", function(req, res) {
+  if (!req.user) return res.redirect('/fallo');
+
+  const email = req.user.emails?.[0]?.value;
+  if (!email) return res.redirect('/fallo');
+
+  // 1) Deja cookie y redirige YA (cierra la respuesta)
+  res.cookie('nick', email);
+  res.redirect('/');
+
+  // 2) Inserta en BBDD sin bloquear la respuesta
+  process.nextTick(() => {
+    sistema.usuarioGoogle({ email }, function(_obj) {
+      // opcional: log
+      console.log("Usuario guardado/actualizado en Mongo:", email);
+    });
+  });
+});
+
+app.get("/fallo", function(req, res) {
+  res.send({ nick: "nook" });
+});
 
 app.get("/agregarUsuario/:nick", function(request, response) {
     let nick = request.params.nick;
@@ -54,30 +100,46 @@ app.get("/eliminarUsuario/:nick", function(request, response) {
     response.send({ eliminado: nick });
 });
 
-app.get('/google/callback',
-    passport.authenticate('google', {failureRedirect: '/fallo'}),
-    function(req, res) {
-        res.redirect('/good'); 
+
+// One Tap: callback
+app.post(
+  "/oneTap/callback",
+  passport.authenticate("google-one-tap", { failureRedirect: "/fallo" }),
+  (req, res) => res.redirect("/good")
+);
+
+app.post("/registrarUsuario", function(req, res){
+  sistema.registrarUsuario(req.body, function(out){
+    res.send({ nick: out.email ?? -1 });
+  });
 });
 
-app.get("/good", function(request,response){
-    let nick=request.user.emails[0].value;
-    if (nick){ sistema.agregarUsuario(nick);}
-    //console.log(request.user.emails[0].value);
-    response.cookie('nick',nick); 
-    response.redirect('/'); 
+const LocalStrategy = require('passport-local').Strategy;
+
+passport.use(new LocalStrategy(
+  { usernameField: "email", passwordField: "password" },
+  function(email, password, done){
+    sistema.loginUsuario({ email, password }, function(user){
+      // user será {email: -1} si falla
+      return done(null, user && user.email != -1 ? user : false);
+    });
+  }
+));
+
+app.post('/loginUsuario',
+  passport.authenticate("local", { failureRedirect: "/fallo", successRedirect: "/ok" })
+);
+
+app.get("/ok", function(req, res){
+  res.send({ nick: req.user.email });
 });
 
-app.get("/fallo",function(request,response){
-    response.send({nick:"nook"}) 
-});
+
 
 app.listen(PORT, () => {
     console.log(`Servidor escuchando en puerto ${PORT}`);
 });
 
 
-require("./server/passport-setup.js");
-const modelo = require("./server/modelo.js");
-let sistema = new modelo.Sistema();
+
 
