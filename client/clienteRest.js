@@ -6,8 +6,10 @@ function ClienteRest() {
             if (data.nick != -1) {
                 msg="Bienvenido al sistema, "+nick;
                 $.cookie("nick",nick);
+                cw.mostrarMensaje(msg, "success");
+            } else {
+                cw.mostrarMensaje(msg, "error");
             }
-            cw.mostrarMensaje(msg);
         });
     }
 
@@ -99,16 +101,21 @@ function ClienteRest() {
             data: JSON.stringify({ email, password }),
             contentType: 'application/json',
             success: function(data){
-            if (data.nick != -1){
-                $.cookie("nick", data.nick);
-                cw.limpiar?.();
-                cw.mostrarMensaje("Bienvenido al sistema, " + data.nick);
-                // Opcional: cw.mostrarLogin();
+            if (data.nick && data.nick !== -1){
+                cw.limpiar();
+                cw.mostrarAviso("Registro completado. Ahora puedes iniciar sesión.", "success");
+                cw.mostrarLogin();
             } else {
-                cw.mostrarMensaje?.("El email ya existe");
+                cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
             }
             },
-            error: function(){ cw.mostrarMensaje?.("Error al registrar"); }
+           error: function(xhr){
+                if (xhr && xhr.status === 409){
+                    cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
+                } else {
+                    cw.mostrarAviso("Se ha producido un error al registrar el usuario.", "error");
+                }
+            }
         });
     };
 
@@ -119,16 +126,22 @@ function ClienteRest() {
             data: JSON.stringify({ email, password }),
             contentType: 'application/json',
             success: function(data){
-            if (data.nick != -1){
+            if (data.nick && data.nick !== -1){
                 $.cookie("nick", data.nick);
-                cw.limpiar?.();
-                cw.mostrarMensaje("Bienvenido al sistema, " + data.nick);
-                // Opcional: cw.mostrarLogin();
+                cw.limpiar();
+                $("#msg").empty();
+                cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
             } else {
-                cw.mostrarMensaje?.("Email o contraseña incorrectos");
+                cw.mostrarAviso("Email o contraseña incorrectos.", "error");
             }
             },
-            error: function(){ cw.mostrarMensaje?.("Error al iniciar sesión"); }
+            error: function(xhr){
+                if (xhr && xhr.status === 401){
+                    cw.mostrarAviso("Credenciales inválidas.", "error");
+                } else {
+                    cw.mostrarAviso("Se ha producido un error al iniciar sesión.", "error");
+                }
+            }        
         });
     };
     

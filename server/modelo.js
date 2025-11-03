@@ -44,6 +44,10 @@ function Sistema() {
     }
     this.registrarUsuario = function(obj, callback){
         let modelo = this;
+        if (!obj || !obj.email || !obj.password){
+            callback({ email: -1 });
+            return;
+        }
         if (!obj.nick){ obj.nick = obj.email; }
         this.cad.buscarUsuario({ email: obj.email }, function(usr){
             if (!usr){
@@ -56,6 +60,10 @@ function Sistema() {
     };
 
     this.loginUsuario = function(obj, callback){
+        if (!obj || !obj.email || !obj.password){
+            callback({ email: -1 });
+            return;
+        }
         this.cad.buscarUsuario({ email: obj.email /*, confirmada:true si activas confirmación */ }, function(usr){
             if (usr && usr.password == obj.password){
             callback(usr);

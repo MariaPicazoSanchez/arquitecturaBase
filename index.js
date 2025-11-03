@@ -110,28 +110,42 @@ app.post(
 
 app.post("/registrarUsuario", function(req, res){
   sistema.registrarUsuario(req.body, function(out){
-    res.send({ nick: out.email ?? -1 });
+    if (out && out.email && out.email !== -1){
+      res.status(201).send({ nick: out.email });
+    } else {
+      res.status(409).send({ nick: -1 });
+    }
   });
 });
 
-const LocalStrategy = require('passport-local').Strategy;
+// const LocalStrategy = require('passport-local').Strategy;
 
-passport.use(new LocalStrategy(
-  { usernameField: "email", passwordField: "password" },
-  function(email, password, done){
-    sistema.loginUsuario({ email, password }, function(user){
-      // user será {email: -1} si falla
-      return done(null, user && user.email != -1 ? user : false);
-    });
-  }
-));
+// passport.use(new LocalStrategy(
+//   { usernameField: "email", passwordField: "password" },
+//   function(email, password, done){
+//     sistema.loginUsuario({ email, password }, function(user){
+//       // user será {email: -1} si falla
+//       return done(null, user && user.email != -1 ? user : false);
+//     });
+//   }
+// ));
 
-app.post('/loginUsuario',
-  passport.authenticate("local", { failureRedirect: "/fallo", successRedirect: "/ok" })
-);
+// app.post('/loginUsuario',
+//   passport.authenticate("local", { failureRedirect: "/fallo", successRedirect: "/ok" })
+// );
 
-app.get("/ok", function(req, res){
-  res.send({ nick: req.user.email });
+// app.get("/ok", function(req, res){
+//   res.send({ nick: req.user.email });
+// });
+app.post('/loginUsuario', function(req, res){
+  sistema.loginUsuario(req.body, function(out){
+    if (out && out.email && out.email !== -1){
+      req.session.user = { email: out.email };
+      res.send({ nick: out.email });
+    } else {
+      res.status(401).send({ nick: -1 });
+    }
+  });
 });
 
 

@@ -1,13 +1,22 @@
 require('dotenv').config();
 const { MongoClient } = require('mongodb');
 function CAD(){
-    const mongo=require("mongodb").MongoClient;
-    const ObjectId=require("mongodb").ObjectId;
+    // const mongo=require("mongodb").MongoClient;
+    // const ObjectId=require("mongodb").ObjectId;
 
-    this.usuarios;
+    // this.usuarios;
+    this.usuarios = undefined;
 
     this.buscarOCrearUsuario = function (usr, callback) {
         buscarOCrear(this.usuarios, usr, callback);
+    };
+
+    this.buscarUsuario = function(criterio, cb){
+        buscar(this.usuarios, criterio, cb);
+    };
+
+    this.insertarUsuario = function(usuario, cb){
+        insertar(this.usuarios, usuario, cb);
     };
 
     this.conectar = async function (callback) {
@@ -48,8 +57,8 @@ function buscarOCrear(coleccion, criterio, callback) {
         }
     );
 
-    this.buscarUsuario = function(criterio, cb){ buscar(this.usuarios, criterio, cb); };
-    this.insertarUsuario = function(usuario, cb){ insertar(this.usuarios, usuario, cb); };
+    // this.buscarUsuario = function(criterio, cb){ buscar(this.usuarios, criterio, cb); };
+    // this.insertarUsuario = function(usuario, cb){ insertar(this.usuarios, usuario, cb); };
 }
 
 function buscar(col, criterio, cb){

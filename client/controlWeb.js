@@ -38,21 +38,32 @@ function ControlWeb() {
     this.comprobarSesion=function(){
         let nick=$.cookie("nick");
         if (nick){
-            cw.mostrarMensaje("Bienvenido al sistema, "+nick);
+            cw.mostrarMensaje("Bienvenido al sistema, "+nick, "success");
             // cw.mostrarSalir();
         }else{
-            cw.mostrarAgregarUsuario();
+            cw.mostrarRegistro();
         }
     };
 
-    this.mostrarMensaje=function(msg){
+    this.mostrarMensaje=function(msg, tipo="info"){
         $("#au").empty();
-        let cadena='<div class="alert alert-info alert-dismissible fade show" role="alert">';
-        cadena+=msg;
-        // cadena+='<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+        let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
+        let cadena='<div class="alert '+alertClass+' alert-dismissible fade show" role="alert">';        cadena+=msg;
         cadena+='</div>';
         $("#au").append(cadena);
-        cw.mostrarSalir();
+        if (tipo === "success"){
+            cw.mostrarSalir();
+        }
+    };
+
+    this.mostrarAviso=function(msg, tipo="info"){
+        let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
+        let cadena='<div class="alert '+alertClass+'" role="alert">'+msg+'</div>';
+        $("#msg").html(cadena);
+    };
+
+    this.limpiar=function(){
+        $("#registro").empty();
     };
 
     this.salir = function(){
@@ -79,6 +90,7 @@ function ControlWeb() {
 
     this.mostrarRegistro = function(){
         $("#fmRegistro").remove();
+        $("#msg").empty();
         $("#registro").load("./cliente/registro.html", function(){
             $("#btnRegistro").on("click", function(e){
             e.preventDefault();
@@ -92,6 +104,7 @@ function ControlWeb() {
     };
     this.mostrarLogin = function(){
         $("#fmLogin").remove();
+        $("#msg").empty();
         $("#registro").load("./cliente/login.html", function(){
             $("#btnLogin").on("click", function(e){
             e.preventDefault();
