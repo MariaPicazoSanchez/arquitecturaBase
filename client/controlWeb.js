@@ -1,18 +1,25 @@
 function ControlWeb() {
-    this.mostrarAgregarUsuario = function() {
-        $("#au").empty();
-        let cadena = '<div id="mAU" class="form-group">';
-        cadena += '<label for="name">Name:</label>';
-        cadena += '<input type="text" class="form-control" id="nick">';
-        cadena += '<button id="btnAU" type="button" class="btn btn-primary mt-2">Agregar Usuario</button>';
-        cadena += '</div>';
-
+    this.mostrarAgregarUsuario=function(){
+        $('#bnv').remove();
+        $('#mAU').remove();
+        let cadena='<div id="mAU">';
+        cadena = cadena + '<div class="card"><div class="card-body">';
+        cadena = cadena +'<div class="form-group">';
+        cadena = cadena + '<label for="nick">Nick:</label>';
+        cadena = cadena + '<p><input type="text" class="form-control" id="nick" placeholder="introduce un nick"></p>';
+        cadena = cadena + '<button id="btnAU" type="submit" class="btn btn-primary">Submit</button>';
+        cadena=cadena+'<div><a href="/auth/google"><img src="./img/G.png" style="height:60px;margin-top:30px"></a></div>';
+        cadena = cadena + '</div>';
+        cadena = cadena + '</div></div></div>';
         $("#au").append(cadena);
 
         $("#btnAU").on("click", function() {
-            let nick = $("#nick").val();
-            rest.agregarUsuario(nick);
-            // $("#mAU").remove();
+            let nick = $("#nick").val().trim();
+            if (nick) {
+                rest.agregarUsuario(nick);
+            } else {
+                cw.mostrarMensaje("El nick no puede estar vacío.");
+            }
         });
     };
 
@@ -31,21 +38,32 @@ function ControlWeb() {
     this.comprobarSesion=function(){
         let nick=$.cookie("nick");
         if (nick){
-            cw.mostrarMensaje("Bienvenido al sistema, "+nick);
+            cw.mostrarMensaje("Bienvenido al sistema, "+nick, "success");
             // cw.mostrarSalir();
         }else{
-            cw.mostrarAgregarUsuario();
+            cw.mostrarRegistro();
         }
     };
 
-    this.mostrarMensaje=function(msg){
+    this.mostrarMensaje=function(msg, tipo="info"){
         $("#au").empty();
-        let cadena='<div class="alert alert-info alert-dismissible fade show" role="alert">';
-        cadena+=msg;
-        // cadena+='<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+        let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
+        let cadena='<div class="alert '+alertClass+' alert-dismissible fade show" role="alert">';        cadena+=msg;
         cadena+='</div>';
         $("#au").append(cadena);
-        cw.mostrarSalir();
+        if (tipo === "success"){
+            cw.mostrarSalir();
+        }
+    };
+
+    this.mostrarAviso=function(msg, tipo="info"){
+        let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
+        let cadena='<div class="alert '+alertClass+'" role="alert">'+msg+'</div>';
+        $("#msg").html(cadena);
+    };
+
+    this.limpiar=function(){
+        $("#registro").empty();
     };
 
     this.salir = function(){
@@ -67,6 +85,45 @@ function ControlWeb() {
         $("#au").append(cadena);
         $("#btnSalir").on("click", function() {
             cw.salir();
+        });
+    };
+
+    this.mostrarRegistro = function(){
+        $("#fmRegistro").remove();
+        $("#msg").empty();
+        $("#registro").load("./registro.html", function(){
+            $("#btnRegistro").on("click", function(e){
+                e.preventDefault();
+                let email = $("#email").val();
+                let pwd   = $("#pwd").val();
+                console.log("[UI] Click Registrar:", { email, tienePwd: !!pwd });
+                if (email && pwd){
+                    rest.registrarUsuario(email, pwd);
+                }
+            });
+
+        });
+    };
+    this.mostrarLogin = function(options){
+        let opts = options || {};
+        $("#fmLogin").remove();
+        // $("#msg").empty();
+        // $("#registro").load("./login.html", function(){
+        if (!opts.keepMessage){
+            $("#msg").empty();
+        }
+        $("#registro").load("./login.html", function(){
+            if (opts.email){
+                $("#emailLogin").val(opts.email);
+            }
+            $("#btnLogin").on("click", function(e){
+            e.preventDefault();
+            let email = $("#emailLogin").val();
+            let pwd   = $("#pwdLogin").val();
+            if (email && pwd){
+                rest.loginUsuario(email, pwd);
+            }
+            });
         });
     };
 

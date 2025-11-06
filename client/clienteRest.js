@@ -6,8 +6,10 @@ function ClienteRest() {
             if (data.nick != -1) {
                 msg="Bienvenido al sistema, "+nick;
                 $.cookie("nick",nick);
+                cw.mostrarMensaje(msg, "success");
+            } else {
+                cw.mostrarMensaje(msg, "error");
             }
-            cw.mostrarMensaje(msg);
         });
     }
 
@@ -91,6 +93,100 @@ function ClienteRest() {
     this.salidaDeUsuario = function() {
         cw.salir();
     }
+
+    // this.registrarUsuario = function(email, password){
+    //     console.log("Iniciando registro para:", email);
+    //     $.ajax({
+    //         type: 'POST',
+    //         url: '/registrarUsuario',
+    //         data: JSON.stringify({"email":email,"password":password}),
+    //         // contentType: 'application/json',
+    //         success: function(data){
+    //             console.log("Registro exitoso para:", data.nick);
+    //             if (data.nick && data.nick !== -1){
+    //                 cw.limpiar();
+    //                 cw.mostrarAviso("Registro completado. Ahora puedes iniciar sesión.", "success");
+    //                 cw.mostrarLogin({ email, keepMessage: true });
+    //             } else {
+    //                 console.log("Registro fallido, email duplicado:", email);
+    //                 cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
+    //             }
+    //         },
+    //        error: function(xhr){
+    //             console.log("Error en el registro:", xhr);
+    //             if (xhr && xhr.status === 409){
+    //                 cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
+    //             } else {
+    //                 cw.mostrarAviso("Se ha producido un error al registrar el usuario.", "error");
+    //             }
+    //         },
+    //         contentType: 'application/json'
+    //     });
+    // };
+
+    this.registrarUsuario = function(email, password){
+  console.log("[cliente] Iniciando registro para:", email);
+  $.ajax({
+    type: 'POST',
+    url: '/registrarUsuario',
+    data: JSON.stringify({ email: email, password: password }),
+    contentType: 'application/json',
+    dataType: 'json', // <- importante para parsear la respuesta
+
+    success: function(data, status, xhr){
+      console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
+      if (data.nick && data.nick !== -1){
+        cw.limpiar();
+        cw.mostrarAviso("Registro completado. Ahora puedes iniciar sesión.", "success");
+        cw.mostrarLogin({ email, keepMessage: true });
+      } else {
+        console.log("[cliente] Registro fallido (duplicado?):", email);
+        cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
+      }
+    },
+    error: function(xhr){
+      console.log("[cliente] ERROR status:", xhr.status, "resp:", xhr.responseText);
+      if (xhr && xhr.status === 409){
+        cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
+      } else if (xhr && xhr.status === 504){
+        cw.mostrarAviso("Timeout del servidor registrando usuario.", "error");
+      } else {
+        cw.mostrarAviso("Se ha producido un error al registrar el usuario.", "error");
+      }
+    },
+    complete: function(xhr, textStatus){
+      console.log("[cliente] COMPLETE:", textStatus, "status:", xhr.status);
+    }
+  });
+};
+
+
+    this.loginUsuario = function(email, password){
+        $.ajax({
+            type: 'POST',
+            url: '/loginUsuario',
+            data: JSON.stringify({ email, password }),
+            contentType: 'application/json',
+            success: function(data){
+            if (data.nick && data.nick !== -1){
+                $.cookie("nick", data.nick);
+                cw.limpiar();
+                $("#msg").empty();
+                cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
+            } else {
+                cw.mostrarAviso("Email o contraseña incorrectos.", "error");
+            }
+            },
+            error: function(xhr){
+                if (xhr && xhr.status === 401){
+                    cw.mostrarAviso("Credenciales inválidas.", "error");
+                } else {
+                    cw.mostrarAviso("Se ha producido un error al iniciar sesión.", "error");
+                }
+            }        
+        });
+    };
+    
 
 }
 
