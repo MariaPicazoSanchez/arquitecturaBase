@@ -34,6 +34,13 @@ passport.use(new GoogleOneTapStrategy(
     verifyCsrfToken: false // en prod con HTTPS puedes activarlo
   },
   function (profile, done) {
+    console.log('[OneTapStrategy] perfil recibido en verify:', {
+      id: profile && (profile.id || profile.sub),
+      emails: profile && (profile.emails || profile.email),
+      displayName: profile && profile.displayName
+    });
     return done(null, profile);
   }
 ));
+
+console.log('[passport-setup] OneTapStrategy configurada, ONE_TAP_CLIENT_ID present?', !!ONE_TAP_CLIENT_ID);

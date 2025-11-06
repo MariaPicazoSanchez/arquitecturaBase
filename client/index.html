@@ -84,13 +84,52 @@
       <div id="au"></div>
   </div>
   <!-- One Tap: configuración -->
-  <div
-    id="g_id_onload"
-    data-client_id="1066426825741-14bm07md25p7l7b8bnbmile9oeqrivl5.apps.googleusercontent.com"
-    data-login_uri="http://localhost:3000/oneTap/callback"
-    data-skip_prompt_cookie="nick"
-    data-auto_prompt="true">
-  </div>
+  <script src="/config.js"></script>
+  <script>
+    // Espera a que el SDK y la configuración estén disponibles, luego inicializa One Tap
+    (function initGIS(){
+      if (typeof window.APP_CONFIG === 'undefined' || !window.APP_CONFIG.CLIENT_ID) {
+        setTimeout(initGIS, 100);
+        return;
+      }
+      // Evitar mostrar One Tap si ya hay cookie 'nick' (usuario ya logueado)
+      try {
+        const hasNick = (window.jQuery && $.cookie && $.cookie('nick')) || document.cookie.split(';').map(s=>s.trim()).some(s=>s.indexOf('nick=')===0);
+        if (hasNick) return;
+      } catch(e) {}
+      // Evitar inicializar/mostrar prompt más de una vez
+      if (window._oneTapInitialized) return;
+      window._oneTapInitialized = true;
+      // SDK se carga asíncronamente, comprobamos su disponibilidad
+      if (window.google && google.accounts && google.accounts.id) {
+        try {
+          google.accounts.id.initialize({
+            client_id: window.APP_CONFIG.CLIENT_ID,
+            // Recibimos credential en el cliente y lo enviamos al servidor
+            callback: function(response){
+              try { google.accounts.id.cancel(); } catch(e){}
+              try {
+                fetch('/oneTap/callback', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(response),
+                  credentials: 'same-origin'
+                }).then(r => { if (r.redirected) window.location = r.url; }).catch(e => console.error('[GSI] error enviando credential:', e));
+              } catch(e) { console.error('[GSI] callback error:', e); }
+            },
+            auto_select: false
+          });
+          // Mostrar prompt (sin callbacks debug)
+          google.accounts.id.prompt();
+        } catch (e) {
+          console.error('Error inicializando Google Identity:', e);
+        }
+      } else {
+        setTimeout(initGIS, 100);
+      }
+    })();
+  </script>
+  
 
   <script>
     window.rest = new ClienteRest();

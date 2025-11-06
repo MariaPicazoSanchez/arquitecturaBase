@@ -2,7 +2,7 @@ const fs = require("fs");
 const express = require("express");
 const app = express();
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 require('dotenv').config();
 const passport=require("passport");
 // const cookieSession=require("cookie-session");
@@ -99,10 +99,36 @@ app.get("/eliminarUsuario/:nick", function(request, response) {
 
 
 // One Tap: callback
-app.post("/oneTap/callback",
-  passport.authenticate("google-one-tap", { failureRedirect: "/fallo" }),
-  (req, res) => res.redirect("/good")
-);
+// One Tap: callback (mejor manejo con callback para depuración y login explícito)
+app.post('/oneTap/callback', (req, res, next) => {
+  console.log('[oneTap] callback recibido, body:', req.body);
+  passport.authenticate('google-one-tap', (err, user, info) => {
+    if (err) {
+      console.error('[oneTap] error en authenticate:', err);
+      return res.redirect('/fallo');
+    }
+    if (!user) {
+      console.warn('[oneTap] no user returned by strategy, info:', info);
+      return res.redirect('/fallo');
+    }
+    // req.login establece la sesión
+    req.login(user, (loginErr) => {
+      if (loginErr) {
+        console.error('[oneTap] req.login error:', loginErr);
+        return res.redirect('/fallo');
+      }
+      // Guardar cookie 'nick' y redirigir
+      try {
+        const email = user?.emails?.[0]?.value || (user && user.email);
+        if (email) res.cookie('nick', email);
+      } catch (e) {
+        console.warn('[oneTap] no se pudo setear cookie nick:', e.message);
+      }
+      console.log('[oneTap] usuario autenticado, redirigiendo a /good, user:', user && (user.displayName || user.id || user.email));
+      return res.redirect('/good');
+    });
+  })(req, res, next);
+});
 
 
 // Registro de usuario
@@ -170,6 +196,17 @@ app.get("/confirmarUsuario/:email/:key", (req, res) => {
     console.warn("[/confirmarUsuario] timeout alcanzado");
     sendResponse({ email: -1, reason: "timeout" });
   }, 5000);
+});
+
+// Servir configuración cliente (variables de entorno) como JS
+app.get('/config.js', (req, res) => {
+  // Soporta varios nombres de variable en .env para compatibilidad
+  const CLIENT_ID = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '';
+  const LOGIN_URI = process.env.LOGIN_URI || process.env.ONE_TAP_CALLBACK_URL || process.env.ONE_TAP_LOGIN_URI || process.env.GOOGLE_CALLBACK_URL || '';
+  const cfg = { CLIENT_ID, LOGIN_URI };
+  console.log('[config.js] sirviendo configuración al cliente:', cfg);
+  res.type('application/javascript');
+  res.send(`window.APP_CONFIG = ${JSON.stringify(cfg)};`);
 });
 
 app.post('/loginUsuario', function(req, res){
