@@ -1,134 +1,180 @@
+// modelo.js (SERVER / backend)
+const bcrypt = require("bcrypt");
+const correo = require("./email.js");
+const datos = require("./cad.js");
+
 function Sistema() {
-    this.usuarios = {};
-    // const datos=require("./cad.js");
-    // this.cad=new datos.CAD();
-    this.usuariosLocales = {};
-    const datos = require("./cad.js");
-    this.cad = new datos.CAD();
+  this.usuarios = {};
+  this.usuariosLocales = {};
 
-    (async () => {
-        // await this.cad.conectar(function(db){
-        //     console.log("Conectado a Mongo Atlas");
-        await this.cad.conectar(function (db, err) {
-            if (err) {
-                console.warn("Mongo no disponible. Operando en memoria:", err.message);
-            } else {
-                console.log("Conectado a Mongo Atlas");
-            }
-        });
-    })();
+  this.cad = new datos.CAD();
 
-    this.agregarUsuario = function(nick) {
-        let res = { nick: -1 };
-        if (!this.usuarios[nick]) {
-            this.usuarios[nick] = new Usuario(nick);
-            res.nick = nick;
-        } else {
-            console.log("El nick " + nick + " está en uso");
+  (async () => {
+    await this.cad.conectar((db, err) => {
+      if (err) {
+        console.warn("Mongo no disponible. Operando en memoria:", err.message);
+      } else {
+        console.log("Conectado a Mongo Atlas");
+      }
+    });
+  })();
+
+  this.agregarUsuario = function (nick) {
+    let res = { nick: -1 };
+    if (!this.usuarios[nick]) {
+      this.usuarios[nick] = new Usuario(nick);
+      res.nick = nick;
+    } else {
+      console.log("El nick " + nick + " está en uso");
+    }
+    return res;
+  };
+
+  this.obtenerUsuarios = function () {
+    return this.usuarios;
+  };
+
+  this.usuarioActivo = function (nick) {
+    return this.usuarios.hasOwnProperty(nick);
+  };
+
+  this.eliminarUsuario = function (nick) {
+    delete this.usuarios[nick];
+  };
+
+  this.numeroUsuarios = function () {
+    return Object.keys(this.usuarios).length;
+  };
+
+  this.usuarioGoogle = function (usr, callback) {
+    this.cad.buscarOCrearUsuario(usr, function (obj) {
+      callback(obj);
+    });
+  };
+
+  // ===========================
+  // REGISTRO con confirmación
+  // ===========================
+  this.registrarUsuario = function (obj, callback) {
+    console.log("[modelo.registrarUsuario] entrada:", obj);
+    let modelo = this;
+
+    if (!obj || !obj.email || !obj.password) {
+      console.warn("[modelo.registrarUsuario] datos inválidos");
+      callback({ email: -1 });
+      return;
+    }
+
+    if (!obj.nick) obj.nick = obj.email;
+
+    // ¿Existe ya?
+    this.cad.buscarUsuario({ email: obj.email }, function (usr) {
+      console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr);
+      if (usr) {
+        console.warn("[modelo.registrarUsuario] duplicado:", obj.email);
+        callback({ email: -1, reason: "email_ya_registrado" });
+        return;
+      }
+
+      // Genera key y marca como no confirmada
+      const key = Date.now().toString();
+
+      // Hash síncrono (encaja bien con callbacks)
+      const hash = bcrypt.hashSync(obj.password, 10);
+
+      const nuevoUsuario = {
+        email: obj.email,
+        nick: obj.nick,
+        password: hash,        // guardar hash
+        key: key,
+        confirmada: false,
+      };
+
+      modelo.cad.insertarUsuario(nuevoUsuario, function (res) {
+        console.log("[modelo.registrarUsuario] resultado insertarUsuario:", res);
+
+        // Enviar email de confirmación sin bloquear respuesta
+        // (si falla, lo logeamos pero YA hemos registrado)
+        Promise.resolve()
+          .then(() => correo.enviarEmail(obj.email, key, "Confirmar cuenta"))
+          .catch((e) => console.warn("[registrarUsuario] Fallo enviando email:", e.message));
+
+        callback(res);
+      });
+    });
+  };
+
+  // ===========================
+  // CONFIRMAR cuenta
+  // ===========================
+  this.confirmarUsuario = function (obj, callback) {
+    console.log("[modelo.confirmarUsuario] entrada:", obj);
+    let modelo = this;
+    let responded = false;
+    const finish = (result) => {
+      if (!responded) {
+        responded = true;
+        console.log("[modelo.confirmarUsuario] respuesta:", result);
+        callback(result);
+      }
+    };
+
+    // Timeout de seguridad
+    setTimeout(() => finish({ email: -1, reason: "timeout" }), 8000);
+
+    // Busca el usuario con esa combinación y aún sin confirmar
+    this.cad.buscarUsuario(
+      { email: obj.email, key: obj.key, confirmada: false },
+      function (usr) {
+        console.log("[modelo.confirmarUsuario] usuario encontrado:", usr ? { email: usr.email, _id: usr._id } : null);
+        if (!usr) {
+          return finish({ email: -1 });
         }
-        return res;
-    };
 
-
-    this.obtenerUsuarios = function() {
-        return this.usuarios;
-    };
-
-    this.usuarioActivo = function(nick) {
-        return this.usuarios.hasOwnProperty(nick);
-    };
-
-    this.eliminarUsuario = function(nick) {
-        delete this.usuarios[nick];
-    };
-
-    this.numeroUsuarios = function() {
-        return Object.keys(this.usuarios).length;
-    };
-
-    this.usuarioGoogle = function(usr, callback) {
-        this.cad.buscarOCrearUsuario(usr, function(obj) {
-            callback(obj);
+        usr.confirmada = true;
+        // actualizarUsuario requiere _id dentro de usr (lo devuelve buscarUsuario)
+        modelo.cad.actualizarUsuario(usr, function (res) {
+          // Devolvemos {email} como esperaba el tutorial
+          callback(res && res.email ? { email: res.email } : { email: -1 });
         });
-    };
-    // this.registrarUsuario = function(obj, callback){
-    //     let modelo = this;
-    //     if (!obj || !obj.email || !obj.password){
-    //         callback({ email: -1 });
-    //         return;
-    //     }
-    //     if (!obj.nick){ obj.nick = obj.email; }
-    //     this.cad.buscarUsuario({ email: obj.email }, function(usr){
-    //         if (!usr){
-    //         // (sin confirmación aún; si quieres confirmación ver §4)
-    //         modelo.cad.insertarUsuario(obj, function(res){ callback(res); });
-    //         } else {
-    //         callback({ email: -1 });
-    //         }
-    //     });
-    // };
+      }
+    );
+  };
 
-    // this.loginUsuario = function(obj, callback){
-    //     if (!obj || !obj.email || !obj.password){
-    //         callback({ email: -1 });
-    //         return;
-    //     }
-    //     this.cad.buscarUsuario({ email: obj.email /*, confirmada:true si activas confirmación */ }, function(usr){
-    //         if (usr && usr.password == obj.password){
-    //         callback(usr);
-    //         } else {
-    //         callback({ email: -1 });
-    //         }
-    //     });
-    // };
+  // ===========================
+  // LOGIN local (exige confirmada: true)
+  // ===========================
+  this.loginUsuario = function (obj, callback) {
+    console.log("[modelo.loginUsuario] entrada:", obj);
+    if (!obj || !obj.email || !obj.password) {
+      console.warn("[modelo.loginUsuario] datos inválidos");
+      callback({ email: -1 });
+      return;
+    }
 
-    this.registrarUsuario = function(obj, callback){
-        console.log("[modelo.registrarUsuario] entrada:", obj);
-        let modelo = this;
+    this.cad.buscarUsuario({ email: obj.email, confirmada: true }, function (usr) {
+      console.log("[modelo.loginUsuario] resultado buscarUsuario:", usr);
 
-        if (!obj || !obj.email || !obj.password){
-            console.warn("[modelo.registrarUsuario] datos inválidos");
-            callback({ email: -1 });
-            return;
-        }
-        if (!obj.nick){ obj.nick = obj.email; }
+      if (!usr || !usr.password) {
+        console.warn("[modelo.loginUsuario] usuario inexistente o sin password");
+        callback({ email: -1 });
+        return;
+      }
 
-        this.cad.buscarUsuario({ email: obj.email }, function(usr){
-            console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr);
-            if (!usr){
-            modelo.cad.insertarUsuario(obj, function(res){
-                console.log("[modelo.registrarUsuario] resultado insertarUsuario:", res);
-                callback(res);
-            });
-            } else {
-            console.warn("[modelo.registrarUsuario] duplicado:", obj.email);
-            callback({ email: -1 });
-            }
-        });
-        };
-
-    this.loginUsuario = function(obj, callback){
-        console.log("[modelo.loginUsuario] entrada:", obj);
-        if (!obj || !obj.email || !obj.password){
-            console.warn("[modelo.loginUsuario] datos inválidos");
-            callback({ email: -1 });
-            return;
-        }
-        this.cad.buscarUsuario({ email: obj.email }, function(usr){
-            console.log("[modelo.loginUsuario] resultado buscarUsuario:", usr);
-            if (usr && usr.password == obj.password){
-            callback(usr);
-            } else {
-            console.warn("[modelo.loginUsuario] credenciales inválidas");
-            callback({ email: -1 });
-            }
-        });
-    };
-
+      // Comparación con hash
+      const ok = bcrypt.compareSync(obj.password, usr.password);
+      if (ok) {
+        callback(usr);
+      } else {
+        console.warn("[modelo.loginUsuario] credenciales inválidas");
+        callback({ email: -1 });
+      }
+    });
+  };
 }
 
 function Usuario(nick) {
-    this.nick = nick;
+  this.nick = nick;
 }
 
 module.exports.Sistema = Sistema;

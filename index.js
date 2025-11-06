@@ -3,7 +3,6 @@ const express = require("express");
 const app = express();
 
 const PORT = process.env.PORT || 3000;
-
 require('dotenv').config();
 const passport=require("passport");
 // const cookieSession=require("cookie-session");
@@ -55,11 +54,9 @@ app.get("/good", function(req, res) {
   const email = req.user.emails?.[0]?.value;
   if (!email) return res.redirect('/fallo');
 
-  // 1) Deja cookie y redirige YA (cierra la respuesta)
   res.cookie('nick', email);
   res.redirect('/');
 
-  // 2) Inserta en BBDD sin bloquear la respuesta
   process.nextTick(() => {
     sistema.usuarioGoogle({ email }, function(_obj) {
       // opcional: log
@@ -107,32 +104,8 @@ app.post("/oneTap/callback",
   (req, res) => res.redirect("/good")
 );
 
-// Registro y login tradicionales
-// app.post("/registrarUsuario", function(req, res){
-//   // sistema.registrarUsuario(req.body, function(out){
-//   //   if (out && out.email && out.email !== -1){
-//   //     res.status(201).send({ nick: out.email });
-//   //   } else {
-//   //     res.status(409).send({ nick: -1 });
-//   //   }
-//   // });
-//   try {
-//     sistema.registrarUsuario(req.body, function(out){
-//       if (out && out.email && out.email !== -1){
-//         res.status(201).json({ nick: out.email });
-//       } else if (out && out.motivo === "duplicado"){
-//         res.status(409).json({ nick: -1 });
-//       } else if (out && out.motivo === "datos-invalidos"){
-//         res.status(400).json({ nick: -1 });
-//       } else {
-//         res.status(500).json({ nick: -1 });
-//       }
-//     });
-//   } catch (err) {
-//     console.error("Error inesperado registrando usuario:", err);
-//     res.status(500).json({ nick: -1 });
-//   }
-// });
+
+// Registro de usuario
 app.post("/registrarUsuario", function(req, res){
   console.log("[/registrarUsuario] body recibido:", req.body);
   const t0 = Date.now();
@@ -150,7 +123,6 @@ app.post("/registrarUsuario", function(req, res){
       if (out && out.email && out.email !== -1){
         return send(201, { nick: out.email });
       } else {
-        // Nuestro modelo actual solo devuelve {email} o {email:-1}
         return send(409, { nick: -1 });
       }
     });
@@ -168,6 +140,37 @@ app.post("/registrarUsuario", function(req, res){
   }
 });
 
+app.get("/confirmarUsuario/:email/:key", (req, res) => {
+  const { email, key } = req.params;
+  let responded = false;
+
+  // Función para enviar una única respuesta
+  const sendResponse = (usr) => {
+    if (responded) return;
+    responded = true;
+
+    if (usr && usr.email && usr.email !== -1) {
+      console.log("[/confirmarUsuario] confirmación exitosa para:", usr.email);
+      req.session.user = { email: usr.email };
+      res.cookie('nick', usr.email);
+    } else {
+      console.log("[/confirmarUsuario] confirmación fallida:", usr);
+    }
+    res.redirect('/');
+  };
+
+  // Procesar la confirmación
+  sistema.confirmarUsuario({ email, key }, (usr) => {
+    console.log("[/confirmarUsuario] resultado confirmarUsuario:", usr);
+    sendResponse(usr);
+  });
+
+  // Timeout de seguridad
+  setTimeout(() => {
+    console.warn("[/confirmarUsuario] timeout alcanzado");
+    sendResponse({ email: -1, reason: "timeout" });
+  }, 5000);
+});
 
 app.post('/loginUsuario', function(req, res){
   sistema.loginUsuario(req.body, function(out){
@@ -204,7 +207,4 @@ app.post('/loginUsuario', function(req, res){
 app.listen(PORT, () => {
     console.log(`Servidor escuchando en puerto ${PORT}`);
 });
-
-
-
 

@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { MongoClient } = require("mongodb");
+const { MongoClient, ObjectId } = require("mongodb");
 
 function CAD() {
   this.client = null;
@@ -60,6 +60,13 @@ function CAD() {
   this.insertarUsuario = (usuario, cb) => {
     insertar(this.usuarios, usuario, cb);
   };
+
+  this.actualizarUsuario = function (obj, callback) {
+    actualizar(this.usuarios, obj, callback);
+  };
+
+  
+
 }
 
 module.exports.CAD = CAD;
@@ -135,4 +142,38 @@ function insertar(col, elem, cb) {
         cb({ email: -1 });
       }
     });
+}
+
+function actualizar(coleccion, obj, callback) {
+  console.log("[cad.actualizar] entrada:", { email: obj.email, _id: obj._id });
+  if (!coleccion || !obj || !obj._id) {
+    console.error("[cad.actualizar] faltan datos");
+    callback({ email: -1 });
+    return;
+  }
+  
+  coleccion.findOneAndUpdate(
+    { _id: new ObjectId(obj._id) },
+    { $set: obj },
+    {
+      upsert: false,
+      returnDocument: "after",
+      projection: { email: 1, confirmada: 1 },
+      maxTimeMS: 5000,
+    }
+  ).then(result => {
+    console.log("[cad.actualizar] resultado completo:", result);
+    // En versiones recientes de MongoDB, el documento está en result sin .value
+    const doc = result?.value || result;
+    if (doc?.email) {
+      console.log("[cad.actualizar] Elemento actualizado:", { email: doc.email });
+      callback({ email: doc.email });
+    } else {
+      console.warn("[cad.actualizar] Actualización sin resultado esperado");
+      callback({ email: -1 });
+    }
+  }).catch(err => {
+    console.error("[cad.actualizar] error:", err.message);
+    callback({ email: -1 });
+  });
 }
