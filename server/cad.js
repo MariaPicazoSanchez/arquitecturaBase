@@ -26,10 +26,13 @@ function CAD() {
 
     try {
       this.client = new MongoClient(uri, {
-        // evita cuelgues largos
-        serverSelectionTimeoutMS: 5000, // elegir servidor rápido
-        socketTimeoutMS: 10000,         // cortar operaciones largas
+        serverSelectionTimeoutMS: 15000, // aumentado para cloud
+        socketTimeoutMS: 30000,          // aumentado para cloud
         maxPoolSize: 10,
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        retryWrites: true,
+        w: "majority"
       });
 
       await this.client.connect();
@@ -42,7 +45,12 @@ function CAD() {
       console.log("[cad.conectar] Conectado a Mongo. Colección: sistema.usuarios");
       if (typeof callback === "function") callback(this.db);
     } catch (err) {
-      console.error("[cad.conectar] Error conectando a Mongo. MODO MEMORIA:", err.message);
+      console.error("[cad.conectar] Error conectando a Mongo:", {
+        message: err.message,
+        code: err.code,
+        name: err.name,
+        stack: err.stack
+      });
       this.usuarios = undefined;
       if (typeof callback === "function") callback(undefined, err);
     }
