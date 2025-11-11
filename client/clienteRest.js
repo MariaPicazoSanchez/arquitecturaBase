@@ -91,7 +91,22 @@ function ClienteRest() {
     }
 
     this.salidaDeUsuario = function() {
-        cw.salir();
+        // Llamada al servidor para destruir la sesión en servidor
+        $.ajax({
+            url: '/salir',
+            method: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                try { $.removeCookie('nick'); } catch(e) {}
+                // recargar para reflejar estado desconectado
+                window.location.reload();
+            },
+            error: function() {
+                // Fallback: limpiar localmente
+                try { $.removeCookie('nick'); } catch(e) {}
+                window.location.reload();
+            }
+        });
     }
 
     // this.registrarUsuario = function(email, password){

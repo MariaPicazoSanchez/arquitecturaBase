@@ -18,11 +18,18 @@ app.use(express.static(__dirname + "/client"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const IN_PROD = process.env.NODE_ENV === 'production';
 app.use(session({
-  secret: process.env.SESSION_SECRET,
+  secret: process.env.SESSION_SECRET || 'dev-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false } // true en producción con HTTPS
+  cookie: {
+    // Cloud Run y HTTPS: secure=true en producción
+    secure: IN_PROD,
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000 // 1 día
+  }
 }));
 
 // app.use(cookieSession({ 
@@ -33,6 +40,27 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
+// Función `haIniciado` mejorada: acepta request.user (Passport),
+// request.session.user (si usas login manual) o req.isAuthenticated().
+const haIniciado = function(request, response, next){
+  try{
+    const isAuth = (typeof request.isAuthenticated === 'function' && request.isAuthenticated())
+                    || !!request.user
+                    || !!(request.session && request.session.user);
+
+    if (isAuth){
+      return next();
+    }
+  }catch(e){
+    console.warn('[haIniciado] error comprobando auth:', e && e.message);
+  }
+
+  // Log para diagnóstico (mismo formato que el anterior ensureAuthenticated)
+  console.warn('[haIniciado] acceso no autorizado:', { path: request.path, method: request.method, ip: request.ip });
+
+  // Si no hay usuario, redirigimos al cliente (/) como indica el ejemplo
+  return response.redirect('/');
+};
 
 // --------------------
 // Rutas
@@ -69,32 +97,62 @@ app.get("/fallo", function(req, res) {
   res.send({ nick: "nook" });
 });
 
-app.get("/agregarUsuario/:nick", function(request, response) {
-    let nick = request.params.nick;
-    let res = sistema.agregarUsuario(nick);
-    response.send(res);
+app.get("/agregarUsuario/:nick", haIniciado, function(request, response) {
+  let nick = request.params.nick;
+  let res = sistema.agregarUsuario(nick);
+  response.send(res);
 });
 
-app.get("/obtenerUsuarios", function(request, response) {
-    let res = sistema.obtenerUsuarios();
-    response.send(res);
+app.get("/obtenerUsuarios", haIniciado, function(request, response) {
+  let res = sistema.obtenerUsuarios();
+  response.send(res);
 });
 
-app.get("/usuarioActivo/:nick", function(request, response) {
-    let nick = request.params.nick;
-    let res = { activo: sistema.usuarioActivo(nick) };
-    response.send(res);
+app.get("/usuarioActivo/:nick", haIniciado, function(request, response) {
+  let nick = request.params.nick;
+  let res = { activo: sistema.usuarioActivo(nick) };
+  response.send(res);
 });
 
-app.get("/numeroUsuarios", function(request, response) {
-    let res = { num: sistema.numeroUsuarios() };
-    response.send(res);
+app.get("/numeroUsuarios", haIniciado, function(request, response) {
+  let res = { num: sistema.numeroUsuarios() };
+  response.send(res);
 });
 
-app.get("/eliminarUsuario/:nick", function(request, response) {
-    let nick = request.params.nick;
-    sistema.eliminarUsuario(nick);
-    response.send({ eliminado: nick });
+app.get("/eliminarUsuario/:nick", haIniciado, function(request, response) {
+  let nick = request.params.nick;
+  sistema.eliminarUsuario(nick);
+  response.send({ eliminado: nick });
+});
+
+// Ruta para cerrar sesión (borra sesión en servidor y cookie en cliente)
+app.get('/salir', function(req, res){
+  console.log('[/salir] petición de cierre de sesión, user?', !!req.user);
+  try{
+    // Passport: intenta logout si está disponible
+    if (typeof req.logout === 'function'){
+      // En algunas versiones puede requerir callback
+      try { req.logout(); } catch(e) { console.warn('[/salir] req.logout fallo:', e && e.message); }
+    }
+  }catch(e){ console.warn('[/salir] error al llamar logout:', e && e.message); }
+
+  // Destruir la sesión
+  if (req.session){
+    req.session.destroy(function(err){
+      if (err) console.warn('[/salir] error destruyendo sesión:', err && err.message);
+      // Borrar cookie de sesión y cookie 'nick'
+      res.clearCookie('nick');
+      // Responder según tipo de petición
+      const acceptsJson = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') !== -1);
+      if (acceptsJson) return res.json({ ok: true });
+      return res.redirect('/');
+    });
+  } else {
+    res.clearCookie('nick');
+    const acceptsJson = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') !== -1);
+    if (acceptsJson) return res.json({ ok: true });
+    return res.redirect('/');
+  }
 });
 
 
@@ -129,6 +187,8 @@ app.post('/oneTap/callback', (req, res, next) => {
     });
   })(req, res, next);
 });
+
+
 
 
 // Registro de usuario

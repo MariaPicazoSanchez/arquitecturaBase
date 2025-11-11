@@ -75,9 +75,9 @@ function ControlWeb() {
         $("#au").append(cadena);
         if(nick){
             cw.mostrarMensaje("Hasta pronto, " + nick);
-            $.removeCookie("nick");
         }
-        location.reload();
+        // Llamamos al servidor para destruir la sesión y luego limpiamos en cliente
+        rest.salidaDeUsuario();
     };
 
     this.mostrarSalir=function(){
