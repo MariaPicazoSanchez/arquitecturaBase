@@ -5,7 +5,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 require('dotenv').config();
 const passport=require("passport");
-// const cookieSession=require("cookie-session");
 const session = require('express-session');
 
 require("./server/passport-setup.js");
@@ -32,16 +31,8 @@ app.use(session({
   }
 }));
 
-// app.use(cookieSession({ 
-//     name: 'Sistema',
-//     keys: ['key1', 'key2']
-// }));
-
-
 app.use(passport.initialize());
 app.use(passport.session());
-// Función `haIniciado` mejorada: acepta request.user (Passport),
-// request.session.user (si usas login manual) o req.isAuthenticated().
 const haIniciado = function(request, response, next){
   try{
     const isAuth = (typeof request.isAuthenticated === 'function' && request.isAuthenticated())
@@ -55,10 +46,7 @@ const haIniciado = function(request, response, next){
     console.warn('[haIniciado] error comprobando auth:', e && e.message);
   }
 
-  // Log para diagnóstico (mismo formato que el anterior ensureAuthenticated)
-  console.warn('[haIniciado] acceso no autorizado:', { path: request.path, method: request.method, ip: request.ip });
 
-  // Si no hay usuario, redirigimos al cliente (/) como indica el ejemplo
   return response.redirect('/');
 };
 
@@ -127,7 +115,6 @@ app.get("/eliminarUsuario/:nick", haIniciado, function(request, response) {
 
 // Ruta para cerrar sesión (borra sesión en servidor y cookie en cliente)
 app.get('/salir', function(req, res){
-  console.log('[/salir] petición de cierre de sesión, user?', !!req.user);
   try{
     // Passport: intenta logout si está disponible
     if (typeof req.logout === 'function'){
@@ -157,22 +144,17 @@ app.get('/salir', function(req, res){
 
 
 // One Tap: callback
-// One Tap: callback (mejor manejo con callback para depuración y login explícito)
 app.post('/oneTap/callback', (req, res, next) => {
-  console.log('[oneTap] callback recibido, body:', req.body);
   passport.authenticate('google-one-tap', (err, user, info) => {
     if (err) {
-      console.error('[oneTap] error en authenticate:', err);
       return res.redirect('/fallo');
     }
     if (!user) {
-      console.warn('[oneTap] no user returned by strategy, info:', info);
       return res.redirect('/fallo');
     }
     // req.login establece la sesión
     req.login(user, (loginErr) => {
       if (loginErr) {
-        console.error('[oneTap] req.login error:', loginErr);
         return res.redirect('/fallo');
       }
       // Guardar cookie 'nick' y redirigir
@@ -182,7 +164,6 @@ app.post('/oneTap/callback', (req, res, next) => {
       } catch (e) {
         console.warn('[oneTap] no se pudo setear cookie nick:', e.message);
       }
-      console.log('[oneTap] usuario autenticado, redirigiendo a /good, user:', user && (user.displayName || user.id || user.email));
       return res.redirect('/good');
     });
   })(req, res, next);
@@ -264,7 +245,6 @@ app.get('/config.js', (req, res) => {
   const CLIENT_ID = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '';
   const LOGIN_URI = process.env.LOGIN_URI || process.env.ONE_TAP_CALLBACK_URL || process.env.ONE_TAP_LOGIN_URI || process.env.GOOGLE_CALLBACK_URL || '';
   const cfg = { CLIENT_ID, LOGIN_URI };
-  console.log('[config.js] sirviendo configuración al cliente:', cfg);
   res.type('application/javascript');
   res.send(`window.APP_CONFIG = ${JSON.stringify(cfg)};`);
 });
@@ -279,27 +259,6 @@ app.post('/loginUsuario', function(req, res){
     }
   });
 });
-// const LocalStrategy = require('passport-local').Strategy;
-
-// passport.use(new LocalStrategy(
-//   { usernameField: "email", passwordField: "password" },
-//   function(email, password, done){
-//     sistema.loginUsuario({ email, password }, function(user){
-//       // user será {email: -1} si falla
-//       return done(null, user && user.email != -1 ? user : false);
-//     });
-//   }
-// ));
-
-// app.post('/loginUsuario',
-//   passport.authenticate("local", { failureRedirect: "/fallo", successRedirect: "/ok" })
-// );
-
-// app.get("/ok", function(req, res){
-//   res.send({ nick: req.user.email });
-// });
-
-
 
 app.listen(PORT, () => {
     console.log(`Servidor escuchando en puerto ${PORT}`);

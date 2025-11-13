@@ -109,36 +109,6 @@ function ClienteRest() {
         });
     }
 
-    // this.registrarUsuario = function(email, password){
-    //     console.log("Iniciando registro para:", email);
-    //     $.ajax({
-    //         type: 'POST',
-    //         url: '/registrarUsuario',
-    //         data: JSON.stringify({"email":email,"password":password}),
-    //         // contentType: 'application/json',
-    //         success: function(data){
-    //             console.log("Registro exitoso para:", data.nick);
-    //             if (data.nick && data.nick !== -1){
-    //                 cw.limpiar();
-    //                 cw.mostrarAviso("Registro completado. Ahora puedes iniciar sesión.", "success");
-    //                 cw.mostrarLogin({ email, keepMessage: true });
-    //             } else {
-    //                 console.log("Registro fallido, email duplicado:", email);
-    //                 cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
-    //             }
-    //         },
-    //        error: function(xhr){
-    //             console.log("Error en el registro:", xhr);
-    //             if (xhr && xhr.status === 409){
-    //                 cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
-    //             } else {
-    //                 cw.mostrarAviso("Se ha producido un error al registrar el usuario.", "error");
-    //             }
-    //         },
-    //         contentType: 'application/json'
-    //     });
-    // };
-
     this.registrarUsuario = function(email, password){
   console.log("[cliente] Iniciando registro para:", email);
   $.ajax({
@@ -146,7 +116,7 @@ function ClienteRest() {
     url: '/registrarUsuario',
     data: JSON.stringify({ email: email, password: password }),
     contentType: 'application/json',
-    dataType: 'json', // <- importante para parsear la respuesta
+    dataType: 'json',
 
     success: function(data, status, xhr){
       console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
