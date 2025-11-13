@@ -39,6 +39,7 @@ function ControlWeb() {
         let nick=$.cookie("nick");
         if (nick){
             cw.mostrarMensaje("Bienvenido al sistema, "+nick, "success");
+            // cw.mostrarSalir();
         }else{
             cw.mostrarRegistro();
         }
@@ -75,6 +76,7 @@ function ControlWeb() {
         if(nick){
             cw.mostrarMensaje("Hasta pronto, " + nick);
         }
+        // Llamamos al servidor para destruir la sesión y luego limpiamos en cliente
         rest.salidaDeUsuario();
     };
 
@@ -105,7 +107,8 @@ function ControlWeb() {
     this.mostrarLogin = function(options){
         let opts = options || {};
         $("#fmLogin").remove();
-        
+        // $("#msg").empty();
+        // $("#registro").load("./login.html", function(){
         if (!opts.keepMessage){
             $("#msg").empty();
         }

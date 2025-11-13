@@ -56,9 +56,11 @@ function Sistema() {
   // REGISTRO con confirmación
   // ===========================
   this.registrarUsuario = function (obj, callback) {
+    console.log("[modelo.registrarUsuario] entrada:", obj);
     let modelo = this;
 
     if (!obj || !obj.email || !obj.password) {
+      console.warn("[modelo.registrarUsuario] datos inválidos");
       callback({ email: -1 });
       return;
     }
@@ -67,7 +69,9 @@ function Sistema() {
 
     // ¿Existe ya?
     this.cad.buscarUsuario({ email: obj.email }, function (usr) {
+      console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr);
       if (usr) {
+        console.warn("[modelo.registrarUsuario] duplicado:", obj.email);
         callback({ email: -1, reason: "email_ya_registrado" });
         return;
       }
@@ -81,7 +85,7 @@ function Sistema() {
       const nuevoUsuario = {
         email: obj.email,
         nick: obj.nick,
-        password: hash,
+        password: hash,        // guardar hash
         key: key,
         confirmada: false,
       };
@@ -104,11 +108,13 @@ function Sistema() {
   // CONFIRMAR cuenta
   // ===========================
   this.confirmarUsuario = function (obj, callback) {
+    console.log("[modelo.confirmarUsuario] entrada:", obj);
     let modelo = this;
     let responded = false;
     const finish = (result) => {
       if (!responded) {
         responded = true;
+        console.log("[modelo.confirmarUsuario] respuesta:", result);
         callback(result);
       }
     };
@@ -120,6 +126,7 @@ function Sistema() {
     this.cad.buscarUsuario(
       { email: obj.email, key: obj.key, confirmada: false },
       function (usr) {
+        console.log("[modelo.confirmarUsuario] usuario encontrado:", usr ? { email: usr.email, _id: usr._id } : null);
         if (!usr) {
           return finish({ email: -1 });
         }
@@ -138,14 +145,18 @@ function Sistema() {
   // LOGIN local (exige confirmada: true)
   // ===========================
   this.loginUsuario = function (obj, callback) {
+    console.log("[modelo.loginUsuario] entrada:", obj);
     if (!obj || !obj.email || !obj.password) {
+      console.warn("[modelo.loginUsuario] datos inválidos");
       callback({ email: -1 });
       return;
     }
 
     this.cad.buscarUsuario({ email: obj.email, confirmada: true }, function (usr) {
+      console.log("[modelo.loginUsuario] resultado buscarUsuario:", usr);
 
       if (!usr || !usr.password) {
+        console.warn("[modelo.loginUsuario] usuario inexistente o sin password");
         callback({ email: -1 });
         return;
       }
@@ -155,6 +166,7 @@ function Sistema() {
       if (ok) {
         callback(usr);
       } else {
+        console.warn("[modelo.loginUsuario] credenciales inválidas");
         callback({ email: -1 });
       }
     });
