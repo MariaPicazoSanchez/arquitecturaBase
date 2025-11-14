@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Gestión de Usuarios</title>
+  <!-- <title>Ignition</title> -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28'/%3E%3Ctext x='32' y='38' font-size='28' text-anchor='middle' fill='white'%3EA%3C/text%3E%3C/svg%3E">
@@ -10,6 +10,8 @@
 
   <!-- Bootstrap -->
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+  <!-- Tema Ignition -->
+  <link rel="stylesheet" href="css/ignition.css">
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
@@ -33,29 +35,52 @@
   <script src="./controlWeb.js"></script>
 </head>
 <body>
-  <nav class="navbar navbar-expand-sm bg-dark navbar-dark">
-    <!-- Brand/logo -->
-    <a class="navbar-brand" href="#">Usuario</a>
+  <nav class="navbar navbar-expand-sm navbar-dark">
+    <div class="container-fluid">
+      <!-- Brand/logo -->
+      <a class="navbar-brand" href="#">
+        <img src="./img/New_Logo.png" class="ignition-logo" alt="Ignition logo">
+        <span class="ignition-brand">Ignition</span>
+      </a>
+
+      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navCollapse" aria-controls="navCollapse" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"><span class="bar"></span><span class="bar"></span><span class="bar"></span></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navCollapse">
 
     <!-- Links -->
+    <!--
     <ul class="navbar-nav">
-        <li class="nav-item">
-            <a class="nav-link" href="#" id="menuAgregarUsuario">AgregarUsuario</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" id="menuListarUsuarios">Listar Usuarios</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" id="">Link 3</a>
-        </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" id="menuAgregarUsuario">AgregarUsuario</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" id="menuListarUsuarios">Listar Usuarios</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" id="">Link 3</a>
+      </li>
     </ul>
+    -->
+        <ul class="navbar-nav ml-auto">
+          <li class="nav-item mr-2">
+            <a class="nav-link nav-link-pill" href="#" id="menuHelp">Ayuda</a>
+          </li>
+          <li class="nav-item">
+            <button type="button" class="btn btn-ignition" id="menuIniciarSesion">Iniciar sesión</button>
+          </li>
+        </ul>
+      </div>
+    </div>
   </nav>
 
 
-  <div class="container mt-4">
-      <h1 class="mb-3">Gestión de Usuarios</h1>
-      <div id="au"></div>
-  </div>
+  <!-- <div class="container mt-4"> -->
+      <!-- <h1 class="mb-3">Ignition</h1> -->
+      <!-- <div id="au"></div> -->
+  <!-- </div> -->
+   <div class="espacio" style="margin-top: 4em;"></div>
   <!-- One Tap: configuración -->
   <script src="/config.js"></script>
   <script>
@@ -115,6 +140,10 @@
         
         $('#menuListarUsuarios').click(function() {
             cw.mostrarListaUsuarios();
+        });
+
+        $('#menuIniciarSesion').click(function() {
+          cw.mostrarLogin();
         });
 
     });

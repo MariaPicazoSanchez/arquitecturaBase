@@ -1,7 +1,7 @@
 {
-  "name": "arquitecturabase",
+  "name": "ignition",
   "version": "1.0.0",
-  "description": "",
+  "description": "Ignition: interfaz con tema llamativo y colores neon.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

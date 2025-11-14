@@ -1,0 +1,155 @@
+:root{
+  /* Paleta: Sunset */
+  --bg-gradient-1: #1b0f08; /* deep near-black warm base for contrast */
+  --bg-gradient-2: #2b0b00; /* deep burnt orange tone */
+  --accent-1: #FF6B35; /* principal (anaranjado) */
+  --accent-2: #FFB86B; /* secundario (melocotón) */
+  --accent-3: #6B2DFF; /* acento púrpura */
+  --accent-4: #00D4FF; /* cyan para highlights opcionales */
+  --card-bg: rgba(255,255,255,0.03);
+  --glass: rgba(255,255,255,0.04);
+  --muted: rgba(255,255,255,0.85);
+}
+
+/* Page background */
+body{
+  background: linear-gradient(135deg,var(--bg-gradient-1) 0%, var(--bg-gradient-2) 100%);
+  color: white;
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  min-height:100vh;
+}
+
+/* Bright brand */
+.ignition-brand{
+  color: var(--accent-2);
+  text-shadow: 0 4px 24px rgba(0,212,255,0.12), 0 0 8px rgba(255,0,122,0.06);
+  font-weight:700;
+}
+
+/* Navbar style */
+.navbar{
+  background: linear-gradient(90deg, rgba(255,255,255,0.03), rgba(0,0,0,0.18));
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  backdrop-filter: blur(6px);
+  padding: .45rem 1rem;
+}
+.navbar .navbar-brand{
+  color: var(--accent-1) !important;
+  font-weight: 800;
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+}
+.ignition-logo{
+  width:56px; height:56px; display:inline-block; margin-right:12px; overflow:hidden; border-radius:8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4), 0 2px 6px rgba(255,0,122,0.06) inset;
+}
+.ignition-logo img{ width:100%; height:100%; object-fit:contain; display:block; }
+
+@media (max-width: 576px) {
+  .ignition-logo{ width:40px; height:40px; margin-right:8px; }
+  .ignition-brand{ font-size:1rem; }
+  .btn-ignition{ padding: .3rem .65rem; }
+}
+.navbar .nav-link{ color: var(--accent-2) !important; }
+
+/* Containers / cards */
+.container, .card{
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border-radius: 12px;
+  padding: 18px;
+}
+
+/* Headings */
+h1,h2,h3{ color: white; }
+
+/* Buttons with neon effect */
+.btn-primary{
+  /* Form primary: purple -> orange gradient tuned for Sunset palette */
+  background: linear-gradient(90deg, var(--accent-3) 0%, var(--accent-1) 100%);
+  color: #fff;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 10px;
+  padding: .5rem 1rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 2px 8px rgba(107,45,255,0.08) inset;
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+}
+.btn-primary:hover{ transform: translateY(-3px); box-shadow: 0 18px 40px rgba(0,0,0,0.6), 0 4px 14px rgba(255,107,53,0.12); filter:brightness(1.03); }
+.btn-outline-primary{
+  color: var(--accent-1);
+  border-color: rgba(255,107,53,0.22);
+  background: transparent;
+  border-radius: 10px;
+  padding: .4rem .8rem;
+  transition: background .12s ease, transform .08s ease;
+}
+.btn-outline-primary:hover{ background: rgba(255,107,53,0.06); transform: translateY(-2px); }
+
+/* Form controls */
+.form-control{
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.12);
+  color: var(--muted);
+}
+.form-control::placeholder{ color: rgba(255,255,255,0.4); }
+
+/* Small glowing accent */
+.accent-glow{ text-shadow: 0 4px 18px rgba(0,212,255,0.08); }
+
+/* Footer / small text */
+small, .text-muted{ color: rgba(255,255,255,0.6); }
+
+/* Utility to highlight brand inside fragments */
+.ignition-title{ display:block; text-align:center; margin-bottom:12px; font-weight:800;
+  /* Gradient text using Sunset tones */
+  background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+
+/* Botón Ignition para navbar */
+.btn-ignition{
+  background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
+  color: #fff;
+  border-radius: 24px;
+  padding: .35rem .85rem;
+  border: none;
+  box-shadow: 0 6px 18px rgba(0,212,255,0.12), 0 2px 8px rgba(255,0,122,0.08) inset;
+  font-weight:600;
+  transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+}
+.btn-ignition:hover{ transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0,212,255,0.16); opacity:0.98; }
+.navbar .btn-ignition{ margin-right: 8px; }
+
+/* Navbar link pills */
+.navbar .nav-item .nav-link-pill{
+  background: transparent;
+  color: var(--accent-2) !important;
+  border-radius: 20px;
+  padding: .35rem .65rem;
+  transition: background .12s ease, transform .08s ease;
+}
+.navbar .nav-item .nav-link-pill:hover{ background: rgba(0,212,255,0.06); transform: translateY(-2px); }
+
+/* Toggler custom */
+.navbar-toggler{ border: none; }
+.navbar-toggler-icon{ background-image: none; }
+.navbar-toggler .bar{ display:block; width:20px; height:2px; margin:4px 0; background: linear-gradient(90deg,var(--accent-1),var(--accent-2)); }
+
+/* Estilos para el botón de Google en login */
+.btn-google{
+  background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.03));
+  color: var(--muted);
+  border: 1px solid rgba(255,255,255,0.06);
+  padding: .35rem .6rem;
+  border-radius: 8px;
+  gap: .5rem;
+  text-decoration: none;
+}
+.btn-google img.google-icon{ height:18px; width:18px; object-fit:cover; border-radius:3px; margin-right:8px; }
+.btn-google span{ font-weight:700; color:var(--accent-1); }
+.btn-google:hover{ background: rgba(255,255,255,0.05); transform: translateY(-2px); }
+
+/* Ajuste para que el formulario muestre acciones agrupadas */
+.form-group.d-flex .btn{ margin: 6px 4px; }

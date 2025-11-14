@@ -40,18 +40,26 @@ function ControlWeb() {
         if (nick){
             cw.mostrarMensaje("Bienvenido al sistema, "+nick, "success");
         }else{
+            cw._setNavToLogin();
             cw.mostrarRegistro();
         }
     };
 
     this.mostrarMensaje=function(msg, tipo="info"){
+        // show message in main area
         $("#au").empty();
         let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
-        let cadena='<div class="alert '+alertClass+' alert-dismissible fade show" role="alert">';        cadena+=msg;
-        cadena+='</div>';
-        $("#au").append(cadena);
+        let $alert = $('<div class="alert '+alertClass+' alert-dismissible fade show" role="alert"></div>');
+        $alert.text(msg);
+        $("#au").append($alert);
+
+        // If success (logged in), put the logout button in the navbar and auto-hide the message after 10s
         if (tipo === "success"){
-            cw.mostrarSalir();
+            cw._setNavToLogout();
+            // hide after 10 seconds
+            setTimeout(function(){
+                $alert.fadeOut(400, function(){ $(this).remove(); });
+            }, 10000);
         }
     };
 
@@ -78,12 +86,41 @@ function ControlWeb() {
         rest.salidaDeUsuario();
     };
 
-    this.mostrarSalir=function(){
-        let cadena='<button id="btnSalir" type="button" class="btn btn-danger mt-2">Salir</button>';
-        $("#au").append(cadena);
-        $("#btnSalir").on("click", function() {
-            cw.salir();
-        });
+    // Replace the navbar 'Iniciar sesión' control with a 'Salir' button
+    this._setNavToLogout = function(){
+        // Try to find the login button
+        let $login = $("#menuIniciarSesion");
+        if ($login.length){
+            // replace with logout button
+            let $btn = $("<button id='btnSalirNav' class='btn btn-outline-light btn-sm'>Salir</button>");
+            $login.replaceWith($btn);
+            $btn.on('click', function(){ cw.salir(); });
+        } else {
+            // fallback: if there is a nav item placeholder, append
+            let $nav = $(".navbar-nav.ml-auto");
+            if ($nav.length && $nav.find('#btnSalirNav').length===0){
+                $nav.append("<li class='nav-item'><button id='btnSalirNav' class='btn btn-outline-light btn-sm'>Salir</button></li>");
+                $("#btnSalirNav").on('click', function(){ cw.salir(); });
+            }
+        }
+    };
+
+    // Restore the navbar 'Iniciar sesión' button
+    this._setNavToLogin = function(){
+        let $salir = $("#btnSalirNav");
+        if ($salir.length){
+            // replace with original login button
+            let $btn = $("<button type='button' class='btn btn-ignition' id='menuIniciarSesion'>Iniciar sesión</button>");
+            $salir.replaceWith($btn);
+            $btn.on('click', function(){ cw.mostrarLogin(); });
+        } else {
+            // ensure there is a login button in nav
+            let $nav = $(".navbar-nav.ml-auto");
+            if ($nav.length && $nav.find('#menuIniciarSesion').length===0){
+                $nav.append("<li class='nav-item'><button type='button' class='btn btn-ignition' id='menuIniciarSesion'>Iniciar sesión</button></li>");
+                $("#menuIniciarSesion").on('click', function(){ cw.mostrarLogin(); });
+            }
+        }
     };
 
     this.mostrarRegistro = function(){
@@ -120,6 +157,8 @@ function ControlWeb() {
                 rest.loginUsuario(email, pwd);
             }
             });
+            // ensure navbar shows the login control when login form is visible
+            cw._setNavToLogin();
         });
     };
 
