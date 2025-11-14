@@ -39,7 +39,6 @@ function CAD() {
       this.db = this.client.db("sistema");
       this.usuarios = this.db.collection("usuarios");
 
-      // Índice único por email (idempotente)
       await this.usuarios.createIndex({ email: 1 }, { unique: true });
 
       console.log("[cad.conectar] Conectado a Mongo. Colección: sistema.usuarios");
@@ -56,7 +55,6 @@ function CAD() {
     }
   };
 
-  // ---------- API PÚBLICA ----------
   this.buscarOCrearUsuario = (usr, cb) => {
     buscarOCrear(this.usuarios, usr, cb);
   };
@@ -79,15 +77,12 @@ function CAD() {
 
 module.exports.CAD = CAD;
 
-// ---------- Helpers internos (con límites de tiempo) ----------
 
 function buscarOCrear(coleccion, criterio, callback) {
   if (!coleccion) {
-    // modo memoria: devolvemos “como si”
     callback({ email: criterio.email });
     return;
   }
-  // límite de tiempo del lado servidor
   coleccion.findOneAndUpdate(
     criterio,
     { $set: criterio },
@@ -116,7 +111,6 @@ function buscar(col, criterio, cb) {
     cb(undefined);
     return;
   }
-  // findOne es suficiente, y le añadimos maxTimeMS
   col.findOne(criterio, { maxTimeMS: 4000, projection: { _id: 1, email: 1, password: 1 } })
     .then((doc) => {
       console.log("[cad.buscar] resultado:", doc ? { _id: doc._id, email: doc.email } : undefined);
@@ -171,7 +165,6 @@ function actualizar(coleccion, obj, callback) {
     }
   ).then(result => {
     console.log("[cad.actualizar] resultado completo:", result);
-    // En versiones recientes de MongoDB, el documento está en result sin .value
     const doc = result?.value || result;
     if (doc?.email) {
       console.log("[cad.actualizar] Elemento actualizado:", { email: doc.email });

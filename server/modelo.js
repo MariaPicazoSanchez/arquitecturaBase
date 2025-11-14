@@ -1,4 +1,3 @@
-// modelo.js (SERVER / backend)
 const bcrypt = require("bcrypt");
 const correo = require("./email.js");
 const datos = require("./cad.js");
@@ -67,7 +66,6 @@ function Sistema() {
 
     if (!obj.nick) obj.nick = obj.email;
 
-    // ¿Existe ya?
     this.cad.buscarUsuario({ email: obj.email }, function (usr) {
       console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr);
       if (usr) {
@@ -76,16 +74,14 @@ function Sistema() {
         return;
       }
 
-      // Genera key y marca como no confirmada
       const key = Date.now().toString();
 
-      // Hash síncrono (encaja bien con callbacks)
       const hash = bcrypt.hashSync(obj.password, 10);
 
       const nuevoUsuario = {
         email: obj.email,
         nick: obj.nick,
-        password: hash,        // guardar hash
+        password: hash,
         key: key,
         confirmada: false,
       };
@@ -93,8 +89,6 @@ function Sistema() {
       modelo.cad.insertarUsuario(nuevoUsuario, function (res) {
         console.log("[modelo.registrarUsuario] resultado insertarUsuario:", res);
 
-        // Enviar email de confirmación sin bloquear respuesta
-        // (si falla, lo logeamos pero YA hemos registrado)
         Promise.resolve()
           .then(() => correo.enviarEmail(obj.email, key, "Confirmar cuenta"))
           .catch((e) => console.warn("[registrarUsuario] Fallo enviando email:", e.message));
@@ -119,10 +113,8 @@ function Sistema() {
       }
     };
 
-    // Timeout de seguridad
     setTimeout(() => finish({ email: -1, reason: "timeout" }), 8000);
 
-    // Busca el usuario con esa combinación y aún sin confirmar
     this.cad.buscarUsuario(
       { email: obj.email, key: obj.key, confirmada: false },
       function (usr) {
@@ -132,9 +124,7 @@ function Sistema() {
         }
 
         usr.confirmada = true;
-        // actualizarUsuario requiere _id dentro de usr (lo devuelve buscarUsuario)
         modelo.cad.actualizarUsuario(usr, function (res) {
-          // Devolvemos {email} como esperaba el tutorial
           callback(res && res.email ? { email: res.email } : { email: -1 });
         });
       }

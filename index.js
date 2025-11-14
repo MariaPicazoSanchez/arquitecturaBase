@@ -20,14 +20,13 @@ app.use(express.urlencoded({ extended: true }));
 
 const IN_PROD = process.env.NODE_ENV === 'production';
 if (IN_PROD){
-  app.set('trust proxy', 1); // confiar en el primer proxy (Cloud Run
+  app.set('trust proxy', 1);
 }
 app.get('/test-session', (req, res) => {
   if (!req.session.views) req.session.views = 0;
   req.session.views++;
   res.send(`Views: ${req.session.views}`);
 });
-
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret',
@@ -42,16 +41,9 @@ app.use(session({
   }
 }));
 
-// app.use(cookieSession({ 
-//     name: 'Sistema',
-//     keys: ['key1', 'key2']
-// }));
-
 
 app.use(passport.initialize());
 app.use(passport.session());
-// Función `haIniciado` mejorada: acepta request.user (Passport),
-// request.session.user (si usas login manual) o req.isAuthenticated().
 const haIniciado = function(request, response, next){
   try{
     const isAuth = (typeof request.isAuthenticated === 'function' && request.isAuthenticated())
@@ -65,7 +57,6 @@ const haIniciado = function(request, response, next){
     console.warn('[haIniciado] error comprobando auth:', e && e.message);
   }
 
-  // Log para diagnóstico (mismo formato que el anterior ensureAuthenticated)
   console.warn('[haIniciado] acceso no autorizado:', { path: request.path, method: request.method, ip: request.ip });
 
   // Si no hay usuario, redirigimos al cliente (/) como indica el ejemplo
@@ -98,7 +89,6 @@ app.get("/good", function(req, res) {
 
   process.nextTick(() => {
     sistema.usuarioGoogle({ email }, function(_obj) {
-      // opcional: log
       console.log("Usuario guardado/actualizado en Mongo:", email);
     });
   });
@@ -136,7 +126,6 @@ app.get("/eliminarUsuario/:nick", haIniciado, function(request, response) {
   response.send({ eliminado: nick });
 });
 
-// Ruta para cerrar sesión (borra sesión en servidor y cookie en cliente)
 app.get('/salir', function(req, res){
   console.log('[/salir] petición de cierre de sesión, user?', !!req.user);
   try{
@@ -168,7 +157,6 @@ app.get('/salir', function(req, res){
 
 
 // One Tap: callback
-// One Tap: callback (mejor manejo con callback para depuración y login explícito)
 app.post('/oneTap/callback', (req, res, next) => {
   console.log('[oneTap] callback recibido, body:', req.body);
   passport.authenticate('google-one-tap', (err, user, info) => {
