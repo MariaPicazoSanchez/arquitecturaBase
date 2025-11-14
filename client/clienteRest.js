@@ -119,7 +119,7 @@ function ClienteRest() {
       console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
       if (data.nick && data.nick !== -1){
         cw.limpiar();
-        cw.mostrarAviso("Registro completado. Ahora puedes iniciar sesión.", "success");
+        cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
         cw.mostrarLogin({ email, keepMessage: true });
       } else {
         console.log("[cliente] Registro fallido (duplicado?):", email);
