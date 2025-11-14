@@ -77,7 +77,7 @@ app.get('/google/callback',
 });
 
 app.get("/good", function(req, res) {
-  conosle.warn("[/good] usuario autenticado:", req.user && (req.user.displayName || req.user.id || req.user.email));
+  console.warn("[/good] usuario autenticado:", req.user && (req.user.displayName || req.user.id || req.user.email));
   if (!req.user) return res.redirect('/fallo');
 
   const email = req.user.emails?.[0]?.value;
