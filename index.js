@@ -343,6 +343,28 @@ app.post('/loginUsuario', function(req, res){
 
 
 
+// At startup, list a few client files to help diagnose missing static assets in production
+try {
+  const clientDir = path.join(__dirname, 'client');
+  const walkSync = (dir, filelist = []) => {
+    const files = fs.readdirSync(dir);
+    files.forEach((file) => {
+      const full = path.join(dir, file);
+      const stat = fs.statSync(full);
+      if (stat && stat.isDirectory()) {
+        walkSync(full, filelist);
+      } else {
+        filelist.push(path.relative(path.join(__dirname, 'client'), full));
+      }
+    });
+    return filelist;
+  };
+  const files = walkSync(clientDir);
+  console.log('[startup] archivos en client/ (muestra hasta 50):', files.slice(0,50));
+} catch (e) {
+  console.warn('[startup] no se pudo listar client/:', e && e.message);
+}
+
 app.listen(PORT, () => {
     console.log(`Servidor escuchando en puerto ${PORT}`);
 });
