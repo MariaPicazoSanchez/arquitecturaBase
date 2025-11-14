@@ -20,6 +20,8 @@
 
   <!-- SDK de Google Identity -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+
   <div id="onetap-status" style="font:12px/1.2 sans-serif; color:#666; margin-top:8px;"></div>
 
 
@@ -71,7 +73,6 @@
       // Evitar inicializar/mostrar prompt más de una vez
       if (window._oneTapInitialized) return;
       window._oneTapInitialized = true;
-      // SDK se carga asíncronamente, comprobamos su disponibilidad
       if (window.google && google.accounts && google.accounts.id) {
         try {
           google.accounts.id.initialize({
@@ -90,7 +91,6 @@
             },
             auto_select: false
           });
-          // Mostrar prompt (sin callbacks debug)
           google.accounts.id.prompt();
         } catch (e) {
           console.error('Error inicializando Google Identity:', e);

@@ -1,4 +1,3 @@
-// modelo.js (SERVER / backend)
 const bcrypt = require("bcrypt");
 const correo = require("./email.js");
 const datos = require("./cad.js");
@@ -56,26 +55,27 @@ function Sistema() {
   // REGISTRO con confirmación
   // ===========================
   this.registrarUsuario = function (obj, callback) {
+    console.log("[modelo.registrarUsuario] entrada:", obj);
     let modelo = this;
 
     if (!obj || !obj.email || !obj.password) {
+      console.warn("[modelo.registrarUsuario] datos inválidos");
       callback({ email: -1 });
       return;
     }
 
     if (!obj.nick) obj.nick = obj.email;
 
-    // ¿Existe ya?
     this.cad.buscarUsuario({ email: obj.email }, function (usr) {
+      console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr);
       if (usr) {
+        console.warn("[modelo.registrarUsuario] duplicado:", obj.email);
         callback({ email: -1, reason: "email_ya_registrado" });
         return;
       }
 
-      // Genera key y marca como no confirmada
       const key = Date.now().toString();
 
-      // Hash síncrono (encaja bien con callbacks)
       const hash = bcrypt.hashSync(obj.password, 10);
 
       const nuevoUsuario = {
@@ -89,8 +89,6 @@ function Sistema() {
       modelo.cad.insertarUsuario(nuevoUsuario, function (res) {
         console.log("[modelo.registrarUsuario] resultado insertarUsuario:", res);
 
-        // Enviar email de confirmación sin bloquear respuesta
-        // (si falla, lo logeamos pero YA hemos registrado)
         Promise.resolve()
           .then(() => correo.enviarEmail(obj.email, key, "Confirmar cuenta"))
           .catch((e) => console.warn("[registrarUsuario] Fallo enviando email:", e.message));
@@ -104,30 +102,29 @@ function Sistema() {
   // CONFIRMAR cuenta
   // ===========================
   this.confirmarUsuario = function (obj, callback) {
+    console.log("[modelo.confirmarUsuario] entrada:", obj);
     let modelo = this;
     let responded = false;
     const finish = (result) => {
       if (!responded) {
         responded = true;
+        console.log("[modelo.confirmarUsuario] respuesta:", result);
         callback(result);
       }
     };
 
-    // Timeout de seguridad
     setTimeout(() => finish({ email: -1, reason: "timeout" }), 8000);
 
-    // Busca el usuario con esa combinación y aún sin confirmar
     this.cad.buscarUsuario(
       { email: obj.email, key: obj.key, confirmada: false },
       function (usr) {
+        console.log("[modelo.confirmarUsuario] usuario encontrado:", usr ? { email: usr.email, _id: usr._id } : null);
         if (!usr) {
           return finish({ email: -1 });
         }
 
         usr.confirmada = true;
-        // actualizarUsuario requiere _id dentro de usr (lo devuelve buscarUsuario)
         modelo.cad.actualizarUsuario(usr, function (res) {
-          // Devolvemos {email} como esperaba el tutorial
           callback(res && res.email ? { email: res.email } : { email: -1 });
         });
       }
@@ -138,14 +135,18 @@ function Sistema() {
   // LOGIN local (exige confirmada: true)
   // ===========================
   this.loginUsuario = function (obj, callback) {
+    console.log("[modelo.loginUsuario] entrada:", obj);
     if (!obj || !obj.email || !obj.password) {
+      console.warn("[modelo.loginUsuario] datos inválidos");
       callback({ email: -1 });
       return;
     }
 
     this.cad.buscarUsuario({ email: obj.email, confirmada: true }, function (usr) {
+      console.log("[modelo.loginUsuario] resultado buscarUsuario:", usr);
 
       if (!usr || !usr.password) {
+        console.warn("[modelo.loginUsuario] usuario inexistente o sin password");
         callback({ email: -1 });
         return;
       }
@@ -155,6 +156,7 @@ function Sistema() {
       if (ok) {
         callback(usr);
       } else {
+        console.warn("[modelo.loginUsuario] credenciales inválidas");
         callback({ email: -1 });
       }
     });

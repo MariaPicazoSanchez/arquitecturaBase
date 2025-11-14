@@ -105,7 +105,6 @@ function ControlWeb() {
     this.mostrarLogin = function(options){
         let opts = options || {};
         $("#fmLogin").remove();
-        
         if (!opts.keepMessage){
             $("#msg").empty();
         }

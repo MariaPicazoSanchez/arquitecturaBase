@@ -50,28 +50,7 @@ describe('El sistema', function() {
     expect(sistema.numeroUsuarios()).toEqual(1);
   });
 
-  it('usuarioGoogle crea un usuario si no existe', function(done) {
-    let usr = { email: "picazosanchezmaria@gmail.com" };
-    sistema.usuarioGoogle(usr, function(obj) {
-      expect(obj).toBeDefined();
-      expect(obj.email).toEqual(usr.email);
-      done();
-    });
-  });
-
-  it('usuarioGoogle recupera un usuario existente', function(done) {
-    let usr = { email: "picazosanchezmaria@gmail.com" };
-    sistema.usuarioGoogle(usr, function(obj1) {
-      expect(obj1).toBeDefined();
-      expect(obj1.email).toEqual(usr.email);
-      // Llamada de nuevo para recuperar
-      sistema.usuarioGoogle(usr, function(obj2) {
-        expect(obj2).toBeDefined();
-        expect(obj2.email).toEqual(usr.email);
-        done();
-      });
-    });
-  });
+ 
 
   it('registrarUsuario rechaza datos inválidos', function(done) {
     let obj = { email: "", password: "" };

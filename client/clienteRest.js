@@ -70,13 +70,11 @@ function ClienteRest() {
 
     this.numeroUsuarios = function() {
         $.getJSON("/numeroUsuarios", function(data) {
-            // Número de usuarios disponible en data.num si se necesita
         });
     }
 
     this.usuarioActivo = function(nick) {
         $.getJSON("/usuarioActivo/" + nick, function(data) {
-            // Estado del usuario disponible en data.activo si se necesita
         });
     }
 
@@ -98,16 +96,15 @@ function ClienteRest() {
             dataType: 'json',
             success: function(data) {
                 try { $.removeCookie('nick'); } catch(e) {}
-                // recargar para reflejar estado desconectado
                 window.location.reload();
             },
             error: function() {
-                // Fallback: limpiar localmente
                 try { $.removeCookie('nick'); } catch(e) {}
                 window.location.reload();
             }
         });
     }
+
 
     this.registrarUsuario = function(email, password){
   console.log("[cliente] Iniciando registro para:", email);
@@ -117,7 +114,7 @@ function ClienteRest() {
     data: JSON.stringify({ email: email, password: password }),
     contentType: 'application/json',
     dataType: 'json',
-
+    
     success: function(data, status, xhr){
       console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
       if (data.nick && data.nick !== -1){
