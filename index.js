@@ -19,6 +19,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const IN_PROD = process.env.NODE_ENV === 'production';
+if (IN_PROD){
+  app.set('trust proxy', 1); // confiar en el primer proxy (Cloud Run
+}
+app.get('/test-session', (req, res) => {
+  if (!req.session.views) req.session.views = 0;
+  req.session.views++;
+  res.send(`Views: ${req.session.views}`);
+});
+
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret',
   resave: false,
