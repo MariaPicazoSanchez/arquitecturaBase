@@ -1,4 +1,18 @@
 function ControlWeb() {
+    // Hide main content container when all child areas are empty
+    this._updateMainVisibility = function(){
+        // Consider whitespace-only as empty
+        const a = $.trim($("#au").html());
+        const r = $.trim($("#registro").html());
+        const m = $.trim($("#msg").html());
+        const empty = (!a && !r && !m);
+        if (empty){
+            $("#mainContent").hide();
+        } else {
+            $("#mainContent").show();
+        }
+    };
+
     this.mostrarAgregarUsuario=function(){
         $('#bnv').remove();
         $('#mAU').remove();
@@ -52,13 +66,14 @@ function ControlWeb() {
         let $alert = $('<div class="alert '+alertClass+' alert-dismissible fade show" role="alert"></div>');
         $alert.text(msg);
         $("#au").append($alert);
+        cw._updateMainVisibility();
 
         // If success (logged in), put the logout button in the navbar and auto-hide the message after 10s
         if (tipo === "success"){
             cw._setNavToLogout();
             // hide after 10 seconds
             setTimeout(function(){
-                $alert.fadeOut(400, function(){ $(this).remove(); });
+                $alert.fadeOut(400, function(){ $(this).remove(); cw._updateMainVisibility(); });
             }, 10000);
         }
     };
@@ -67,10 +82,12 @@ function ControlWeb() {
         let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
         let cadena='<div class="alert '+alertClass+'" role="alert">'+msg+'</div>';
         $("#msg").html(cadena);
+        cw._updateMainVisibility();
     };
 
     this.limpiar=function(){
         $("#registro").empty();
+        cw._updateMainVisibility();
     };
 
     this.salir = function(){
@@ -80,6 +97,7 @@ function ControlWeb() {
         cadena+='</div>';
         $("#au").empty();
         $("#au").append(cadena);
+        cw._updateMainVisibility();
         if(nick){
             cw.mostrarMensaje("Hasta pronto, " + nick);
         }
@@ -137,6 +155,9 @@ function ControlWeb() {
                 }
             });
 
+            // ensure main content visible after loading
+            cw._updateMainVisibility();
+
         });
     };
     this.mostrarLogin = function(options){
@@ -159,6 +180,8 @@ function ControlWeb() {
             });
             // ensure navbar shows the login control when login form is visible
             cw._setNavToLogin();
+            // ensure main content visible after loading
+            cw._updateMainVisibility();
         });
     };
 

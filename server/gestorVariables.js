@@ -1,8 +1,9 @@
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const client = new SecretManagerServiceClient();
+const projectId = process.env.GOOGLE_CLOUD_PROJECT;
 
 async function accessCLAVECORREO() {
-  const name = 'projects/1066426825741/secrets/CLAVECORREO/versions/latest';
+  const name = `projects/${projectId}/secrets/CLAVECORREO/versions/latest`;
 
   const [version] = await client.accessSecretVersion({ name: name });
   const datos = version.payload.data.toString("utf8");
@@ -10,15 +11,23 @@ async function accessCLAVECORREO() {
 }
 
 async function accessCORREOCUENTA() {
-  const name = 'projects/1066426825741/secrets/CORREOCUENTA/versions/latest';
+  const name = `projects/${projectId}/secrets/CORREOCUENTA/versions/latest`;
 
   const [version] = await client.accessSecretVersion({ name: name });
   const datos = version.payload.data.toString("utf8");
   return datos;
 }
 
+async function accessMONGOURI() {
+  const name = `projects/${projectId}/secrets/MONGOURI/versions/latest`;
+
+  const [version] = await client.accessSecretVersion({ name });
+  const uri = version.payload.data.toString("utf8");
+  return uri;
+}
+
 module.exports.obtenerOptions = async function (callback) {
-  let options = { user: "", pass: "" };
+  let options = { user: "", pass: "", mongoURI: "" };
 
   // Lee los dos secretos
   let user = await accessCORREOCUENTA();
@@ -32,4 +41,14 @@ module.exports.obtenerOptions = async function (callback) {
   // console.log("[gestorVariables] pass leída (NO la imprimas en producción)");
 
   callback(options);
+};
+
+module.exports.obtenerMongoUri = async function () {
+  // Desarrollo local
+  if (process.env.MONGO_URI) {
+    return process.env.MONGO_URI;
+  }
+
+  // Producción
+  return await accessMONGOURI();
 };

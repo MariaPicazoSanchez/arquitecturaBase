@@ -1,5 +1,6 @@
 require("dotenv").config();
 const { MongoClient, ObjectId } = require("mongodb");
+const gv = require("./gestorVariables.js");
 
 function CAD() {
   this.client = null;
@@ -8,7 +9,7 @@ function CAD() {
 
   // ---------- CONEXIÓN ÚNICA, CON TIMEOUTS ----------
   this.conectar = async (callback) => {
-    const uri = process.env.MONGO_URI;
+    const uri = await gv.obtenerMongoUri();
     console.log("[cad.conectar] MONGO_URI presente:", !!uri);
 
     if (!uri) {
