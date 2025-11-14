@@ -104,6 +104,7 @@ small, .text-muted{ color: rgba(255,255,255,0.6); }
   /* Gradient text using Sunset tones */
   background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   text-shadow: 0 6px 18px rgba(0,0,0,0.45);
 }

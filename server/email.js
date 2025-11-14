@@ -1,31 +1,31 @@
 const nodemailer = require('nodemailer');
-// const gv = require('./gestorVariables.js');
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.MAIL_FROM,
-    pass: process.env.MAIL_PASS
-  }
-});
-
-
-// let options = {
-//   user: "",
-//   pass: ""
-// };
-
-// let transporter;
-
-// gv.obtenerOptions(function (res) {
-//   options = res;
-
-//   transporter = nodemailer.createTransport({
-//     service: 'gmail',
-//     auth: options
-//   });
-
-//   console.log("[email] Transporter inicializado con correo de:", options.user);
+const gv = require('./gestorVariables.js');
+// const transporter = nodemailer.createTransport({
+//   service: 'gmail',
+//   auth: {
+//     user: process.env.MAIL_FROM,
+//     pass: process.env.MAIL_PASS
+//   }
 // });
+
+
+let options = {
+  user: "",
+  pass: ""
+};
+
+let transporter;
+
+gv.obtenerOptions(function (res) {
+  options = res;
+
+  transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: options
+  });
+
+  console.log("[email] Transporter inicializado con correo de:", options.user);
+});
 
 
 module.exports.enviarEmail=async function(direccion, key,men) {
