@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require('path');
 const express = require("express");
 const app = express();
 
@@ -12,8 +13,26 @@ require("./server/passport-setup.js");
 const modelo = require("./server/modelo.js");
 let sistema = new modelo.Sistema();
 
-// Configurar Express
-app.use(express.static(__dirname + "/client"));
+// Diagnostic middleware for static assets (helps debug production 503/404)
+app.use(function(req, res, next){
+  // only log requests for likely static assets
+  if (req.path.match(/^\/(css|img|clienteRest\.js|controlWeb\.js|config\.js|favicon\.ico)/)){
+    const fpath = path.join(__dirname, 'client', req.path.replace(/^\//, ''));
+    fs.access(fpath, fs.constants.R_OK, function(err){
+      if (err){
+        console.warn('[static-diagnostic] asset requested but not accessible:', { url: req.url, fsPath: fpath, err: err.message });
+        // continue to static middleware so behavior is unchanged; but also attach flag for later
+        req._staticMissing = true;
+      }
+      next();
+    });
+    return;
+  }
+  next();
+});
+
+// Configurar Express: servir archivos estáticos desde /client
+app.use(express.static(path.join(__dirname, 'client')));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
