@@ -206,6 +206,30 @@ app.post('/oneTap/callback', (req, res, next) => {
   })(req, res, next);
 });
 
+// Diagnostic endpoint: listar archivos estáticos desplegados (útil en producción)
+app.get('/assets-debug', (req, res) => {
+  const dir = path.join(__dirname, 'client');
+  const walk = (dirPath) => {
+    let results = [];
+    try {
+      const list = fs.readdirSync(dirPath);
+      list.forEach(function(file) {
+        const full = path.join(dirPath, file);
+        const stat = fs.statSync(full);
+        if (stat && stat.isDirectory()) {
+          results = results.concat(walk(full));
+        } else {
+          results.push(path.relative(path.join(__dirname, 'client'), full));
+        }
+      });
+    } catch (e) {
+      return ['ERROR: ' + (e.message || e)];
+    }
+    return results;
+  };
+  res.json({ files: walk(dir) });
+});
+
 
 
 
