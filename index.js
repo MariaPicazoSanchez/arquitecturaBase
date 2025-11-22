@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require('path');
 const express = require("express");
 const app = express();
+const http = require('http');
+const httpServer = http.Server(app);
+const { Server } = require("socket.io");
+
 
 const PORT = process.env.PORT || 3000;
 require('dotenv').config();
@@ -12,6 +16,14 @@ const session = require('express-session');
 require("./server/passport-setup.js");
 const modelo = require("./server/modelo.js");
 let sistema = new modelo.Sistema();
+// Socket.io server
+const moduloWS = require("./server/servidorWS.js");
+
+// Enlazamos Socket.IO al httpServer
+let io = new Server(httpServer);
+let ws = new moduloWS.ServidorWS();
+
+
 
 // Diagnostic middleware for static assets (helps debug production 503/404)
 app.use(function(req, res, next){
@@ -365,7 +377,16 @@ try {
   console.warn('[startup] no se pudo listar client/:', e && e.message);
 }
 
-app.listen(PORT, () => {
-    console.log(`Servidor escuchando en puerto ${PORT}`);
+// app.listen(PORT, () => {
+//     console.log(`Servidor escuchando en puerto ${PORT}`);
+// });
+
+httpServer.listen(PORT, () => {
+  console.log(`App está escuchando en el puerto ${PORT}`);
+  console.log("Ctrl+C para salir");
+
+  // Aquí arrancas la capa de WebSockets, pasando io y sistema
 });
+ws.lanzarServidor(io, sistema);
+
 

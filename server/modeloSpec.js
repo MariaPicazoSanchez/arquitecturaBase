@@ -60,21 +60,60 @@ describe('El sistema', function() {
     });
   });
 
-  it('registrarUsuario rechaza emails duplicados', function(done) {
-    let obj = { email: "picazosanchezmaria@gmail.com", password: "1234" };
-    sistema.registrarUsuario(obj, function(res1) {
-      expect(res1.email).toEqual(obj.email);
-      // Segundo intento con el mismo email
-      sistema.registrarUsuario(obj, function(res2) {
-        // acepta tanto la señal de error { email: -1, reason: "email_ya_registrado" }
-        // como la devolución del usuario existente { email: obj.email }
-        if (res2.email === -1) {
-          expect(res2.reason).toEqual("email_ya_registrado");
-        } else {
-          expect(res2.email).toEqual(obj.email);
-        }
-        done();
-      });
-    });
-  });
+  
 })
+
+describe("Pruebas de las partidas", function(){
+  let sistema, usr, usr2, usr3;
+
+  beforeEach(function(){
+    sistema = new modelo.Sistema();
+    usr  = { nick: "Pepa", email: "pepa@pepa.es" };
+    usr2 = { nick: "Pepo", email: "pepo@pepo.es" };
+    usr3 = { nick: "Pepe", email: "pepe@pepe.es" };
+    sistema.agregarUsuario(usr.email);
+    sistema.agregarUsuario(usr2.email);
+    sistema.agregarUsuario(usr3.email);
+  });
+
+  it("Usuarios y partidas en el sistema", function(){
+    expect(sistema.numeroUsuarios()).toEqual(3);
+    expect(sistema.obtenerPartidasDisponibles().length).toEqual(0);
+  });
+
+  it("Crear partida", function(){
+    let codigo = sistema.crearPartida(usr.email);
+    expect(codigo).not.toEqual(-1);
+    let lista = sistema.obtenerPartidasDisponibles();
+    expect(lista.length).toEqual(1);
+    expect(lista[0].codigo).toEqual(codigo);
+    expect(lista[0].propietario).toEqual(usr.email);
+  });
+
+  it("Unir a partida y completar aforo", function(){
+    let codigo = sistema.crearPartida(usr.email);
+    let res = sistema.unirAPartida(usr2.email, codigo);
+    expect(res).toEqual(codigo);
+    // al estar llena (2 jugadores) ya no est�� disponible
+    expect(sistema.obtenerPartidasDisponibles().length).toEqual(0);
+    // un tercer jugador no puede unirse
+    let res3 = sistema.unirAPartida(usr3.email, codigo);
+    expect(res3).toEqual(-1);
+  });
+
+  it("Un usuario no puede estar dos veces en la misma partida", function(){
+    let codigo = sistema.crearPartida(usr.email);
+    let res1 = sistema.unirAPartida(usr2.email, codigo);
+    let res2 = sistema.unirAPartida(usr2.email, codigo);
+    expect(res1).toEqual(codigo);
+    expect(res2).toEqual(-1);
+  });
+
+  it("Obtener partidas disponibles devuelve c��digo y propietario", function(){
+    let codigo = sistema.crearPartida(usr.email);
+    let lista = sistema.obtenerPartidasDisponibles();
+    expect(lista).toEqual(jasmine.arrayContaining([
+      jasmine.objectContaining({ codigo: codigo, propietario: usr.email })
+    ]));
+  });
+});

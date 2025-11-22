@@ -1,7 +1,5 @@
 function ControlWeb() {
-    // Hide main content container when all child areas are empty
     this._updateMainVisibility = function(){
-        // Consider whitespace-only as empty
         const a = $.trim($("#au").html());
         const r = $.trim($("#registro").html());
         const m = $.trim($("#msg").html());
@@ -52,7 +50,20 @@ function ControlWeb() {
     this.comprobarSesion=function(){
         let nick=$.cookie("nick");
         if (nick){
-            cw.mostrarMensaje("Bienvenido al sistema, "+nick, "success");
+            cw.email = nick;
+            if (window.ws){
+                ws.email = nick;
+                if (ws.pedirListaPartidas){
+                    ws.pedirListaPartidas();
+                }
+            }
+            cw.mostrarPartidas();
+            if (!sessionStorage.getItem("bienvenidaMostrada")){
+                sessionStorage.setItem("bienvenidaMostrada","1");
+                cw.mostrarMensaje("Bienvenido al sistema, "+nick, "success");
+            } else {
+                cw._setNavToLogout();
+            }
         }else{
             cw._setNavToLogin();
             cw.mostrarRegistro();
@@ -60,7 +71,6 @@ function ControlWeb() {
     };
 
     this.mostrarMensaje=function(msg, tipo="info"){
-        // show message in main area
         $("#au").empty();
         let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
         let $alert = $('<div class="alert '+alertClass+' alert-dismissible fade show" role="alert"></div>');
@@ -68,10 +78,8 @@ function ControlWeb() {
         $("#au").append($alert);
         cw._updateMainVisibility();
 
-        // If success (logged in), put the logout button in the navbar and auto-hide the message after 10s
         if (tipo === "success"){
             cw._setNavToLogout();
-            // hide after 10 seconds
             setTimeout(function(){
                 $alert.fadeOut(400, function(){ $(this).remove(); cw._updateMainVisibility(); });
             }, 10000);
@@ -101,20 +109,17 @@ function ControlWeb() {
         if(nick){
             cw.mostrarMensaje("Hasta pronto, " + nick);
         }
+        try { sessionStorage.removeItem("bienvenidaMostrada"); } catch(e){}
         rest.salidaDeUsuario();
     };
 
-    // Replace the navbar 'Iniciar sesión' control with a 'Salir' button
     this._setNavToLogout = function(){
-        // Try to find the login button
         let $login = $("#menuIniciarSesion");
         if ($login.length){
-            // replace with logout button
             let $btn = $("<button id='btnSalirNav' class='btn btn-outline-light btn-sm'>Salir</button>");
             $login.replaceWith($btn);
             $btn.on('click', function(){ cw.salir(); });
         } else {
-            // fallback: if there is a nav item placeholder, append
             let $nav = $(".navbar-nav.ml-auto");
             if ($nav.length && $nav.find('#btnSalirNav').length===0){
                 $nav.append("<li class='nav-item'><button id='btnSalirNav' class='btn btn-outline-light btn-sm'>Salir</button></li>");
@@ -123,16 +128,13 @@ function ControlWeb() {
         }
     };
 
-    // Restore the navbar 'Iniciar sesión' button
     this._setNavToLogin = function(){
         let $salir = $("#btnSalirNav");
         if ($salir.length){
-            // replace with original login button
             let $btn = $("<button type='button' class='btn btn-ignition' id='menuIniciarSesion'>Iniciar sesión</button>");
             $salir.replaceWith($btn);
             $btn.on('click', function(){ cw.mostrarLogin(); });
         } else {
-            // ensure there is a login button in nav
             let $nav = $(".navbar-nav.ml-auto");
             if ($nav.length && $nav.find('#menuIniciarSesion').length===0){
                 $nav.append("<li class='nav-item'><button type='button' class='btn btn-ignition' id='menuIniciarSesion'>Iniciar sesión</button></li>");
@@ -150,9 +152,21 @@ function ControlWeb() {
                 let email = $("#email").val();
                 let pwd   = $("#pwd").val();
                 console.log("[UI] Click Registrar:", { email, tienePwd: !!pwd });
-                if (email && pwd){
-                    rest.registrarUsuario(email, pwd);
+                let errores = [];
+                if (!email)     errores.push("el email");
+                if (!nombre)    errores.push("el nombre");
+                if (!apellidos) errores.push("los apellidos");
+                if (!pwd)       errores.push("la contraseña");
+
+                if (errores.length > 0) {
+                    let msg = "faltan por rellenar: " + errores.join(", ") + ".";
+                    if (cw.mostrarMensajeLogin) {
+                        cw.mostrarMensajeLogin(msg);
+                    }
+                    cw.mostrarModal("No se ha podido registrar el usuario porque " + msg);
+                    return;
                 }
+                rest.registrarUsuario(email, pwd);
             });
 
             // ensure main content visible after loading
@@ -183,6 +197,86 @@ function ControlWeb() {
             // ensure main content visible after loading
             cw._updateMainVisibility();
         });
+    };
+
+    this.mostrarModal = function (m) {
+        console.log("[Modal] mensaje recibido:", m);
+
+        // 1. vaciar el cuerpo del modal
+        $('#mBody').empty();
+
+        // 2. meter el texto
+        $('#mBody').text(m || "");
+
+        // 3. mostrar el modal
+        $('#miModal').modal('show');
+    };
+
+    // Mostrar la zona de partidas (cuando el usuario ya está logueado)
+    this.mostrarPartidas = function(){
+        // ocultar cosas de login/registro/mensajes
+        $("#registro").empty();
+        $("#au").empty();
+        $("#msg").empty();
+
+        // mostrar el panel de partidas
+        $("#panel-partidas").show();
+
+        if (window.ws && ws.pedirListaPartidas){
+            ws.pedirListaPartidas();
+        }
+        // si ya teníamos una lista recibida antes de mostrar el panel, pintarla
+        if (window._ultimaListaPartidas){
+            cw.pintarPartidas(window._ultimaListaPartidas);
+        }
+
+        cw._updateMainVisibility();  // actualiza visibilidad de mainContent
+    };
+
+    // Pintar la tabla de partidas disponibles (abiertas)
+    // lista: [{ codigo, propietario }]
+    this.pintarPartidas = function(lista){
+        try { window._ultimaListaPartidas = lista; } catch(e){}
+        const $tbody = $("#tbody-partidas");
+        $tbody.empty();
+
+        if (!lista || lista.length === 0){
+            $tbody.append(`
+              <tr>
+                <td colspan="2" class="text-muted">No hay partidas en el sistema.</td>
+              </tr>
+            `);
+            return;
+        }
+
+                (lista || []).forEach(function(p){
+                        const me = ($.cookie("nick") || cw.email || "").toLowerCase();
+                        const esPropia = (p.propietario && p.propietario.toLowerCase() === me);
+                        // El botón solo está habilitado si la partida no está completa
+                        const partidaCompleta = (typeof p.jugadores === 'number' && typeof p.maxJug === 'number') ? (p.jugadores >= p.maxJug) : false;
+                        const puedeUnirse = !partidaCompleta;
+                        const acciones = esPropia
+                            ? `<button class="btn btn-outline-danger btn-sm btn-eliminar" data-codigo="${p.codigo}">Borrar</button>`
+                            : `<button class="btn btn-secondary btn-sm btn-unirse" data-codigo="${p.codigo}" ${puedeUnirse ? "" : "disabled"}>${puedeUnirse ? "Unirse" : "Completa"}</button>`;
+
+                        const fila = `
+                            <tr>
+                                <td>
+                                    <div class="d-flex flex-column">
+                                        <div>
+                                            <span class="badge badge-dark align-middle">${p.codigo}</span>
+                                            <button class="btn btn-outline-secondary btn-sm ml-2 btn-copiar-codigo" data-codigo="${p.codigo}" title="Copiar codigo">Copiar</button>
+                                        </div>
+                                        <small class="text-muted mt-1">Propietario: ${p.propietario || 'desconocido'} ${esPropia ? '<span class="badge badge-success ml-1">Propia</span>' : ''} · ${(p.jugadores||0)}/${p.maxJug||2} jugadores</small>
+                                    </div>
+                                </td>
+                                <td class="text-right align-middle">
+                                    ${acciones}
+                                </td>
+                            </tr>
+                        `;
+                        $tbody.append(fila);
+                });
     };
 
 

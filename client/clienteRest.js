@@ -7,6 +7,12 @@ function ClienteRest() {
                 msg="Bienvenido al sistema, "+nick;
                 $.cookie("nick",nick);
                 cw.mostrarMensaje(msg, "success");
+                if (window.ws) {
+                    ws.email = data.email;
+                }
+                if (window.cw && cw.mostrarPartidas) {
+                    cw.mostrarPartidas();
+                }
             } else {
                 cw.mostrarMensaje(msg, "error");
             }
@@ -107,40 +113,45 @@ function ClienteRest() {
 
 
     this.registrarUsuario = function(email, password){
-  console.log("[cliente] Iniciando registro para:", email);
-  $.ajax({
-    type: 'POST',
-    url: '/registrarUsuario',
-    data: JSON.stringify({ email: email, password: password }),
-    contentType: 'application/json',
-    dataType: 'json',
-    
-    success: function(data, status, xhr){
-      console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
-      if (data.nick && data.nick !== -1){
-        cw.limpiar();
-        cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
-        cw.mostrarLogin({ email, keepMessage: true });
-      } else {
-        console.log("[cliente] Registro fallido (duplicado?):", email);
-        cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
-      }
-    },
-    error: function(xhr){
-      console.log("[cliente] ERROR status:", xhr.status, "resp:", xhr.responseText);
-      if (xhr && xhr.status === 409){
-        cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
-      } else if (xhr && xhr.status === 504){
-        cw.mostrarAviso("Timeout del servidor registrando usuario.", "error");
-      } else {
-        cw.mostrarAviso("Se ha producido un error al registrar el usuario.", "error");
-      }
-    },
-    complete: function(xhr, textStatus){
-      console.log("[cliente] COMPLETE:", textStatus, "status:", xhr.status);
-    }
-  });
-};
+        console.log("[cliente] Iniciando registro para:", email);
+        $.ajax({
+            type: 'POST',
+            url: '/registrarUsuario',
+            data: JSON.stringify({ email: email, password: password }),
+            contentType: 'application/json',
+            dataType: 'json',
+            
+            success: function(data, status, xhr){
+                console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
+                if (data.nick && data.nick !== -1){
+                    cw.limpiar();
+                    cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
+                    cw.mostrarLogin({ email, keepMessage: true });
+                } else {
+                    console.log("[cliente] Registro fallido (duplicado?):", email);
+                    cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
+                    cw.mostrarModal("No se ha podido registrar el usuario");
+                }
+            },
+            error: function(xhr){
+                console.log("[cliente] ERROR status:", xhr.status, "resp:", xhr.responseText);
+                if (xhr && xhr.status === 409){
+                    cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
+                    cw.mostrarMensajeLogin("Hay un usuario registrado con ese email");
+                    cw.mostrarModal("No se ha podido registrar el usuario");
+                } else if (xhr && xhr.status === 504){
+                    cw.mostrarAviso("Timeout del servidor registrando usuario.", "error");
+                    cw.mostrarModal("Error inesperado al registrar el usuario (" + xhr.status + ")");
+                } else {
+                    cw.mostrarAviso("Se ha producido un error al registrar el usuario.", "error");
+                    cw.mostrarModal("Error inesperado al registrar el usuario (" + xhr.status + ")");
+                }
+            },
+            complete: function(xhr, textStatus){
+                console.log("[cliente] COMPLETE:", textStatus, "status:", xhr.status);
+            }
+        });
+    };
 
 
     this.loginUsuario = function(email, password){
@@ -152,8 +163,22 @@ function ClienteRest() {
             success: function(data){
             if (data.nick && data.nick !== -1){
                 $.cookie("nick", data.nick);
+                cw.email = data.nick;
+                if (window.ws){
+                    ws.email = data.nick;
+                }
                 cw.limpiar();
                 $("#msg").empty();
+                cw.mostrarPartidas();
+                // Solicitar lista de partidas tras mostrar el panel
+                if (window.ws && ws.pedirListaPartidas){
+                    ws.pedirListaPartidas();
+                }
+                // Si ya hay una lista en memoria, pintarla inmediatamente
+                if (window._ultimaListaPartidas && window.cw && cw.pintarPartidas){
+                    cw.pintarPartidas(window._ultimaListaPartidas);
+                }
+                try { sessionStorage.setItem("bienvenidaMostrada","1"); } catch(e){}
                 cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
             } else {
                 cw.mostrarAviso("Email o contraseña incorrectos.", "error");
