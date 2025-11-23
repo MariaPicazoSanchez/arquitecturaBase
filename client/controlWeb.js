@@ -151,6 +151,8 @@ function ControlWeb() {
                 e.preventDefault();
                 let email = $("#email").val();
                 let pwd   = $("#pwd").val();
+                let nombre = $("#nombre").val();
+                let apellidos = $("#apellidos").val();
                 console.log("[UI] Click Registrar:", { email, tienePwd: !!pwd });
                 let errores = [];
                 if (!email)     errores.push("el email");
@@ -160,12 +162,17 @@ function ControlWeb() {
 
                 if (errores.length > 0) {
                     let msg = "faltan por rellenar: " + errores.join(", ") + ".";
-                    if (cw.mostrarMensajeLogin) {
-                        cw.mostrarMensajeLogin(msg);
-                    }
                     cw.mostrarModal("No se ha podido registrar el usuario porque " + msg);
                     return;
                 }
+
+                // Validación de contraseña: mínimo 8 caracteres, al menos una mayúscula, una minúscula y un número o símbolo
+                const pwdValida = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9\W_]).{8,}$/;
+                if (!pwdValida.test(pwd)) {
+                    cw.mostrarModal("La contraseña debe tener al menos 8 caracteres, incluyendo una letra mayúscula, una minúscula y un número o símbolo.");
+                    return;
+                }
+
                 rest.registrarUsuario(email, pwd);
             });
 
@@ -201,7 +208,10 @@ function ControlWeb() {
 
     this.mostrarModal = function (m) {
         console.log("[Modal] mensaje recibido:", m);
-
+        if (!$('#miModal').length) {
+            console.error('[Modal] No se encuentra el modal #miModal en el DOM');
+            return;
+        }
         // 1. vaciar el cuerpo del modal
         $('#mBody').empty();
 
@@ -209,6 +219,7 @@ function ControlWeb() {
         $('#mBody').text(m || "");
 
         // 3. mostrar el modal
+        console.log('[Modal] Mostrando modal #miModal');
         $('#miModal').modal('show');
     };
 

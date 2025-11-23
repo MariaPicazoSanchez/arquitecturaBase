@@ -129,15 +129,12 @@ function ClienteRest() {
                     cw.mostrarLogin({ email, keepMessage: true });
                 } else {
                     console.log("[cliente] Registro fallido (duplicado?):", email);
-                    cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
                     cw.mostrarModal("No se ha podido registrar el usuario");
                 }
             },
             error: function(xhr){
                 console.log("[cliente] ERROR status:", xhr.status, "resp:", xhr.responseText);
                 if (xhr && xhr.status === 409){
-                    cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
-                    cw.mostrarMensajeLogin("Hay un usuario registrado con ese email");
                     cw.mostrarModal("No se ha podido registrar el usuario");
                 } else if (xhr && xhr.status === 504){
                     cw.mostrarAviso("Timeout del servidor registrando usuario.", "error");
@@ -161,34 +158,37 @@ function ClienteRest() {
             data: JSON.stringify({ email, password }),
             contentType: 'application/json',
             success: function(data){
-            if (data.nick && data.nick !== -1){
-                $.cookie("nick", data.nick);
-                cw.email = data.nick;
-                if (window.ws){
-                    ws.email = data.nick;
+                if (data.nick && data.nick !== -1){
+                    $.cookie("nick", data.nick);
+                    cw.email = data.nick;
+                    if (window.ws){
+                        ws.email = data.nick;
+                    }
+                    cw.limpiar();
+                    $("#msg").empty();
+                    cw.mostrarPartidas();
+                    // Solicitar lista de partidas tras mostrar el panel
+                    if (window.ws && ws.pedirListaPartidas){
+                        ws.pedirListaPartidas();
+                    }
+                    // Si ya hay una lista en memoria, pintarla inmediatamente
+                    if (window._ultimaListaPartidas && window.cw && cw.pintarPartidas){
+                        cw.pintarPartidas(window._ultimaListaPartidas);
+                    }
+                    try { sessionStorage.setItem("bienvenidaMostrada","1"); } catch(e){}
+                    cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
+                } else {
+                    cw.mostrarAviso("Email o contraseña incorrectos.", "error");
+                    cw.mostrarModal("No se ha podido iniciar sesión. Credenciales incorrectas o usuario inexistente.");
                 }
-                cw.limpiar();
-                $("#msg").empty();
-                cw.mostrarPartidas();
-                // Solicitar lista de partidas tras mostrar el panel
-                if (window.ws && ws.pedirListaPartidas){
-                    ws.pedirListaPartidas();
-                }
-                // Si ya hay una lista en memoria, pintarla inmediatamente
-                if (window._ultimaListaPartidas && window.cw && cw.pintarPartidas){
-                    cw.pintarPartidas(window._ultimaListaPartidas);
-                }
-                try { sessionStorage.setItem("bienvenidaMostrada","1"); } catch(e){}
-                cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
-            } else {
-                cw.mostrarAviso("Email o contraseña incorrectos.", "error");
-            }
             },
             error: function(xhr){
                 if (xhr && xhr.status === 401){
                     cw.mostrarAviso("Credenciales inválidas.", "error");
+                    cw.mostrarModal("No se ha podido iniciar sesión. Credenciales inválidas.");
                 } else {
                     cw.mostrarAviso("Se ha producido un error al iniciar sesión.", "error");
+                    cw.mostrarModal("Error inesperado al iniciar sesión (" + (xhr && xhr.status) + ")");
                 }
             }        
         });
