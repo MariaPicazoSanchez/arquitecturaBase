@@ -10,7 +10,6 @@ const { Server } = require("socket.io");
 const PORT = process.env.PORT || 3000;
 require('dotenv').config();
 const passport=require("passport");
-// const cookieSession=require("cookie-session");
 const session = require('express-session');
 
 require("./server/passport-setup.js");
@@ -333,25 +332,21 @@ app.post('/loginUsuario', function(req, res){
     }
   });
 });
-// const LocalStrategy = require('passport-local').Strategy;
 
-// passport.use(new LocalStrategy(
-//   { usernameField: "email", passwordField: "password" },
-//   function(email, password, done){
-//     sistema.loginUsuario({ email, password }, function(user){
-//       // user será {email: -1} si falla
-//       return done(null, user && user.email != -1 ? user : false);
-//     });
-//   }
-// ));
-
-// app.post('/loginUsuario',
-//   passport.authenticate("local", { failureRedirect: "/fallo", successRedirect: "/ok" })
-// );
-
-// app.get("/ok", function(req, res){
-//   res.send({ nick: req.user.email });
-// });
+app.get('/api/logs', async function(req, res) {
+  const limit = Math.max(1, parseInt(req.query.limit, 10) || 100);
+  try {
+    const col = sistema && sistema.cad && sistema.cad.logs;
+    if (!col) {
+      throw new Error("Coleccion logs no disponible");
+    }
+    const docs = await col.find({}, { maxTimeMS: 5000 }).sort({ "fecha-hora": -1 }).limit(limit).toArray();
+    return res.status(200).json(docs);
+  } catch (err) {
+    console.error("[/api/logs] Error obteniendo logs:", err && err.message ? err.message : err);
+    return res.status(500).json({ error: "Error al obtener logs" });
+  }
+});
 
 
 
@@ -376,10 +371,6 @@ try {
 } catch (e) {
   console.warn('[startup] no se pudo listar client/:', e && e.message);
 }
-
-// app.listen(PORT, () => {
-//     console.log(`Servidor escuchando en puerto ${PORT}`);
-// });
 
 httpServer.listen(PORT, () => {
   console.log(`App está escuchando en el puerto ${PORT}`);

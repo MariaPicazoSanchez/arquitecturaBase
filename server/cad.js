@@ -6,6 +6,7 @@ function CAD() {
   this.client = null;
   this.db = null;
   this.usuarios = undefined;
+  this.logs = undefined;
 
   // ---------- CONEXIÓN ÚNICA, CON TIMEOUTS ----------
   this.conectar = async (callback) => {
@@ -15,13 +16,15 @@ function CAD() {
     if (!uri) {
       console.warn("[cad.conectar] MONGO_URI no definida. MODO MEMORIA (NO persiste).");
       this.usuarios = undefined;
+      this.logs = undefined;
       if (typeof callback === "function") callback(undefined, new Error("MONGO_URI no definida"));
       return;
     }
     if (!/^mongodb(\+srv)?:\/\//.test(uri)) {
-      console.warn("[cad.conectar] MONGO_URI inválida. MODO MEMORIA (NO persiste).");
+      console.warn("[cad.conectar] MONGO_URI involida. MODO MEMORIA (NO persiste).");
       this.usuarios = undefined;
-      if (typeof callback === "function") callback(undefined, new Error("MONGO_URI inválida"));
+      this.logs = undefined;
+      if (typeof callback === "function") callback(undefined, new Error("MONGO_URI involida"));
       return;
     }
 
@@ -39,10 +42,11 @@ function CAD() {
       await this.client.connect();
       this.db = this.client.db("sistema");
       this.usuarios = this.db.collection("usuarios");
+      this.logs = this.db.collection("logs");
 
       await this.usuarios.createIndex({ email: 1 }, { unique: true });
 
-      console.log("[cad.conectar] Conectado a Mongo. Colección: sistema.usuarios");
+      console.log("[cad.conectar] Conectado a Mongo. Colecci??n: sistema.usuarios");
       if (typeof callback === "function") callback(this.db);
     } catch (err) {
       console.error("[cad.conectar] Error conectando a Mongo:", {
@@ -52,6 +56,7 @@ function CAD() {
         stack: err.stack
       });
       this.usuarios = undefined;
+      this.logs = undefined;
       if (typeof callback === "function") callback(undefined, err);
     }
   };
@@ -70,6 +75,32 @@ function CAD() {
 
   this.actualizarUsuario = function (obj, callback) {
     actualizar(this.usuarios, obj, callback);
+  };
+
+  this.insertarLog = async function (tipoOperacion, usuario) {
+    if (!this.logs) {
+      console.error("[cad.insertarLog] Coleccion logs no inicializada");
+      return;
+    }
+
+    const logDoc = {
+      "tipo-operacion": tipoOperacion,
+      usuario: usuario,
+      "fecha-hora": new Date().toISOString(),
+    };
+
+    try {
+      const resultado = await this.logs.insertOne(logDoc, { maxTimeMS: 5000 });
+      console.log("[cad.insertarLog] Log insertado:", {
+        id: resultado && resultado.insertedId,
+        tipoOperacion,
+        usuario,
+      });
+      return resultado;
+    } catch (err) {
+      console.error("[cad.insertarLog] Error insertando log:", err.message);
+      return;
+    }
   };
 
   
@@ -171,7 +202,7 @@ function actualizar(coleccion, obj, callback) {
       console.log("[cad.actualizar] Elemento actualizado:", { email: doc.email });
       callback({ email: doc.email });
     } else {
-      console.warn("[cad.actualizar] Actualización sin resultado esperado");
+      console.warn("[cad.actualizar] Actualizaci??n sin resultado esperado");
       callback({ email: -1 });
     }
   }).catch(err => {

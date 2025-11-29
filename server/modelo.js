@@ -47,6 +47,7 @@ function Sistema() {
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
     if (!usuario) {
       console.log("Usuario no encontrado");
+      this.registrarActividad("crearPartidaFallido", email);
       return -1;
     }
 
@@ -56,6 +57,7 @@ function Sistema() {
 
     p.jugadores.push(usuario);
     this.partidas[codigo] = p;
+    this.registrarActividad("crearPartida", email, { partida: codigo });
     return codigo;
   };
 
@@ -64,26 +66,31 @@ function Sistema() {
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
     if (!usuario) {
       console.log("Usuario no encontrado");
+      this.registrarActividad("unirAPartidaFallido", email);
       return -1;
     }
     let partida = this.partidas[codigo];
     if (!partida) {
       console.log("Partida no encontrada");
+      this.registrarActividad("unirAPartidaFallido", email);
       return -1;
     }
 
     if (partida.jugadores.length >= partida.maxJug) {
       console.log("Partida llena");
+      this.registrarActividad("unirAPartidaFallido", email);
       return -1;
     }
 
     let yaEsta = partida.jugadores.some(j => j.email === usuario.email);
     if (yaEsta) {
       console.log("Usuario ya está en la partida");
+      this.registrarActividad("unirAPartidaFallido", email);
       return -1;
     }
 
     partida.jugadores.push(usuario);
+    this.registrarActividad("unirAPartida", email, { partida: codigo });
     return codigo;
   };
 
@@ -92,10 +99,12 @@ function Sistema() {
     let partida = this.partidas[codigo];
     if (!partida) {
       console.log("Partida no encontrada");
+      this.registrarActividad("continuarPartidaFallido", email);
       return -1;
     }
     if (normalizarEmail(partida.propietario) !== email) {
       console.log("Solo el propietario puede continuar su partida");
+      this.registrarActividad("continuarPartidaFallido", email);
       return -1;
     }
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
@@ -103,17 +112,20 @@ function Sistema() {
     if (!yaEsta) {
       partida.jugadores.push(usuario);
     }
+    this.registrarActividad("continuarPartida", email);
     return codigo;
   };
   this.eliminarPartida = function(email, codigo) {
     email = normalizarEmail(email);
     if (!codigo) {
       console.log("Codigo de partida no valido");
+      this.registrarActividad("eliminarPartidaFallido", email);
       return -1;
     }
     let partida = this.partidas[codigo];
     if (!partida) {
       console.log("Partida no encontrada");
+      this.registrarActividad("eliminarPartidaFallido", email);
       return -1;
     }
     const propietarioNorm = normalizarEmail(partida.propietario);
@@ -122,6 +134,7 @@ function Sistema() {
 
     if (esPropietario || (!email && propietarioNorm && !esJugador)) {
       delete this.partidas[codigo];
+      this.registrarActividad("eliminarPartida", email, { partida: codigo });
       return codigo;
     }
 
@@ -131,6 +144,7 @@ function Sistema() {
       if (partida.jugadores.length === 0) {
         delete this.partidas[codigo];
       }
+      this.registrarActividad("salirPartida", email);
     }
     return codigo;
   };
@@ -165,21 +179,29 @@ function Sistema() {
         lista.push({ codigo: p.codigo, propietario: p.propietario, esPropietario });
       }
     }
+    this.registrarActividad("obtenerPartidasDeUsuario", email);
     return lista;
   };
+
+  // ----------------------------
+  // MÉTODOS DE USUARIOS
+  // ----------------------------
 
   this.agregarUsuario = function (nick) {
     let res = { nick: -1 };
     if (!this.usuarios[nick]) {
       this.usuarios[nick] = new Usuario(nick);
       res.nick = nick;
+      this.registrarActividad("agregarUsuario", nick);
     } else {
       console.log("El nick " + nick + " está en uso");
+      this.registrarActividad("agregarUsuarioFallido", nick);
     }
     return res;
   };
 
   this.obtenerUsuarios = function () {
+    this.registrarActividad("obtenerUsuarios", email);
     return this.usuarios;
   };
 
@@ -189,6 +211,7 @@ function Sistema() {
 
   this.eliminarUsuario = function (nick) {
     delete this.usuarios[nick];
+    this.registrarActividad("eliminarUsuario", nick);
   };
 
   this.numeroUsuarios = function () {
@@ -199,6 +222,9 @@ function Sistema() {
     this.cad.buscarOCrearUsuario(usr, function (obj) {
       if (obj && obj.email) {
         this._obtenerOcrearUsuarioEnMemoria(obj.email);
+        this.registrarActividad("inicioGoogle", obj.email);
+      } else {
+        this.registrarActividad("usuarioGoogleFallido", usr ? usr.email : null);
       }
       callback(obj);
     }.bind(this));
@@ -213,6 +239,7 @@ function Sistema() {
 
     if (!obj || !obj.email || !obj.password) {
       console.warn("[modelo.registrarUsuario] datos inválidos");
+      modelo.registrarActividad("registrarUsuarioFallido", obj ? obj.email : null);
       callback({ email: -1 });
       return;
     }
@@ -223,6 +250,7 @@ function Sistema() {
       console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr);
       if (usr) {
         console.warn("[modelo.registrarUsuario] duplicado:", obj.email);
+        modelo.registrarActividad("registrarUsuarioFallido", obj.email);
         callback({ email: -1, reason: "email_ya_registrado" });
         return;
       }
@@ -241,10 +269,14 @@ function Sistema() {
 
       modelo.cad.insertarUsuario(nuevoUsuario, function (res) {
         console.log("[modelo.registrarUsuario] resultado insertarUsuario:", res);
+        modelo.registrarActividad("registroUsuario", nuevoUsuario.email);
 
         Promise.resolve()
           .then(() => correo.enviarEmail(obj.email, key, "Confirmar cuenta"))
-          .catch((e) => console.warn("[registrarUsuario] Fallo enviando email:", e.message));
+          .catch((e) => {
+            console.warn("[registrarUsuario] Fallo enviando email:", e.message);
+            modelo.registrarActividad("registroUsuarioFallido", nuevoUsuario.email);
+          });
 
         callback(res);
       });
@@ -273,6 +305,7 @@ function Sistema() {
       function (usr) {
         console.log("[modelo.confirmarUsuario] usuario encontrado:", usr ? { email: usr.email, _id: usr._id } : null);
         if (!usr) {
+          modelo.registrarActividad("confirmarUsuarioFallido", obj.email);
           return finish({ email: -1 });
         }
 
@@ -280,6 +313,7 @@ function Sistema() {
         modelo.cad.actualizarUsuario(usr, function (res) {
           callback(res && res.email ? { email: res.email } : { email: -1 });
         });
+        modelo.registrarActividad("confirmarUsuario", usr.email);
       }
     );
   };
@@ -292,6 +326,7 @@ function Sistema() {
     console.log("[modelo.loginUsuario] entrada:", obj);
     if (!obj || !obj.email || !obj.password) {
       console.warn("[modelo.loginUsuario] datos inválidos");
+      modelo.registrarActividad("loginUsuarioFallido", obj ? obj.email : null);
       callback({ email: -1 });
       return;
     }
@@ -301,6 +336,7 @@ function Sistema() {
 
       if (!usr || !usr.password) {
         console.warn("[modelo.loginUsuario] usuario inexistente o sin password");
+        modelo.registrarActividad("loginUsuarioFallido", obj.email);
         callback({ email: -1 });
         return;
       }
@@ -309,13 +345,47 @@ function Sistema() {
       const ok = bcrypt.compareSync(obj.password, usr.password);
       if (ok) {
         modelo._obtenerOcrearUsuarioEnMemoria(usr.email);
+        modelo.registrarActividad("inicioLocal", usr.email);
         callback(usr);
       } else {
         console.warn("[modelo.loginUsuario] credenciales inválidas");
+        modelo.registrarActividad("loginUsuarioFallido", obj.email);
         callback({ email: -1 });
       }
     });
   };
+  // ===========================
+  // REGISTRO de actividad
+  // ===========================
+
+  this.registrarActividad = function (tipoOperacion, emailUsuario) {
+    const operacionesExito = {
+      registroUsuario: true,
+      inicioLocal: true,
+      inicioGoogle: true,
+      crearPartida: true,
+      unirAPartida: true,
+      cerrarSesion: true,
+      eliminarPartida: true,
+    };
+
+    if (!operacionesExito[tipoOperacion] || !emailUsuario) {
+      return;
+    }
+
+    const usuarioConDetalle = arguments[2] && arguments[2].partida
+      ? `${emailUsuario} [partida:${arguments[2].partida}]`
+      : emailUsuario;
+
+    (async () => {
+      try {
+        await this.cad.insertarLog(tipoOperacion, usuarioConDetalle);
+      } catch (err) {
+        console.error("[modelo.registrarActividad] Error guardando log:", err && err.message ? err.message : err);
+      }
+    })();
+  };
+
 }
 
 function Usuario(nick) {
