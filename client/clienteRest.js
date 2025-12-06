@@ -166,15 +166,8 @@ function ClienteRest() {
                     }
                     cw.limpiar();
                     $("#msg").empty();
-                    cw.mostrarPartidas();
-                    // Solicitar lista de partidas tras mostrar el panel
-                    if (window.ws && ws.pedirListaPartidas){
-                        ws.pedirListaPartidas();
-                    }
-                    // Si ya hay una lista en memoria, pintarla inmediatamente
-                    if (window._ultimaListaPartidas && window.cw && cw.pintarPartidas){
-                        cw.pintarPartidas(window._ultimaListaPartidas);
-                    }
+                    cw.mostrarSelectorJuegos();
+                    
                     try { sessionStorage.setItem("bienvenidaMostrada","1"); } catch(e){}
                     cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
                 } else {

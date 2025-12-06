@@ -1,0 +1,677 @@
+/* src/index.css */
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: #0f172a;
+  color: #e5e7eb;
+}
+
+body {
+  margin: 0;
+}
+
+.app-root {
+  min-height: 100vh;
+  padding: 1.5rem;
+  box-sizing: border-box;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.uno-game {
+  max-width: 900px;
+  margin: 0 auto;
+  border-radius: 24px;
+  padding: 1.5rem 1.8rem;
+
+  /* Fondo más neutro, azul oscuro con halo suave */
+  background:
+    radial-gradient(circle at top, rgba(148, 163, 184, 0.2), transparent 55%),
+    radial-gradient(circle at bottom, rgba(37, 99, 235, 0.25), transparent 55%),
+    linear-gradient(135deg, #020617, #020617);
+
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.9);
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  border: 1px solid rgba(15, 23, 42, 0.9);
+}
+
+
+/* Botones generales */
+
+.uno-btn {
+  border-radius: 9999px;
+  border: none;
+  padding: 0.5rem 1.3rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #022c22;
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
+}
+
+.uno-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 22px rgba(16, 185, 129, 0.7);
+  filter: brightness(1.05);
+}
+
+.uno-btn:disabled {
+  background: #4b5563;
+  color: #9ca3af;
+  box-shadow: none;
+  cursor: default;
+}
+
+.uno-btn--secondary {
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  color: #eff6ff;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.5);
+}
+
+.uno-status {
+  text-align: center;
+  font-size: 0.95rem;
+  color: #cbd5f5;
+}
+
+/* Zonas jugador/bot con banda translúcida para contrastar */
+
+.uno-zone {
+  padding: 0.6rem 0.8rem;
+  border-radius: 14px;
+}
+
+.uno-zone--bot {
+  background: rgba(15, 23, 42, 0.75);     /* banda oscura, cartas negras destacan */
+  border: 1px solid rgba(30, 64, 175, 0.6);
+}
+
+.uno-zone--player {
+  background: rgba(15, 23, 42, 0.7);      /* similar pero ligeramente distinta */
+  border: 1px solid rgba(16, 185, 129, 0.6);
+}
+
+/* Contenedor principal del centro */
+.uno-table-center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.8rem;
+  margin: 0.3rem 0;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: radial-gradient(circle at center, #0f172a, #020617);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+/* Zona donde van descarte + mazo */
+.uno-table-main {
+  position: relative;
+  min-height: 190px;   /* espacio para la carta grande y el mazo */
+}
+
+/* Montón de descarte PERFECTAMENTE centrado */
+.uno-discard {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Pila de descarte ocupa un rectángulo fijo */
+.uno-discard-stack {
+  position: relative;
+  width: 120px;
+  height: 180px;
+}
+
+/* Carta superior e inferior apiladas como ya tenías */
+.uno-discard-card-wrapper {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  transition: transform 0.15s ease;
+}
+
+.uno-discard-card-wrapper--top .uno-card {
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.95);
+}
+
+/* Mazo (botón) pegado a la derecha */
+.uno-draw-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.uno-draw-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.uno-draw-button:focus {
+  outline: none;
+}
+
+
+.uno-zone h2 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.uno-hand {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding: 0.3rem 0;
+}
+
+.uno-hand--bot {
+  justify-content: center;
+}
+
+.uno-hand--player {
+  justify-content: center;
+}
+
+/* CARTAS */
+/* CARTAS NUEVO DISEÑO */
+
+.uno-card {
+  width: 70px;
+  height: 110px;
+  border-radius: 16px;
+  border: 2px solid #0b1120;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.7);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
+}
+
+.uno-card--large {
+  width: 110px;
+  height: 170px;
+  border-radius: 20px;
+}
+
+.uno-card:hover {
+  transform: translateY(-6px) rotate(-2deg);
+  box-shadow: 0 18px 30px rgba(15, 23, 42, 0.9);
+  filter: brightness(1.03);
+}
+
+.uno-card--disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+  box-shadow: 0 4px 8px rgba(15, 23, 42, 0.3);
+}
+
+.uno-card__inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(248, 250, 252, 0.55), transparent 55%),
+    radial-gradient(circle at 70% 80%, rgba(15, 23, 42, 0.4), transparent 60%);
+}
+
+/* wild / +4 multicolor */
+.uno-card--wild .uno-card__inner {
+  color: #f9fafb;
+  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.9);
+}
+
+/* Número centrado grande */
+.uno-card__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 1.9rem;
+  color: #0b1120;
+  text-shadow: 0 1px 1px rgba(248, 250, 252, 0.8);
+}
+
+.uno-card--large .uno-card__center {
+  font-size: 3rem;
+}
+
+/* Esquinas */
+.uno-card__corner {
+  position: absolute;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #111827;
+  text-shadow: 0 1px 1px rgba(248, 250, 252, 0.7);
+}
+
+.uno-card__corner--tl {
+  top: 6px;
+  left: 8px;
+}
+
+.uno-card__corner--br {
+  bottom: 6px;
+  right: 8px;
+}
+
+/* Brillo de jugables */
+.uno-card--playable {
+  box-shadow:
+    0 0 0 2px rgba(248, 250, 252, 0.9),
+    0 14px 28px rgba(15, 23, 42, 0.9);
+}
+
+/* Vuelo al centro (usamos last-played) */
+.uno-card--last-played {
+  animation: uno-card-fly 0.3s ease-out;
+}
+
+@keyframes uno-card-fly {
+  from {
+    transform: translateY(80px) scale(0.7) rotate(-12deg);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1) rotate(-4deg);
+    opacity: 1;
+  }
+}
+
+
+.uno-card__value {
+  font-weight: 800;
+  font-size: 1.5rem;
+  text-align: center;
+  color: #111827;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.uno-card__color-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  border: 1px solid rgba(15, 23, 42, 0.4);
+  background: rgba(15, 23, 42, 0.18);
+  align-self: flex-end;
+}
+
+/* Carta del reverso (cartas del bot) */
+.uno-card-back {
+  width: 70px;
+  height: 110px;
+  border-radius: 16px;
+  border: 2px solid #e5e7eb;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(248, 250, 252, 0.38), transparent 55%),
+    radial-gradient(circle at 70% 80%, rgba(30, 64, 175, 0.95), transparent 60%),
+    linear-gradient(135deg, #1d4ed8, #0ea5e9);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.9);
+  position: relative;
+}
+
+.uno-card-back::after {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  border-radius: inherit;
+  border: 2px solid rgba(191, 219, 254, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.85);
+}
+
+
+/* placeholder si no hay carta */
+.uno-card-placeholder {
+  width: 110px;
+  height: 170px;
+  border-radius: 18px;
+  border: 2px dashed #4b5563;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 0.8rem;
+}
+
+.uno-hand--bot .uno-card-back:not(:first-child) {
+  margin-left: -32px;
+}
+.uno-discard h3 {
+  font-size: 0.9rem;
+  margin: 0;
+  color: #e5e7eb;
+}
+
+.uno-actions {
+  margin-top: 0.3rem;
+  width: 100%;
+  display: flex;
+  justify-content: flex-start; /* solo Reiniciar a la izquierda */
+  align-items: center;
+}
+
+
+
+/* BOTONES */
+
+button {
+  border-radius: 9999px;
+  border: none;
+  padding: 0.45rem 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: #22c55e;
+  color: #022c22;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(16, 185, 129, 0.6);
+  filter: brightness(1.05);
+}
+
+button:disabled {
+  background: #4b5563;
+  color: #9ca3af;
+  box-shadow: none;
+  cursor: default;
+}
+
+/* Scroll de mano (por si hay muchas cartas) */
+.uno-hand::-webkit-scrollbar {
+  height: 6px;
+}
+.uno-hand::-webkit-scrollbar-track {
+  background: transparent;
+}
+.uno-hand::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 9999px;
+}
+/* MODAL de fin de partida */
+
+.uno-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.uno-modal {
+  background: radial-gradient(circle at top, #1e293b, #020617);
+  border-radius: 24px;
+  padding: 1.5rem 2rem;
+  max-width: 320px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.uno-modal__emoji {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.uno-modal h2 {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 1.6rem;
+}
+
+.uno-modal p {
+  margin: 0.2rem 0 1rem;
+  font-size: 0.95rem;
+  color: #cbd5f5;
+}
+
+.uno-modal button {
+  width: 100%;
+}
+/* Indicador de turno */
+.uno-turn {
+  margin-top: 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+.uno-turn-badge {
+  padding: 0.15rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.uno-turn-badge--you {
+  background: rgba(34, 197, 94, 0.12);
+  color: #bbf7d0;
+  border: 1px solid rgba(34, 197, 94, 0.6);
+}
+
+.uno-turn-badge--bot {
+  background: rgba(59, 130, 246, 0.12);
+  color: #bfdbfe;
+  border: 1px solid rgba(59, 130, 246, 0.6);
+}
+
+/* Cartas jugables con brillo */
+.uno-card--playable {
+  box-shadow:
+    0 0 0 2px rgba(248, 250, 252, 0.9),
+    0 12px 24px rgba(15, 23, 42, 0.9);
+}
+
+/* Notificación UNO! */
+.uno-badge {
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 9999px;
+  background: #f97316;
+  color: #111827;
+  font-size: 0.65rem;
+  font-weight: 800;
+  box-shadow: 0 4px 10px rgba(248, 113, 113, 0.5);
+}
+/* Botón UNO super visual */
+
+.uno-uno-wrapper {
+  margin-top: 0.4rem;
+  margin-bottom: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.uno-uno-button {
+  border-radius: 9999px;
+  border: none;
+  padding: 0.45rem 1.6rem;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  background: radial-gradient(circle at top, #f97316, #b91c1c);
+  color: #fefce8;
+  box-shadow:
+    0 0 0 3px rgba(248, 250, 252, 0.8),
+    0 14px 30px rgba(153, 27, 27, 0.9);
+  text-transform: uppercase;
+  animation: uno-pulse 0.9s infinite alternate;
+}
+
+.uno-uno-subtext {
+  font-size: 0.75rem;
+  color: #fed7aa;
+}
+
+@keyframes uno-pulse {
+  from {
+    transform: translateY(0) scale(1);
+    filter: brightness(1);
+  }
+  to {
+    transform: translateY(-2px) scale(1.05);
+    filter: brightness(1.1);
+  }
+}
+.uno-lastaction {
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+/* Animación carta recién jugada (carta central) */
+
+.uno-card--last-played {
+  animation: uno-card-pop 0.3s ease-out;
+}
+
+@keyframes uno-card-pop {
+  from {
+    transform: scale(0.7) rotate(-10deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(-4deg);
+    opacity: 1;
+  }
+}
+
+.uno-wild-picker {
+  margin-top: 0.3rem;
+  margin-bottom: 0.4rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #e5e7eb;
+}
+
+.uno-wild-picker-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.uno-wild-color {
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  border: 2px solid #f9fafb;
+  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.7);
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
+}
+
+.uno-wild-color:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.9);
+  filter: brightness(1.1);
+}
+
+.uno-wild-color--red {
+  background: #ef4444;
+}
+.uno-wild-color--yellow {
+  background: #eab308;
+}
+.uno-wild-color--green {
+  background: #22c55e;
+}
+.uno-wild-color--blue {
+  background: #3b82f6;
+}
+
+/* pequeña animación al pasar el ratón por el mazo */
+.uno-draw-button:not(:disabled):hover .uno-card-back--stack:last-child {
+  transform: translateX(16px) translateY(-10px) scale(1.02);
+}
+
+
+.uno-draw-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.uno-draw-stack {
+  position: relative;
+  width: 80px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.uno-card-back--stack {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  transition: transform 0.12s ease;
+}
+
+/* Texto "Robar" en el centro del mazo */
+.uno-draw-label {
+  position: absolute;
+  z-index: 10;                 /* ⬅ para que quede por encima de las cartas */
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: #e5e7eb;
+  margin-left: 25px;
+  margin-bottom: 15px;
+  text-shadow: 0 2px 4px rgba(15, 23, 42, 0.9);
+  pointer-events: none;        /* el click sigue siendo del botón entero */
+}
+
+/* placeholder pequeño para mazo vacío */
+.uno-card-placeholder--small {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.4rem;
+}

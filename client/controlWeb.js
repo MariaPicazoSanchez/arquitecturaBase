@@ -1,4 +1,6 @@
 function ControlWeb() {
+    this.juegoActual = null;
+
     this._updateMainVisibility = function(){
         const a = $.trim($("#au").html());
         const r = $.trim($("#registro").html());
@@ -10,6 +12,60 @@ function ControlWeb() {
             $("#mainContent").show();
         }
     };
+
+    this.mostrarJuegoEnApp = function(juego, codigo){
+        // Guardamos qué juego estamos mostrando
+        this.juegoActual = juego || this.juegoActual || "uno";
+
+        const nombreBonito =
+            this.juegoActual === "uno"    ? "UNO" :
+            this.juegoActual === "4raya"  ? "4 en raya" :
+            this.juegoActual === "hundir" ? "Hundir la flota" :
+            this.juegoActual;
+
+        $("#titulo-juego-actual").text("Juego: " + nombreBonito);
+
+        // URL del juego (por ahora solo UNO)
+        let url = "/uno";
+        if (codigo){
+            url += "?codigo=" + encodeURIComponent(codigo);
+        }
+
+        $("#iframe-juego").attr("src", url);
+        $("#selector-juegos").hide();
+        $("#panel-partidas").hide();
+        $("#zona-juego").show();
+
+        this._updateMainVisibility();
+
+        // Scroll suave hasta el juego
+        try {
+            $("html, body").animate({
+                scrollTop: $("#zona-juego").offset().top - 60
+            }, 300);
+        } catch(e){}
+    };
+
+    this.volverDesdeJuego = function(){
+        // Paramos el juego (vaciamos el iframe)
+        $("#iframe-juego").attr("src", "");
+
+        // Volvemos a ver el selector de juegos y las partidas del juego actual
+        $("#zona-juego").hide();
+        $("#selector-juegos").show();
+        $("#panel-partidas").show();
+
+        // Refrescamos la lista de partidas por si ha cambiado algo
+        if (window.ws && typeof ws.pedirListaPartidas === "function"){
+            ws.pedirListaPartidas();
+        }
+        if (window._ultimaListaPartidas){
+            this.pintarPartidas(window._ultimaListaPartidas);
+        }
+
+        this._updateMainVisibility();
+    };
+
 
     this.mostrarAgregarUsuario=function(){
         $('#bnv').remove();
@@ -53,11 +109,12 @@ function ControlWeb() {
             cw.email = nick;
             if (window.ws){
                 ws.email = nick;
-                if (ws.pedirListaPartidas){
-                    ws.pedirListaPartidas();
-                }
+                // if (ws.pedirListaPartidas){
+                //     ws.pedirListaPartidas();
+                // }
             }
-            cw.mostrarPartidas();
+            // cw.mostrarPartidas();
+            cw.mostrarSelectorJuegos();
             if (!sessionStorage.getItem("bienvenidaMostrada")){
                 sessionStorage.setItem("bienvenidaMostrada","1");
                 cw.mostrarMensaje("Bienvenido al sistema, "+nick, "success");
@@ -69,6 +126,56 @@ function ControlWeb() {
             cw.mostrarRegistro();
         }
     };
+
+    // === Selector de juegos ===
+    this.mostrarSelectorJuegos = function(){
+        // Limpiamos vistas de login/registro/mensajes
+        $("#registro").empty();
+        $("#au").empty();
+        $("#msg").empty();
+
+        // Ocultamos el panel de partidas hasta que elijan juego
+        $("#panel-partidas").hide();
+
+        // Mostramos el selector de juegos
+        $("#selector-juegos").show();
+
+        cw._updateMainVisibility();
+    };
+
+    this.seleccionarJuego = function(juegoId){
+        this.juegoActual = juegoId || "uno";
+
+        if (window.ws){
+            ws.gameType = this.juegoActual;
+        }
+
+        const nombreBonito =
+            this.juegoActual === "uno"    ? "UNO" :
+            this.juegoActual === "4raya"  ? "4 en raya" :
+            this.juegoActual === "hundir" ? "Hundir la flota" :
+            this.juegoActual;
+
+        $("#titulo-partidas-juego").text("Partidas de " + nombreBonito);
+        $("#titulo-juego-actual").text("Juego: " + nombreBonito);
+
+        $("#selector-juegos").show();
+        $("#panel-partidas").show();
+        $("#zona-juego").hide();
+
+        if (window.ws && typeof ws.pedirListaPartidas === "function"){
+            ws.pedirListaPartidas();
+        }
+        if (window._ultimaListaPartidas){
+            this.pintarPartidas(window._ultimaListaPartidas);
+        }
+
+        this._updateMainVisibility();
+    };
+
+
+
+
 
     this.mostrarMensaje=function(msg, tipo="info"){
         $("#au").empty();
@@ -225,6 +332,9 @@ function ControlWeb() {
 
     // Mostrar la zona de partidas (cuando el usuario ya está logueado)
     this.mostrarPartidas = function(){
+        if (!this.juegoActual){
+            this.juegoActual = 'uno';
+        }
         // ocultar cosas de login/registro/mensajes
         $("#registro").empty();
         $("#au").empty();
@@ -246,12 +356,18 @@ function ControlWeb() {
 
     // Pintar la tabla de partidas disponibles (abiertas)
     // lista: [{ codigo, propietario }]
+        // Pintar la tabla de partidas disponibles (abiertas)
+    // lista: [{ codigo, propietario, jugadores, maxJug, juego, ... }]
     this.pintarPartidas = function(lista){
         try { window._ultimaListaPartidas = lista; } catch(e){}
+
+        const juegoActual = cw.juegoActual;
+
         const $tbody = $("#tbody-partidas");
         $tbody.empty();
 
-        if (!lista || lista.length === 0){
+        // Si no hay ninguna partida
+        if (!Array.isArray(lista) || lista.length === 0){
             $tbody.append(`
               <tr>
                 <td colspan="2" class="text-muted">No hay partidas en el sistema.</td>
@@ -260,35 +376,96 @@ function ControlWeb() {
             return;
         }
 
-                (lista || []).forEach(function(p){
-                        const me = ($.cookie("nick") || cw.email || "").toLowerCase();
-                        const esPropia = (p.propietario && p.propietario.toLowerCase() === me);
-                        // El botón solo está habilitado si la partida no está completa
-                        const partidaCompleta = (typeof p.jugadores === 'number' && typeof p.maxJug === 'number') ? (p.jugadores >= p.maxJug) : false;
-                        const puedeUnirse = !partidaCompleta;
-                        const acciones = esPropia
-                            ? `<button class="btn btn-outline-danger btn-sm btn-eliminar" data-codigo="${p.codigo}">Borrar</button>`
-                            : `<button class="btn btn-secondary btn-sm btn-unirse" data-codigo="${p.codigo}" ${puedeUnirse ? "" : "disabled"}>${puedeUnirse ? "Unirse" : "Completa"}</button>`;
+        // Filtrar por juego actual (si lo hay)
+        const listaFiltrada = lista.filter(function(p){
+            if (!juegoActual) return true;        // si no se ha elegido juego, no filtramos
+            if (!p.juego) return (juegoActual === 'uno');  // partidas “viejas” sin campo juego
+            return p.juego === juegoActual;
+        });
 
-                        const fila = `
-                            <tr>
-                                <td>
-                                    <div class="d-flex flex-column">
-                                        <div>
-                                            <span class="badge badge-dark align-middle">${p.codigo}</span>
-                                            <button class="btn btn-outline-secondary btn-sm ml-2 btn-copiar-codigo" data-codigo="${p.codigo}" title="Copiar codigo">Copiar</button>
-                                        </div>
-                                        <small class="text-muted mt-1">Propietario: ${p.propietario || 'desconocido'} ${esPropia ? '<span class="badge badge-success ml-1">Propia</span>' : ''} · ${(p.jugadores||0)}/${p.maxJug||2} jugadores</small>
-                                    </div>
-                                </td>
-                                <td class="text-right align-middle">
-                                    ${acciones}
-                                </td>
-                            </tr>
-                        `;
-                        $tbody.append(fila);
-                });
+        if (listaFiltrada.length === 0){
+            $tbody.append(`
+              <tr>
+                <td colspan="2" class="text-muted">No hay partidas para este juego.</td>
+              </tr>
+            `);
+            return;
+        }
+
+        listaFiltrada.forEach(function(p){
+            const me = ($.cookie("nick") || cw.email || "").toLowerCase();
+            const esPropia = (p.propietario && p.propietario.toLowerCase() === me);
+
+            const jugadores = (typeof p.jugadores === 'number')
+                ? p.jugadores
+                : (p.numJugadores || 0);
+
+            const maxJug = (typeof p.maxJug === 'number') ? p.maxJug : 2;
+            const partidaCompleta = jugadores >= maxJug;
+            const puedeUnirse = !partidaCompleta;
+
+            const juego = p.juego || juegoActual || 'uno';
+            const nombreJuego =
+                  juego === 'uno'    ? 'UNO' :
+                  juego === '4raya'  ? '4 en raya' :
+                  juego === 'hundir' ? 'Hundir la flota' :
+                  juego;
+
+            let acciones = '';
+
+            // Botones para el propietario
+            if (esPropia){
+                acciones += `
+                <button class="btn btn-success btn-sm btn-continuar"
+                        data-codigo="${p.codigo}">
+                    Jugar
+                </button>
+                `;
+                acciones += `
+                <button class="btn btn-outline-danger btn-sm btn-eliminar"
+                        data-codigo="${p.codigo}">
+                    Borrar
+                </button>
+                `;
+            } else {
+                // Botón para unirse (otros usuarios)
+                acciones += `
+                <button class="btn btn-outline-success btn-sm btn-unirse"
+                        data-codigo="${p.codigo}"
+                        ${puedeUnirse ? '' : 'disabled'}>
+                    ${puedeUnirse ? 'Unirse' : 'Completa'}
+                </button>
+                `;
+            }
+
+
+            const propietarioTexto = p.propietario || 'Desconocido';
+
+            const fila = `
+              <tr>
+                <td>
+                  <div class="d-flex flex-column">
+                    <div>
+                      <span class="badge badge-dark align-middle">${p.codigo}</span>
+                      <button class="btn btn-light btn-sm ml-1 btn-copiar-codigo"
+                              data-codigo="${p.codigo}"
+                              title="Copiar código">
+                        Copiar
+                      </button>
+                    </div>
+                    <small class="text-muted">
+                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto}
+                      · ${jugadores}/${maxJug} jugadores
+                    </small>
+                  </div>
+                </td>
+                <td class="text-right align-middle">
+                  ${acciones}
+                </td>
+              </tr>
+            `;
+
+            $tbody.append(fila);
+        });
     };
-
-
 }

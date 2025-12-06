@@ -46,7 +46,7 @@ function CAD() {
 
       await this.usuarios.createIndex({ email: 1 }, { unique: true });
 
-      console.log("[cad.conectar] Conectado a Mongo. Colecci??n: sistema.usuarios");
+      console.log("[cad.conectar] Conectado a Mongo. Colección: sistema.usuarios");
       if (typeof callback === "function") callback(this.db);
     } catch (err) {
       console.error("[cad.conectar] Error conectando a Mongo:", {
@@ -202,7 +202,7 @@ function actualizar(coleccion, obj, callback) {
       console.log("[cad.actualizar] Elemento actualizado:", { email: doc.email });
       callback({ email: doc.email });
     } else {
-      console.warn("[cad.actualizar] Actualizaci??n sin resultado esperado");
+      console.warn("[cad.actualizar] Actualización sin resultado esperado");
       callback({ email: -1 });
     }
   }).catch(err => {

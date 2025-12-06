@@ -154,3 +154,61 @@ small, .text-muted{ color: rgba(255,255,255,0.6); }
 
 /* Ajuste para que el formulario muestre acciones agrupadas */
 .form-group.d-flex .btn{ margin: 6px 4px; }
+
+#miModal .modal-content,
+#miModal .modal-title,
+#miModal .modal-body {
+  color: #000 !important;
+}
+
+/* Contenedor del juego UNO dentro de la app */
+.uno-game-wrapper {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  /* altura grande para que se vea bien */
+  height: 75vh;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.6);
+}
+
+/* El iframe ocupa todo el hueco */
+.uno-game-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #020617;
+}
+/* Contenedor del juego UNO dentro de la app */
+.uno-game-wrapper {
+  position: relative;           /* necesario para posicionar el botón dentro */
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 75vh;                 /* juego grande en vertical */
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.6);
+}
+
+/* El iframe ocupa todo el hueco del contenedor */
+.uno-game-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #020617;
+}
+
+/* Botón de pantalla completa, abajo a la derecha del juego */
+.uno-fullscreen-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  opacity: 0.8;
+}
+
+.uno-fullscreen-btn:hover {
+  opacity: 1;
+}

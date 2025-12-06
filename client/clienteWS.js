@@ -2,6 +2,7 @@ function ClienteWS() {
     this.socket = null;
     this.email = null;
     this.codigo = null;
+    this.gameType = null;
 
     this._ensureEmail = function(){
         if (!this.email && window.$ && $.cookie){
@@ -12,7 +13,9 @@ function ClienteWS() {
 
     this.pedirListaPartidas = function(){
         if (this.socket){
-            this.socket.emit("obtenerListaPartidas");
+            this.socket.emit("obtenerListaPartidas", {
+                juego: this.gameType
+            });
         }
     };
 
@@ -52,12 +55,36 @@ function ClienteWS() {
           ws.pedirListaPartidas();
       });
 
-      this.socket.on("partidaContinuada", function(datos){
-          console.log("Continuando partida:", datos.codigo);
-          ws.codigo = datos.codigo;
-      });
+    this.socket.on("partidaContinuada", function(datos){
+        console.log("Continuando partida:", datos.codigo);
+        ws.codigo = datos.codigo;
 
-      this.socket.on("partidaEliminada", function(datos){
+        // Solo si el servidor ha devuelto un código válido
+        if (datos.codigo && datos.codigo !== -1) {
+            // Qué juego es (por ahora te interesa UNO)
+            const juego =
+                (window.cw && cw.juegoActual)  // lo que hayas seleccionado en el selector de juegos
+                || "uno";                      // por defecto
+
+            if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
+                cw.mostrarJuegoEnApp(juego, datos.codigo);
+            } else {
+                // Fallback por si mostrarJuegoEnApp no existe aún
+                if (juego === "uno") {
+                    window.location.href = "/uno";
+                } else {
+                    console.warn("Partida continuada para juego:", juego,
+                                "pero aún no tiene interfaz asociada.");
+                }
+            }
+        } else {
+            console.warn("No se pudo continuar la partida (código inválido).");
+        }
+    });
+
+
+
+    this.socket.on("partidaEliminada", function(datos){
           console.log("Partida eliminada:", datos.codigo);
           ws.pedirListaPartidas();
       });
@@ -70,7 +97,10 @@ function ClienteWS() {
         console.warn("No hay email en ws, no se puede crear partida.");
         return;
     }
-    this.socket.emit("crearPartida", { email: this.email });
+    this.socket.emit("crearPartida", { 
+        email: this.email,
+        juego: this.gameType
+    });
   };
 
   this.continuarPartida = function(codigo){
@@ -78,7 +108,11 @@ function ClienteWS() {
           console.warn("No hay email en ws, no se puede continuar partida.");
           return;
       }
-      this.socket.emit("continuarPartida", { email: this.email, codigo: codigo });
+      this.socket.emit("continuarPartida", { 
+        email: this.email,
+        codigo: codigo,
+        juego: this.gameType
+      });
   };
 
   this.unirAPartida = function(codigo){
@@ -86,7 +120,11 @@ function ClienteWS() {
           console.warn("No hay email en ws, no se puede unir a partida.");
           return;
       }
-      this.socket.emit("unirAPartida", { email: this.email, codigo: codigo });
+      this.socket.emit("unirAPartida", {
+        email: this.email,
+        codigo: codigo,
+        juego: this.gameType
+      });
   };
 
   this.eliminarPartida = function(codigo){
@@ -94,7 +132,11 @@ function ClienteWS() {
           console.warn("No hay email en ws, no se puede eliminar partida.");
           return;
       }
-      this.socket.emit("eliminarPartida", { email: this.email, codigo: codigo });
+      this.socket.emit("eliminarPartida", {
+        email: this.email,
+        codigo: codigo,
+        juego: this.gameType
+      });
   };
 
   this.ini();

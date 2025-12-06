@@ -22,6 +22,11 @@ const moduloWS = require("./server/servidorWS.js");
 let io = new Server(httpServer);
 let ws = new moduloWS.ServidorWS();
 
+// --------------------
+// Juegos 
+// --------------------
+const unoDistPath = path.join(__dirname, 'client/games/uno/dist');
+app.use('/uno', express.static(unoDistPath));
 
 
 // Diagnostic middleware for static assets (helps debug production 503/404)
