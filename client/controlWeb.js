@@ -18,7 +18,7 @@ function ControlWeb() {
         this.juegoActual = juego || this.juegoActual || "uno";
 
         const nombreBonito =
-            this.juegoActual === "uno"    ? "UNO" :
+            this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
             this.juegoActual === "hundir" ? "Hundir la flota" :
             this.juegoActual;
@@ -151,7 +151,7 @@ function ControlWeb() {
         }
 
         const nombreBonito =
-            this.juegoActual === "uno"    ? "UNO" :
+            this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
             this.juegoActual === "hundir" ? "Hundir la flota" :
             this.juegoActual;
@@ -406,10 +406,10 @@ function ControlWeb() {
 
             const juego = p.juego || juegoActual || 'uno';
             const nombreJuego =
-                  juego === 'uno'    ? 'UNO' :
-                  juego === '4raya'  ? '4 en raya' :
-                  juego === 'hundir' ? 'Hundir la flota' :
-                  juego;
+                juego === 'uno'    ? 'Última carta' :
+                juego === '4raya'  ? '4 en raya' :
+                juego === 'hundir' ? 'Hundir la flota' :
+                juego;
 
             let acciones = '';
 
@@ -430,10 +430,10 @@ function ControlWeb() {
             } else {
                 // Botón para unirse (otros usuarios)
                 acciones += `
-                <button class="btn btn-outline-success btn-sm btn-unirse"
+                <button class="btn btn-outline-info btn-sm btn-unirse"
                         data-codigo="${p.codigo}"
                         ${puedeUnirse ? '' : 'disabled'}>
-                    ${puedeUnirse ? 'Unirse' : 'Completa'}
+                    ${puedeUnirse ? 'Unirse' : 'Esperando'}
                 </button>
                 `;
             }

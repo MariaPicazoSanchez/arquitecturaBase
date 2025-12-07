@@ -56,33 +56,32 @@ function ClienteWS() {
       });
 
     this.socket.on("partidaContinuada", function(datos){
-        console.log("Continuando partida:", datos.codigo);
+        console.log("Continuando partida:", datos);
+
         ws.codigo = datos.codigo;
 
-        // Solo si el servidor ha devuelto un código válido
-        if (datos.codigo && datos.codigo !== -1) {
-            // Qué juego es (por ahora te interesa UNO)
-            const juego =
-                (window.cw && cw.juegoActual)  // lo que hayas seleccionado en el selector de juegos
-                || "uno";                      // por defecto
-
-            if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
-                cw.mostrarJuegoEnApp(juego, datos.codigo);
-            } else {
-                // Fallback por si mostrarJuegoEnApp no existe aún
-                if (juego === "uno") {
-                    window.location.href = "/uno";
-                } else {
-                    console.warn("Partida continuada para juego:", juego,
-                                "pero aún no tiene interfaz asociada.");
-                }
-            }
-        } else {
+        if (!datos.codigo || datos.codigo === -1){
             console.warn("No se pudo continuar la partida (código inválido).");
+            return;
+        }
+
+        // Preferimos el juego que nos manda el servidor
+        const juego =
+            datos.juego ||
+            (window.cw && cw.juegoActual) ||
+            "uno";
+
+        if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
+            cw.mostrarJuegoEnApp(juego, datos.codigo);
+        } else {
+            if (juego === "uno") {
+                window.location.href = "/uno";
+            } else {
+                console.warn("Partida continuada para juego:", juego,
+                            "pero aún no tiene interfaz asociada.");
+            }
         }
     });
-
-
 
     this.socket.on("partidaEliminada", function(datos){
           console.log("Partida eliminada:", datos.codigo);

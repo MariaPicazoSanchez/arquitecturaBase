@@ -31,7 +31,7 @@ export default function UnoGame() {
   const isHumanTurn = engine.currentPlayerIndex === 0;
   const isPlaying = uiStatus === 'playing';
 
-  // ---------- helpers UNO ----------
+  // ---------- helpers ----------
 
   const clearUnoTimer = () => {
     if (unoTimeoutRef.current) {
@@ -449,7 +449,7 @@ export default function UnoGame() {
       <div className="uno-zone uno-zone--bot">
         <h2>
           Bot ({bot.hand.length} cartas)
-          {bot.hand.length === 1 && <span className="uno-badge">UNO!</span>}
+          {bot.hand.length === 1 && <span className="uno-badge">Última Carta!</span>}
         </h2>
         <div className="uno-hand uno-hand--bot">
           {bot.hand.map((c) => (
@@ -545,7 +545,7 @@ export default function UnoGame() {
       <div className="uno-zone uno-zone--player">
         <h2>
           Tú ({player.hand.length} cartas)
-          {player.hand.length === 1 && <span className="uno-badge">UNO!</span>}
+          {player.hand.length === 1 && <span className="uno-badge">Última Carta!</span>}
         </h2>
 
         {/* Selector de color para comodín */}
@@ -577,7 +577,7 @@ export default function UnoGame() {
         {unoPrompt && isPlaying && (
           <div className="uno-uno-wrapper">
             <button className="uno-uno-button" onClick={handleUnoClick}>
-              ¡UNO!
+              ¡Última Carta!
             </button>
 
             <div className="uno-uno-timer">
@@ -585,7 +585,7 @@ export default function UnoGame() {
             </div>
 
             <p className="uno-uno-subtext">
-              Pulsa UNO antes de que se vacíe la barra
+              Pulsa ¡Última Carta! antes de que se vacíe la barra
             </p>
           </div>
         )}

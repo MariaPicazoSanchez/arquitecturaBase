@@ -55,11 +55,28 @@ function ServidorWS() {
 
       // === continuarPartida ===
       socket.on("continuarPartida", function(datos) {
+        // Marca la partida como "en curso" en tu sistema
         let codigo = sistema.continuarPartida(datos.email, datos.codigo);
+
         if (codigo !== -1) {
+          // Aseguramos que este socket está en la sala
           socket.join(codigo);
+
+          // 🔴 Enviar a TODOS los jugadores de la sala que la partida empieza
+          io.to(codigo).emit("partidaContinuada", {
+            codigo: codigo,
+            juego: datos.juego || "uno"
+          });
+
+          // 🔴 Actualizar la lista para TODO el mundo
+          // (si sistema.obtenerPartidasDisponibles ya filtra las "en curso",
+          //   desaparecerá del listado como quieres)
+          let lista = sistema.obtenerPartidasDisponibles();
+          srv.enviarGlobal(io, "listaPartidas", lista);
+        } else {
+          // No se pudo continuar la partida (no es el propietario, código inválido, etc.)
+          srv.enviarAlRemitente(socket, "partidaContinuada", { codigo: -1 });
         }
-        srv.enviarAlRemitente(socket, "partidaContinuada", { codigo: codigo });
       });
 
       // === eliminarPartida ===

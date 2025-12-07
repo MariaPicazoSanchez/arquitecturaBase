@@ -5,7 +5,7 @@ import './App.css'
 export default function App() {
   return (
     <div className="app-root">
-      <h1>UNO</h1>
+      <h1>Última Carta</h1>
       <UnoGame />
     </div>
   );

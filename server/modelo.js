@@ -42,7 +42,7 @@ function Sistema() {
   this.obtenerCodigo = function() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
   };
-  this.crearPartida = function(email) {
+  this.crearPartida = function(email, juego) {
     email = normalizarEmail(email);
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
     if (!usuario) {
@@ -53,7 +53,7 @@ function Sistema() {
 
     let codigo = this.obtenerCodigo();
 
-    let p = new Partida(codigo, email);
+    let p = new Partida(codigo, email, juego);
 
     p.jugadores.push(usuario);
     this.partidas[codigo] = p;
@@ -79,7 +79,7 @@ function Sistema() {
     if (partida.jugadores.length >= partida.maxJug) {
       console.log("Partida llena");
       this.registrarActividad("unirAPartidaFallido", email);
-      return -1;
+      return { error: "partida_llena", mensaje: "La partida está llena" };
     }
 
     let yaEsta = partida.jugadores.some(j => j.email === usuario.email);
@@ -107,6 +107,7 @@ function Sistema() {
       this.registrarActividad("continuarPartidaFallido", email);
       return -1;
     }
+    partida.estado = 'enCurso';
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
     let yaEsta = partida.jugadores.some(j => j.email === usuario.email);
     if (!yaEsta) {
@@ -115,6 +116,7 @@ function Sistema() {
     this.registrarActividad("continuarPartida", email);
     return codigo;
   };
+
   this.eliminarPartida = function(email, codigo) {
     email = normalizarEmail(email);
     if (!codigo) {
@@ -148,21 +150,22 @@ function Sistema() {
     }
     return codigo;
   };
-  this.obtenerPartidasDisponibles = function() {
-    let lista = [];
+  this.obtenerPartidasDisponibles = function(juego) {
+    // let lista = [];
 
-    for (let codigo in this.partidas) {
-      let p = this.partidas[codigo];
-      let creadorEmail = p.propietario || (p.jugadores[0] && p.jugadores[0].email);
-      lista.push({
-        codigo: p.codigo,
-        propietario: creadorEmail,
-        disponible: p.jugadores.length < p.maxJug,
-        jugadores: p.jugadores.length,
-        maxJug: p.maxJug
-      });
-    }
-    return lista;
+    // for (let codigo in this.partidas) {
+    //   let p = this.partidas[codigo];
+    //   let creadorEmail = p.propietario || (p.jugadores[0] && p.jugadores[0].email);
+    //   lista.push({
+    //     codigo: p.codigo,
+    //     propietario: creadorEmail,
+    //     disponible: p.jugadores.length < p.maxJug,
+    //     jugadores: p.jugadores.length,
+    //     maxJug: p.maxJug
+    //   });
+    // }
+    // return lista;
+    return Object.values(this.partidas).filter(p => !juego || (p.juego === juego && p.estado === 'pendiente'));
   };
 
   this.obtenerPartidasDeUsuario = function(email) {
@@ -393,10 +396,13 @@ function Usuario(nick) {
   this.email = nick;
 }
 
-function Partida(codigo, propietario) {
+function Partida(codigo, propietario, juego) {
   this.codigo = codigo;
   this.propietario = propietario;
   this.jugadores = [];
   this.maxJug = 2;
+  this.estado = 'pendiente'; // 'pendiente' | 'enCurso' | 'terminada'
+  this.juego = juego;
+
 }
 module.exports.Sistema = Sistema;
