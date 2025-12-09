@@ -36,13 +36,23 @@
   <script src="./controlWeb.js"></script>
 </head>
 <body>
-  <nav class="navbar navbar-expand-sm navbar-dark">
-    <div class="container-fluid">
-      <!-- Brand/logo -->
-      <a class="navbar-brand" href="#">
-        <img src="./img/new_logo.png" class="ignition-logo" alt="Ignition logo">
-        <span class="ignition-brand">Ignition</span>
+  <nav class="navbar navbar-expand-sm">
+    <div class="container-fluid d-flex align-items-center justify-content-between" style="padding-top:0.25rem; padding-bottom:0.25rem;">
+      <!-- Logo a la izquierda -->
+      <a class="navbar-brand d-flex align-items-center" href="index.html" style="gap:10px; padding:0;">
+        <img src="img/LogoTR.png" alt="Table Room Logo" style="height:64px; width:auto; margin-right:8px;" class="tableroom-logo" />
       </a>
+      <!-- Título centrado -->
+      <div class="flex-grow-1 d-flex justify-content-center">
+        <a href="index.html" class="tableroom-title" style="font-weight:800; font-size:2rem; color:var(--primary); text-decoration:none;">Table Room</a>
+      </div>
+      <!-- Botones y menú a la derecha -->
+      <div class="d-flex align-items-center">
+        <!-- Aquí van los botones y menú existentes -->
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navCollapse" aria-controls="navCollapse" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"><span class="bar"></span><span class="bar"></span><span class="bar"></span></span>
+        </button>
+      </div>
 
       <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navCollapse" aria-controls="navCollapse" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"><span class="bar"></span><span class="bar"></span><span class="bar"></span></span>

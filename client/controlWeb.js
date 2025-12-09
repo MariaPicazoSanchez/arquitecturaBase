@@ -1,4 +1,14 @@
+    // Verifica si el usuario tiene una partida activa
+    this.tienePartidaPropia = function(lista) {
+        const me = ($.cookie("nick") || this.email || "").toLowerCase();
+        return Array.isArray(lista) && lista.some(p => p.propietario && p.propietario.toLowerCase() === me);
+    };
 function ControlWeb() {
+        // Verifica si el usuario tiene una partida activa
+        this.tienePartidaPropia = function(lista) {
+            const me = ($.cookie("nick") || this.email || "").toLowerCase();
+            return Array.isArray(lista) && lista.some(p => p.propietario && p.propietario.toLowerCase() === me);
+        };
     this.juegoActual = null;
 
     this._updateMainVisibility = function(){
@@ -223,13 +233,13 @@ function ControlWeb() {
     this._setNavToLogout = function(){
         let $login = $("#menuIniciarSesion");
         if ($login.length){
-            let $btn = $("<button id='btnSalirNav' class='btn btn-outline-light btn-sm'>Salir</button>");
+            let $btn = $("<button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button>");
             $login.replaceWith($btn);
             $btn.on('click', function(){ cw.salir(); });
         } else {
             let $nav = $(".navbar-nav.ml-auto");
             if ($nav.length && $nav.find('#btnSalirNav').length===0){
-                $nav.append("<li class='nav-item'><button id='btnSalirNav' class='btn btn-outline-light btn-sm'>Salir</button></li>");
+                $nav.append("<li class='nav-item'><button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button></li>");
                 $("#btnSalirNav").on('click', function(){ cw.salir(); });
             }
         }
@@ -359,9 +369,16 @@ function ControlWeb() {
         // Pintar la tabla de partidas disponibles (abiertas)
     // lista: [{ codigo, propietario, jugadores, maxJug, juego, ... }]
     this.pintarPartidas = function(lista){
+                // Deshabilitar botón crear partida si ya tiene una propia
+                if (this.tienePartidaPropia(lista)) {
+                    $("#btn-crear-partida").prop("disabled", true).attr("title", "Elimina tu partida antes de crear otra");
+                } else {
+                    $("#btn-crear-partida").prop("disabled", false).removeAttr("title");
+                }
         try { window._ultimaListaPartidas = lista; } catch(e){}
 
         const juegoActual = cw.juegoActual;
+
 
         const $tbody = $("#tbody-partidas");
         $tbody.empty();
@@ -369,116 +386,82 @@ function ControlWeb() {
         // Si no hay ninguna partida
         if (!Array.isArray(lista) || lista.length === 0){
             $tbody.append(`
-              <tr>
-                <td colspan="2" class="text-muted">No hay partidas en el sistema.</td>
-              </tr>
+              <tr><td colspan="2" class="text-muted">No hay partidas en el sistema.</td></tr>
             `);
             return;
         }
 
         // Filtrar por juego actual (si lo hay)
         const listaFiltrada = lista.filter(function(p){
-            if (!juegoActual) return true;        // si no se ha elegido juego, no filtramos
-            if (!p.juego) return (juegoActual === 'uno');  // partidas “viejas” sin campo juego
+            if (!juegoActual) return true;
+            if (!p.juego) return (juegoActual === 'uno');
             return p.juego === juegoActual;
         });
 
         if (listaFiltrada.length === 0){
             $tbody.append(`
-              <tr>
-                <td colspan="2" class="text-muted">No hay partidas para este juego.</td>
-              </tr>
+              <tr><td colspan="2" class="text-muted">No hay partidas para este juego.</td></tr>
             `);
             return;
         }
 
+        // Usar tarjetas visuales en vez de filas de tabla
         listaFiltrada.forEach(function(p){
             const me = ($.cookie("nick") || cw.email || "").toLowerCase();
             const esPropia = (p.propietario && p.propietario.toLowerCase() === me);
-
             const jugadores = Array.isArray(p.jugadores)
                 ? p.jugadores.length
                 : (typeof p.jugadores === 'number'
                     ? p.jugadores
                     : (p.numJugadores || 0));
-
             const maxJug = (typeof p.maxJug === 'number') ? p.maxJug : 2;
             const partidaCompleta = jugadores >= maxJug;
-
             const yaEstoy = Array.isArray(p.jugadores)
                 && p.jugadores.some(j => (j.email || j.nick || "").toLowerCase() === me);
-
-            // Solo me debería dejar "Unirse" si:
-            // - la partida no está completa
-            // - y yo todavía no formo parte de ella
             const puedeUnirse = !partidaCompleta && !yaEstoy;
-
             let textoBoton;
             if (yaEstoy) {
                 textoBoton = 'En partida';
             } else if (partidaCompleta) {
-                textoBoton = 'Completa'; // o "Completa", como prefieras
+                textoBoton = 'Completa';
             } else {
                 textoBoton = 'Unirse';
             }
-
             const juego = p.juego || juegoActual || 'uno';
             const nombreJuego =
                 juego === 'uno'    ? 'Última carta' :
                 juego === '4raya'  ? '4 en raya' :
                 juego === 'hundir' ? 'Hundir la flota' :
                 juego;
-
             let acciones = '';
-
             if (esPropia){
                 acciones += `
-                <button class="btn btn-success btn-sm btn-continuar"
-                        data-codigo="${p.codigo}">
-                    Jugar
-                </button>
-                <button class="btn btn-danger btn-sm btn-eliminar"
-                        data-codigo="${p.codigo}">
-                    Eliminar
-                </button>
+                  <button class="btn btn-jugar btn-continuar" data-codigo="${p.codigo}">Jugar</button>
+                  <button class="btn btn-eliminar btn-eliminar" data-codigo="${p.codigo}">Eliminar</button>
                 `;
             } else {
                 acciones += `
-                <button class="btn btn-primary btn-sm btn-unirse"
-                        data-codigo="${p.codigo}"
-                        ${puedeUnirse ? '' : 'disabled'}>
-                    ${textoBoton}
-                </button>
+                  <button class="btn btn-primary btn-unirse" data-codigo="${p.codigo}" ${puedeUnirse ? '' : 'disabled'}>${textoBoton}</button>
                 `;
             }
-
             const propietarioTexto = p.propietario || 'Desconocido';
-
-            const fila = `
-            <tr>
-                <td>
-                <div class="d-flex flex-column">
+            const card = `
+              <tr><td colspan="2" style="padding:0; border:none; background:transparent;">
+                <div class="partida-card-row">
+                  <div class="partida-info">
                     <div>
-                    <span class="badge badge-dark align-middle">${p.codigo}</span>
-                    <button class="btn btn-light btn-sm ml-1 btn-copiar-codigo"
-                            data-codigo="${p.codigo}"
-                            title="Copiar código">
-                        Copiar
-                    </button>
+                      <span class="partida-codigo">${p.codigo}</span>
+                      <button class="btn btn-light btn-sm ml-1 btn-copiar-codigo" data-codigo="${p.codigo}" title="Copiar código">Copiar</button>
                     </div>
                     <small class="text-muted">
-                    ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto}
-                    · ${jugadores}/${maxJug} jugadores
+                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto} · ${jugadores}/${maxJug} jugadores
                     </small>
+                  </div>
+                  <div class="partida-acciones">${acciones}</div>
                 </div>
-                </td>
-                <td class="text-right align-middle">
-                ${acciones}
-                </td>
-            </tr>
+              </td></tr>
             `;
-
-            $tbody.append(fila);
+            $tbody.append(card);
         });
 
     };
