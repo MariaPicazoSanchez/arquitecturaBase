@@ -396,13 +396,31 @@ function ControlWeb() {
             const me = ($.cookie("nick") || cw.email || "").toLowerCase();
             const esPropia = (p.propietario && p.propietario.toLowerCase() === me);
 
-            const jugadores = (typeof p.jugadores === 'number')
-                ? p.jugadores
-                : (p.numJugadores || 0);
+            const jugadores = Array.isArray(p.jugadores)
+                ? p.jugadores.length
+                : (typeof p.jugadores === 'number'
+                    ? p.jugadores
+                    : (p.numJugadores || 0));
 
             const maxJug = (typeof p.maxJug === 'number') ? p.maxJug : 2;
             const partidaCompleta = jugadores >= maxJug;
-            const puedeUnirse = !partidaCompleta;
+
+            const yaEstoy = Array.isArray(p.jugadores)
+                && p.jugadores.some(j => (j.email || j.nick || "").toLowerCase() === me);
+
+            // Solo me debería dejar "Unirse" si:
+            // - la partida no está completa
+            // - y yo todavía no formo parte de ella
+            const puedeUnirse = !partidaCompleta && !yaEstoy;
+
+            let textoBoton;
+            if (yaEstoy) {
+                textoBoton = 'En partida';
+            } else if (partidaCompleta) {
+                textoBoton = 'Completa'; // o "Completa", como prefieras
+            } else {
+                textoBoton = 'Unirse';
+            }
 
             const juego = p.juego || juegoActual || 'uno';
             const nombreJuego =
@@ -413,59 +431,55 @@ function ControlWeb() {
 
             let acciones = '';
 
-            // Botones para el propietario
             if (esPropia){
                 acciones += `
                 <button class="btn btn-success btn-sm btn-continuar"
                         data-codigo="${p.codigo}">
                     Jugar
                 </button>
-                `;
-                acciones += `
-                <button class="btn btn-outline-danger btn-sm btn-eliminar"
+                <button class="btn btn-danger btn-sm btn-eliminar"
                         data-codigo="${p.codigo}">
-                    Borrar
+                    Eliminar
                 </button>
                 `;
             } else {
-                // Botón para unirse (otros usuarios)
                 acciones += `
-                <button class="btn btn-outline-info btn-sm btn-unirse"
+                <button class="btn btn-primary btn-sm btn-unirse"
                         data-codigo="${p.codigo}"
                         ${puedeUnirse ? '' : 'disabled'}>
-                    ${puedeUnirse ? 'Unirse' : 'Esperando'}
+                    ${textoBoton}
                 </button>
                 `;
             }
 
-
             const propietarioTexto = p.propietario || 'Desconocido';
 
             const fila = `
-              <tr>
+            <tr>
                 <td>
-                  <div class="d-flex flex-column">
+                <div class="d-flex flex-column">
                     <div>
-                      <span class="badge badge-dark align-middle">${p.codigo}</span>
-                      <button class="btn btn-light btn-sm ml-1 btn-copiar-codigo"
-                              data-codigo="${p.codigo}"
-                              title="Copiar código">
+                    <span class="badge badge-dark align-middle">${p.codigo}</span>
+                    <button class="btn btn-light btn-sm ml-1 btn-copiar-codigo"
+                            data-codigo="${p.codigo}"
+                            title="Copiar código">
                         Copiar
-                      </button>
+                    </button>
                     </div>
                     <small class="text-muted">
-                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto}
-                      · ${jugadores}/${maxJug} jugadores
+                    ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto}
+                    · ${jugadores}/${maxJug} jugadores
                     </small>
-                  </div>
+                </div>
                 </td>
                 <td class="text-right align-middle">
-                  ${acciones}
+                ${acciones}
                 </td>
-              </tr>
+            </tr>
             `;
 
             $tbody.append(fila);
         });
+
     };
 }

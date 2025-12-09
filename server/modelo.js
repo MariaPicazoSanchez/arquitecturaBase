@@ -78,8 +78,9 @@ function Sistema() {
 
     if (partida.jugadores.length >= partida.maxJug) {
       console.log("Partida llena");
+      console.log("Jugadores:", partida.jugadores.length, "MaxJug:", partida.maxJug, partida.jugadores.map(j => j.email));
       this.registrarActividad("unirAPartidaFallido", email);
-      return { error: "partida_llena", mensaje: "La partida está llena" };
+      return -1
     }
 
     let yaEsta = partida.jugadores.some(j => j.email === usuario.email);
@@ -165,7 +166,17 @@ function Sistema() {
     //   });
     // }
     // return lista;
-    return Object.values(this.partidas).filter(p => !juego || (p.juego === juego && p.estado === 'pendiente'));
+     return Object.values(this.partidas).filter(p => {
+      // Solo queremos partidas pendientes
+      if (p.estado && p.estado !== 'pendiente') return false;
+
+      // Si no se nos pide un juego concreto, devolvemos todas las pendientes
+      if (!juego) return true;
+
+      // Si la partida NO tiene juego, las tratamos como "uno" por compatibilidad
+      const juegoPartida = p.juego || 'uno';
+      return juegoPartida === juego;
+    });
   };
 
   this.obtenerPartidasDeUsuario = function(email) {
@@ -185,6 +196,8 @@ function Sistema() {
     this.registrarActividad("obtenerPartidasDeUsuario", email);
     return lista;
   };
+
+
 
   // ----------------------------
   // MÉTODOS DE USUARIOS
@@ -390,19 +403,31 @@ function Sistema() {
   };
 
 }
+function getMaxJugPorJuego(juego) {
+  switch (juego) {
+    case 'uno':      // "Última carta"
+      return 4;      // aquí tienes tu juego de 3+ jugadores
+    case '4raya':
+      return 2;
+    case 'hundir':
+      return 2;
+    default:
+      return 2;      // por defecto, 2
+  }
+}
+
 
 function Usuario(nick) {
   this.nick = nick;
   this.email = nick;
 }
 
-function Partida(codigo, propietario, juego) {
+function Partida(codigo, propietario, juego, maxJug) {
   this.codigo = codigo;
   this.propietario = propietario;
   this.jugadores = [];
-  this.maxJug = 2;
-  this.estado = 'pendiente'; // 'pendiente' | 'enCurso' | 'terminada'
-  this.juego = juego;
-
+  this.maxJug = typeof maxJug === 'number' ? maxJug : getMaxJugPorJuego(juego);
+  this.estado = 'pendiente';
+  this.juego = juego || 'uno' ;
 }
 module.exports.Sistema = Sistema;

@@ -18,8 +18,9 @@ function ServidorWS() {
       console.log("Capa WS activa");
 
       // Enviar lista inicial de partidas disponibles
-      socket.on("obtenerListaPartidas", function() {
-        let lista = sistema.obtenerPartidasDisponibles();
+      socket.on("obtenerListaPartidas", function(datos) {
+        const juego = datos && datos.juego;
+        let lista = sistema.obtenerPartidasDisponibles(juego);
         srv.enviarAlRemitente(socket, "listaPartidas", lista);
       });
       // dispara una vez al conectar
@@ -35,7 +36,7 @@ function ServidorWS() {
 
         srv.enviarAlRemitente(socket, "partidaCreada", { codigo: codigo });
 
-        let lista = sistema.obtenerPartidasDisponibles();
+        let lista = sistema.obtenerPartidasDisponibles(datos.juego);
         srv.enviarGlobal(io, "listaPartidas", lista);
       });
 
@@ -49,7 +50,7 @@ function ServidorWS() {
 
         srv.enviarAlRemitente(socket, "unidoAPartida", { codigo: codigo });
 
-        let lista = sistema.obtenerPartidasDisponibles();
+        let lista = sistema.obtenerPartidasDisponibles(datos.juego);
         srv.enviarGlobal(io, "listaPartidas", lista);
       });
 
@@ -71,7 +72,7 @@ function ServidorWS() {
           // 🔴 Actualizar la lista para TODO el mundo
           // (si sistema.obtenerPartidasDisponibles ya filtra las "en curso",
           //   desaparecerá del listado como quieres)
-          let lista = sistema.obtenerPartidasDisponibles();
+          let lista = sistema.obtenerPartidasDisponibles(datos.juego);
           srv.enviarGlobal(io, "listaPartidas", lista);
         } else {
           // No se pudo continuar la partida (no es el propietario, código inválido, etc.)
@@ -85,7 +86,7 @@ function ServidorWS() {
 
         srv.enviarAlRemitente(socket, "partidaEliminada", { codigo: codigo });
 
-        let lista = sistema.obtenerPartidasDisponibles();
+        let lista = sistema.obtenerPartidasDisponibles(datos.juego);
         srv.enviarGlobal(io, "listaPartidas", lista);
       });
     });
