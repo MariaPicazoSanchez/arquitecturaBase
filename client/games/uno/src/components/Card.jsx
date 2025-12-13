@@ -33,20 +33,20 @@ export default function Card({
     .filter(Boolean)
     .join(' ');
 
-  // 🔹 Caso 1: carta normal o comodín ya con color elegido
+  // Caso 1: carta normal o comodín ya con color elegido
   const baseColor = COLOR_MAP[card.color];
 
   let innerStyle;
 
   if (isWildType) {
     if (card.color === 'wild') {
-      // 🔸 Comodín en la mano (sin color decidido): multicolor
+      // Comodín en la mano (sin color decidido): multicolor
       innerStyle = {
         background:
           'conic-gradient(from 45deg, #ef4444, #facc15, #22c55e, #3b82f6, #ef4444)',
       };
     } else {
-      // 🔸 Comodín ya jugado: usa el color elegido
+      // Comodín ya jugado: usa el color elegido
       innerStyle = {
         background:
           `radial-gradient(circle at 30% 20%, rgba(248,250,252,0.55), transparent 55%),` +
@@ -55,7 +55,7 @@ export default function Card({
       };
     }
   } else {
-    // 🔸 Carta normal de color
+    // Carta normal de color
     innerStyle = {
       background:
         `radial-gradient(circle at 30% 20%, rgba(248,250,252,0.55), transparent 55%),` +

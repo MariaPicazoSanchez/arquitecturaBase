@@ -127,7 +127,7 @@ function ControlWeb() {
             cw.mostrarSelectorJuegos();
             if (!sessionStorage.getItem("bienvenidaMostrada")){
                 sessionStorage.setItem("bienvenidaMostrada","1");
-                cw.mostrarMensaje("Bienvenido al sistema, "+nick, "success");
+                cw.mostrarMensaje("Bienvenido a Table Room, "+nick, "success");
             } else {
                 cw._setNavToLogout();
             }
@@ -233,14 +233,20 @@ function ControlWeb() {
     this._setNavToLogout = function(){
         let $login = $("#menuIniciarSesion");
         if ($login.length){
-            let $btn = $("<button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button>");
-            $login.replaceWith($btn);
-            $btn.on('click', function(){ cw.salir(); });
+            let $wrap = $("<span id='navUserActions'></span>");
+            let $btnAct = $("<button id='btnVerActividad' class='btn btn-outline-primary btn-sm mr-2'>Actividad</button>");
+            let $btnSalir = $("<button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button>");
+            $wrap.append($btnAct).append($btnSalir);
+            $login.replaceWith($wrap);
+            $btnSalir.on('click', function(){ cw.salir(); });
+            $btnAct.on('click', function(){ cw.mostrarActividad(); });
         } else {
             let $nav = $(".navbar-nav.ml-auto");
             if ($nav.length && $nav.find('#btnSalirNav').length===0){
+                $nav.append("<li class='nav-item mr-2'><button id='btnVerActividad' class='btn btn-outline-primary btn-sm'>Actividad</button></li>");
                 $nav.append("<li class='nav-item'><button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button></li>");
                 $("#btnSalirNav").on('click', function(){ cw.salir(); });
+                $("#btnVerActividad").on('click', function(){ cw.mostrarActividad(); });
             }
         }
     };
@@ -260,37 +266,101 @@ function ControlWeb() {
         }
     };
 
+    // Mostrar actividad del usuario
+    // Estado de visibilidad del panel de actividad
+    this._actividadVisible = false;
+
+    this.mostrarActividad = function(){
+        // Toggle: si ya está visible, ocultar
+        if (this._actividadVisible) {
+            $("#au").empty();
+            this._actividadVisible = false;
+            // Restaurar etiqueta del botón
+            const $btn = $("#btnVerActividad");
+            if ($btn.length) { $btn.text("Actividad"); }
+            this._updateMainVisibility();
+            return;
+        }
+        const email = ($.cookie('nick') || this.email || '').toLowerCase();
+        if (!email){
+            this.mostrarAviso('Debes iniciar sesión para ver la actividad', 'error');
+            return;
+        }
+        if (window.rest && typeof rest.obtenerActividad === 'function'){
+            rest.obtenerActividad(email);
+        }
+    };
+
+    // Render de la actividad en el panel principal
+    this.mostrarActividadListado = function(logs){
+        $("#au").empty();
+        $("#registro").empty();
+        $("#msg").empty();
+        let html = "<div class='card'><div class='card-body'>";
+        html += "<h5 class='card-title'>Tu actividad reciente</h5>";
+        if (!Array.isArray(logs) || logs.length===0){
+            html += "<div class='text-muted'>No hay actividad registrada.</div>";
+        } else {
+            html += "<ul class='list-group'>";
+            logs.forEach(function(l){
+                const op = l["tipo-operacion"] || l.tipoOperacion || "operación";
+                const fh = l["fecha-hora"] || l.fechaHora || "";
+                html += "<li class='list-group-item d-flex justify-content-between align-items-center'>" +
+                        "<span>" + op + "</span>" +
+                        "<small class='text-muted'>" + fh + "</small>" +
+                        "</li>";
+            });
+            html += "</ul>";
+        }
+        html += "</div></div>";
+        $("#au").append(html);
+        this._actividadVisible = true;
+        // Cambiar etiqueta del botón mientras está visible
+        const $btn = $("#btnVerActividad");
+        if ($btn.length) { $btn.text("Cerrar actividad"); }
+        this._updateMainVisibility();
+    };
+
     this.mostrarRegistro = function(){
         $("#fmRegistro").remove();
         $("#msg").empty();
         $("#registro").load("./registro.html", function(){
             $("#btnRegistro").on("click", function(e){
                 e.preventDefault();
-                let email = $("#email").val();
-                let pwd   = $("#pwd").val();
-                let nombre = $("#nombre").val();
-                let apellidos = $("#apellidos").val();
-                console.log("[UI] Click Registrar:", { email, tienePwd: !!pwd });
-                let errores = [];
-                if (!email)     errores.push("el email");
-                if (!nombre)    errores.push("el nombre");
-                if (!apellidos) errores.push("los apellidos");
-                if (!pwd)       errores.push("la contraseña");
-
-                if (errores.length > 0) {
-                    let msg = "faltan por rellenar: " + errores.join(", ") + ".";
-                    cw.mostrarModal("No se ha podido registrar el usuario porque " + msg);
+                let email = $("#email").val().trim();
+                let pwd   = $("#pwd").val().trim();
+                let nick = $("#nick").val().trim();
+                console.log("[UI] Click Registrar:", { email, tienePwd: !!pwd, nick });
+                
+                // Validación individual de campos
+                if (!email) {
+                    cw.mostrarModal("Debes introducir un email válido.");
+                    return;
+                }
+                
+                if (!nick) {
+                    cw.mostrarModal("Debes introducir un nick.");
+                    return;
+                }
+                
+                if (nick.length < 3) {
+                    cw.mostrarModal("El nick debe tener al menos 3 caracteres.");
+                    return;
+                }
+                
+                if (!pwd) {
+                    cw.mostrarModal("Debes introducir una contraseña.");
                     return;
                 }
 
                 // Validación de contraseña: mínimo 8 caracteres, al menos una mayúscula, una minúscula y un número o símbolo
                 const pwdValida = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9\W_]).{8,}$/;
                 if (!pwdValida.test(pwd)) {
-                    cw.mostrarModal("La contraseña debe tener al menos 8 caracteres, incluyendo una letra mayúscula, una minúscula y un número o símbolo.");
+                    cw.mostrarModal("La contraseña debe tener:\n• Mínimo 8 caracteres\n• Al menos una mayúscula\n• Al menos una minúscula\n• Al menos un número o símbolo");
                     return;
                 }
 
-                rest.registrarUsuario(email, pwd);
+                rest.registrarUsuario(email, pwd, nick);
             });
 
             // ensure main content visible after loading

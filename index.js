@@ -113,24 +113,48 @@ app.get('/google/callback',
 });
 
 app.get("/good", function(req, res) {
-  console.warn("[/good] usuario autenticado:", req.user && (req.user.displayName || req.user.id || req.user.email));
-  if (!req.user) return res.redirect('/fallo');
+  console.log("[/good] Google OAuth callback, usuario:", req.user ? { id: req.user.id, displayName: req.user.displayName, emails: req.user.emails } : 'NONE');
+  if (!req.user) {
+    console.error("[/good] ERROR: req.user es null/undefined");
+    return res.redirect('/fallo');
+  }
 
-  const email = req.user.emails?.[0]?.value;
-  if (!email) return res.redirect('/fallo');
+  let email = null;
+  if (req.user.emails && Array.isArray(req.user.emails) && req.user.emails.length > 0) {
+    email = req.user.emails[0].value;
+  }
+  
+  if (!email) {
+    console.error("[/good] ERROR: no email en profile");
+    return res.redirect('/fallo');
+  }
 
-  res.cookie('nick', email);
-  res.redirect('/');
+  const displayName = req.user.displayName || '';
+  console.log("[/good] email extraído:", email, "displayName:", displayName);
 
   process.nextTick(() => {
-    sistema.usuarioGoogle({ email }, function(_obj) {
-      console.log("Usuario guardado/actualizado en Mongo:", email);
+    sistema.usuarioGoogle({ email, displayName }, function(obj) {
+      console.log("[/good] usuarioGoogle retornó:", obj);
+      if (!obj || !obj.email) {
+        console.error("[/good] ERROR: objeto inválido de usuarioGoogle");
+        return res.redirect('/fallo');
+      }
+      try {
+        req.session.user = { email };
+      } catch(e) {
+        console.warn("[/good] session.user error:", e && e.message);
+      }
+      const nickToSet = obj.nick || email;
+      console.log("[/good] nick final:", nickToSet);
+      res.cookie('nick', nickToSet);
+      res.redirect('/');
     });
   });
 });
 
 app.get("/fallo", function(req, res) {
-  res.send({ nick: "nook" });
+  console.error("[/fallo] Redirigiendo, usuario no autenticado correctamente");
+  res.redirect('/');
 });
 
 app.get("/agregarUsuario/:nick", haIniciado, function(request, response) {
@@ -193,31 +217,55 @@ app.get('/salir', function(req, res){
 
 // One Tap: callback
 app.post('/oneTap/callback', (req, res, next) => {
-  console.log('[oneTap] callback recibido, body:', req.body);
+  console.log('[oneTap/callback] credential presente:', !!req.body.credential);
+  if (!req.body.credential) {
+    console.error('[oneTap] sin credential');
+    return res.redirect('/fallo');
+  }
+  
   passport.authenticate('google-one-tap', (err, user, info) => {
     if (err) {
-      console.error('[oneTap] error en authenticate:', err);
+      console.error('[oneTap] error:', err);
       return res.redirect('/fallo');
     }
     if (!user) {
-      console.warn('[oneTap] no user returned by strategy, info:', info);
+      console.warn('[oneTap] no user de strategy');
       return res.redirect('/fallo');
     }
-    // req.login establece la sesión
+    
     req.login(user, (loginErr) => {
       if (loginErr) {
-        console.error('[oneTap] req.login error:', loginErr);
+        console.error('[oneTap] login error:', loginErr);
         return res.redirect('/fallo');
       }
-      // Guardar cookie 'nick' y redirigir
-      try {
-        const email = user?.emails?.[0]?.value || (user && user.email);
-        if (email) res.cookie('nick', email);
-      } catch (e) {
-        console.warn('[oneTap] no se pudo setear cookie nick:', e.message);
+      
+      let email = null;
+      if (user.emails && Array.isArray(user.emails) && user.emails.length > 0) {
+        email = user.emails[0].value;
+      } else if (user.email) {
+        email = user.email;
       }
-      console.log('[oneTap] usuario autenticado, redirigiendo a /good, user:', user && (user.displayName || user.id || user.email));
-      return res.redirect('/good');
+      
+      const displayName = user.displayName || '';
+      
+      if (!email) {
+        console.error('[oneTap] sin email');
+        return res.redirect('/fallo');
+      }
+      
+      sistema.usuarioGoogle({ email, displayName }, function(obj) {
+        if (!obj || !obj.email) {
+          console.error('[oneTap] usuarioGoogle fallo');
+          return res.redirect('/fallo');
+        }
+        try {
+          req.session.user = { email };
+          res.cookie('nick', obj.nick || email);
+        } catch (e) {
+          console.warn('[oneTap] cookie error:', e.message);
+        }
+        return res.redirect('/');
+      });
     });
   })(req, res, next);
 });
@@ -267,20 +315,26 @@ app.post("/registrarUsuario", function(req, res){
       if (out && out.email && out.email !== -1){
         return send(201, { nick: out.email });
       } else {
-        return send(409, { nick: -1 });
+        // Devolver reason si existe para mejor feedback al cliente
+        const reason = (out && out.reason) || "unknown";
+        const errorMsg = reason === "email_ya_registrado" ? "El email ya está registrado" :
+                        reason === "nick_ya_registrado" ? "El nick ya está en uso" :
+                        reason === "nick_vacio" ? "El nick no puede estar vacío" :
+                        "No se ha podido registrar el usuario";
+        return send(409, { nick: -1, reason, error: errorMsg });
       }
     });
 
     setTimeout(() => {
       if (!responded){
         console.warn("[/registrarUsuario] SIN RESPUESTA tras 10s (posible cuelgue en modelo/CAD)");
-        send(504, { nick: -1, reason: "timeout" });
+        send(504, { nick: -1, reason: "timeout", error: "Tiempo de respuesta agotado" });
       }
     }, 10000);
 
   } catch (err) {
     console.error("[/registrarUsuario] EXCEPCIÓN sin capturar:", err);
-    send(500, { nick: -1 });
+    send(500, { nick: -1, error: "Error interno del servidor" });
   }
 });
 
@@ -340,22 +394,23 @@ app.post('/loginUsuario', function(req, res){
 
 app.get('/api/logs', async function(req, res) {
   const limit = Math.max(1, parseInt(req.query.limit, 10) || 100);
+  const email = (req.query.email || '').toLowerCase();
   try {
     const col = sistema && sistema.cad && sistema.cad.logs;
     if (!col) {
       throw new Error("Coleccion logs no disponible");
     }
-    const docs = await col.find({}, { maxTimeMS: 5000 }).sort({ "fecha-hora": -1 }).limit(limit).toArray();
+    const filtro = email ? { usuario: { $regex: new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } } : {};
+    const docs = await col.find(filtro, { maxTimeMS: 5000 }).sort({ "fecha-hora": -1 }).limit(limit).toArray();
     return res.status(200).json(docs);
   } catch (err) {
     console.error("[/api/logs] Error obteniendo logs:", err && err.message ? err.message : err);
     return res.status(500).json({ error: "Error al obtener logs" });
   }
 });
-
-
-
-// At startup, list a few client files to help diagnose missing static assets in production
+// ------------------------------------
+// Iniciar el servidor
+// ------------------------------------
 try {
   const clientDir = path.join(__dirname, 'client');
   const walkSync = (dir, filelist = []) => {
@@ -377,12 +432,24 @@ try {
   console.warn('[startup] no se pudo listar client/:', e && e.message);
 }
 
-httpServer.listen(PORT, () => {
-  console.log(`App está escuchando en el puerto ${PORT}`);
-  console.log("Ctrl+C para salir");
+function startServer(port){
+  try {
+    httpServer.listen(port, () => {
+      console.log(`App está escuchando en el puerto ${port}`);
+      console.log("Ctrl+C para salir");
+      ws.lanzarServidor(io, sistema);
+    });
+  } catch(e) {
+    if (e && e.code === 'EADDRINUSE'){
+      const next = (parseInt(port,10) || 3000) + 1;
+      console.warn(`[startup] Puerto ${port} en uso, intentando ${next}...`);
+      startServer(next);
+    } else {
+      throw e;
+    }
+  }
+}
 
-  // Aquí arrancas la capa de WebSockets, pasando io y sistema
-});
-ws.lanzarServidor(io, sistema);
+startServer(PORT);
 
 

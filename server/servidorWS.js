@@ -1,5 +1,13 @@
+const {
+  createInitialState,
+  applyAction,
+  ACTION_TYPES,
+} = require("./game/unoEngineMultiplayer");
+
+
 function ServidorWS() {
   let srv = this;
+  const estadosUNO = {};
 
   this.enviarAlRemitente = function(socket, mensaje, datos) {
     socket.emit(mensaje, datos);
@@ -63,13 +71,13 @@ function ServidorWS() {
           // Aseguramos que este socket está en la sala
           socket.join(codigo);
 
-          // 🔴 Enviar a TODOS los jugadores de la sala que la partida empieza
+          // Enviar a TODOS los jugadores de la sala que la partida empieza
           io.to(codigo).emit("partidaContinuada", {
             codigo: codigo,
             juego: datos.juego || "uno"
           });
 
-          // 🔴 Actualizar la lista para TODO el mundo
+          // Actualizar la lista para TODO el mundo
           // (si sistema.obtenerPartidasDisponibles ya filtra las "en curso",
           //   desaparecerá del listado como quieres)
           let lista = sistema.obtenerPartidasDisponibles(datos.juego);
@@ -84,12 +92,105 @@ function ServidorWS() {
       socket.on("eliminarPartida", function(datos) {
         let codigo = sistema.eliminarPartida(datos.email, datos.codigo);
 
+        if (codigo !== -1 && estadosUNO[codigo]) {
+          delete estadosUNO[codigo];
+          console.log("[UNO] engine eliminado para partida", codigo);
+        }
+
         srv.enviarAlRemitente(socket, "partidaEliminada", { codigo: codigo });
 
         let lista = sistema.obtenerPartidasDisponibles(datos.juego);
         srv.enviarGlobal(io, "listaPartidas", lista);
       });
+      // ==========================
+      //  UNO MULTIJUGADOR (WS)
+      // ==========================
+
+      // Cuando el juego UNO (en /uno) se conecta
+      socket.on("uno:suscribirse", function(datos) {
+        const codigo = datos && datos.codigo;
+        const email  = datos && datos.email;
+        if (!codigo || !email) {
+          console.warn("[UNO] suscribirse sin codigo o email");
+          return;
+        }
+
+        const partida = sistema.partidas[codigo];
+        if (!partida) {
+          console.warn("[UNO] partida no encontrada", codigo);
+          return;
+        }
+        if (partida.juego !== "uno") {
+          console.warn("[UNO] la partida no es de UNO", codigo, partida.juego);
+          return;
+        }
+
+        // Si aún no hemos creado el engine para esta partida, lo creamos
+        if (!estadosUNO[codigo]) {
+          const names = partida.jugadores.map(j => j.email);
+          estadosUNO[codigo] = {
+            engine: createInitialState({
+              numPlayers: names.length,
+              names,
+            }),
+          };
+          console.log("[UNO] engine creado para partida", codigo);
+        }
+
+        // Este socket entra en la room de la partida
+        socket.join(codigo);
+
+        // Mandamos estado actual de la partida UNO a todos los jugadores
+        io.to(codigo).emit("uno:estado", {
+          codigo,
+          engine: estadosUNO[codigo].engine,
+        });
+      });
+
+      // Cuando un jugador realiza una acción en el UNO
+      socket.on("uno:accion", function(datos) {
+        const codigo = datos && datos.codigo;
+        const email  = datos && datos.email;
+        const action = datos && datos.action;
+        if (!codigo || !email || !action) {
+          console.warn("[UNO] accion con datos incompletos", datos);
+          return;
+        }
+
+        const partida = sistema.partidas[codigo];
+        const datosUNO = estadosUNO[codigo];
+        if (!partida || !datosUNO) {
+          console.warn("[UNO] partida o engine no encontrados", codigo);
+          return;
+        }
+        if (partida.juego !== "uno") {
+          console.warn("[UNO] partida no es de UNO al recibir accion", codigo);
+          return;
+        }
+
+        // Buscamos el índice del jugador según el Sistema
+        const playerIndex = partida.jugadores.findIndex(
+          j => j.email.toLowerCase() === email.toLowerCase()
+        );
+        if (playerIndex === -1) {
+          console.warn("[UNO] jugador no pertenece a la partida", email, codigo);
+          return;
+        }
+
+        // Inyectamos playerIndex en la acción y aplicamos el engine
+        const fullAction = { ...action, playerIndex };
+        const newEngine = applyAction(datosUNO.engine, fullAction);
+        datosUNO.engine = newEngine;
+
+        // Broadcast del nuevo estado a todos los sockets de la partida
+        io.to(codigo).emit("uno:estado", {
+          codigo,
+          engine: datosUNO.engine,
+        });
+      });
+
     });
+
   };
 }
 

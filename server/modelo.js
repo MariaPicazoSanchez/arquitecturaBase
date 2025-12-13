@@ -14,13 +14,24 @@ function Sistema() {
 
   this.cad = new datos.CAD();
 
-  this._obtenerOcrearUsuarioEnMemoria = function(email) {
+  this._obtenerOcrearUsuarioEnMemoria = function(email, nick) {
     const e = normalizarEmail(email);
     if (!e) {
       return null;
     }
     if (!this.usuarios[e]) {
-      this.usuarios[e] = new Usuario(e);
+      // Si no se proporciona nick, intentar obtenerlo de la BD o usar el email
+      const nickFinal = nick || e;
+      this.usuarios[e] = new Usuario(e, nickFinal);
+      
+      // Si no se proporcionó nick, intentar buscarlo en BD de forma asíncrona
+      if (!nick) {
+        this.cad.buscarUsuario({ email: e }, (usr) => {
+          if (usr && usr.nick && this.usuarios[e]) {
+            this.usuarios[e].nick = usr.nick;
+          }
+        });
+      }
     }
     return this.usuarios[e];
   };
@@ -51,9 +62,26 @@ function Sistema() {
       return -1;
     }
 
+    // Si el nick del usuario aún es su email (carga perezosa), intenta resolverlo desde BD
+    if (usuario.nick === email && this.cad && typeof this.cad.buscarUsuario === "function") {
+      try {
+        this.cad.buscarUsuario({ email }, (usr) => {
+          if (usr && usr.nick) {
+            usuario.nick = usr.nick;
+          }
+        });
+      } catch (e) {
+        // si falla, seguimos con el mejor esfuerzo
+      }
+    }
+
     let codigo = this.obtenerCodigo();
 
-    let p = new Partida(codigo, email, juego);
+    // Usar el nick del usuario como propietario (si no disponible, caer a email)
+    let propietarioVisible = usuario.nick || email;
+    let p = new Partida(codigo, propietarioVisible, juego);
+    // Guardar también el email para validaciones
+    p.propietarioEmail = email;
 
     p.jugadores.push(usuario);
     this.partidas[codigo] = p;
@@ -103,7 +131,7 @@ function Sistema() {
       this.registrarActividad("continuarPartidaFallido", email);
       return -1;
     }
-    if (normalizarEmail(partida.propietario) !== email) {
+    if (normalizarEmail(partida.propietarioEmail || partida.propietario) !== email) {
       console.log("Solo el propietario puede continuar su partida");
       this.registrarActividad("continuarPartidaFallido", email);
       return -1;
@@ -187,9 +215,10 @@ function Sistema() {
     }
     for (let codigo in this.partidas) {
       let p = this.partidas[codigo];
-      const esPropietario = (normalizarEmail(p.propietario) === email);
+      const esPropietario = (normalizarEmail(p.propietarioEmail || p.propietario) === email);
       const estaComoJugador = p.jugadores.some(j => normalizarEmail(j.email) === email);
       if (esPropietario || estaComoJugador) {
+        // Devolver el nick como propietario para mostrar
         lista.push({ codigo: p.codigo, propietario: p.propietario, esPropietario });
       }
     }
@@ -237,7 +266,7 @@ function Sistema() {
   this.usuarioGoogle = function (usr, callback) {
     this.cad.buscarOCrearUsuario(usr, function (obj) {
       if (obj && obj.email) {
-        this._obtenerOcrearUsuarioEnMemoria(obj.email);
+        this._obtenerOcrearUsuarioEnMemoria(obj.email, obj.nick);
         this.registrarActividad("inicioGoogle", obj.email);
       } else {
         this.registrarActividad("usuarioGoogleFallido", usr ? usr.email : null);
@@ -253,15 +282,21 @@ function Sistema() {
     console.log("[modelo.registrarUsuario] entrada:", obj);
     let modelo = this;
 
-    if (!obj || !obj.email || !obj.password) {
+    if (!obj || !obj.email || !obj.password || !obj.nick) {
       console.warn("[modelo.registrarUsuario] datos inválidos");
       modelo.registrarActividad("registrarUsuarioFallido", obj ? obj.email : null);
       callback({ email: -1 });
       return;
     }
 
-    if (!obj.nick) obj.nick = obj.email;
+    // Normalizar nick a formato visible (letras, números y guiones bajos)
+    obj.nick = String(obj.nick).trim();
+    if (!obj.nick) {
+      callback({ email: -1, reason: "nick_vacio" });
+      return;
+    }
 
+    // Comprobar duplicados por email
     this.cad.buscarUsuario({ email: obj.email }, function (usr) {
       console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr);
       if (usr) {
@@ -270,6 +305,15 @@ function Sistema() {
         callback({ email: -1, reason: "email_ya_registrado" });
         return;
       }
+
+      // Comprobar duplicados por nick
+      modelo.cad.buscarUsuario({ nick: obj.nick }, function (usrNick) {
+        if (usrNick) {
+          console.warn("[modelo.registrarUsuario] nick duplicado:", obj.nick);
+          modelo.registrarActividad("registrarUsuarioFallido", obj.email);
+          callback({ email: -1, reason: "nick_ya_registrado" });
+          return;
+        }
 
       const key = Date.now().toString();
 
@@ -296,6 +340,8 @@ function Sistema() {
 
         callback(res);
       });
+    });
+    // cierre de la búsqueda por email
     });
   };
 
@@ -360,7 +406,7 @@ function Sistema() {
       // Comparación con hash
       const ok = bcrypt.compareSync(obj.password, usr.password);
       if (ok) {
-        modelo._obtenerOcrearUsuarioEnMemoria(usr.email);
+        modelo._obtenerOcrearUsuarioEnMemoria(usr.email, usr.nick);
         modelo.registrarActividad("inicioLocal", usr.email);
         callback(usr);
       } else {
@@ -417,9 +463,9 @@ function getMaxJugPorJuego(juego) {
 }
 
 
-function Usuario(nick) {
-  this.nick = nick;
-  this.email = nick;
+function Usuario(email, nick) {
+  this.email = email;
+  this.nick = nick || email;
 }
 
 function Partida(codigo, propietario, juego, maxJug) {

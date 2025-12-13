@@ -8,7 +8,7 @@ import {
   getPlayableCards,
   getNextPlayerIndex,
   COLORS,
-} from '../game/unoEngineMultiplayer'; // o el engine que estés usando
+} from '../../../../../server/game/unoEngineMultiplayer';
 
 export default function UnoGame() {
   // Estado principal del juego (modo 1 vs Bot)

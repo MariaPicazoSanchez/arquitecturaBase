@@ -1,7 +1,7 @@
 // ====== Configuración de cartas ======
 
-export const COLORS = ['red', 'green', 'blue', 'yellow'];
-export const VALUES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+const COLORS = ['red', 'green', 'blue', 'yellow'];
+const VALUES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 // Especiales con color
 const SPECIAL_COLOR_VALUES = ['skip', '+2', 'reverse'];
@@ -9,7 +9,7 @@ const SPECIAL_COLOR_VALUES = ['skip', '+2', 'reverse'];
 // Especiales sin color (comodines)
 const COLORLESS_VALUES = ['wild', '+4']; // wild = cambio de color, +4 = roba cuatro
 
-export const ACTION_TYPES = {
+const ACTION_TYPES = {
   PLAY_CARD: 'PLAY_CARD',
   DRAW_CARD: 'DRAW_CARD',
   CALL_UNO: 'CALL_UNO',
@@ -63,7 +63,7 @@ function shuffle(array) {
 
 // ====== Reglas básicas ======
 
-export function canPlayCard(card, topCard) {
+function canPlayCard(card, topCard) {
   if (!card || !topCard) return false;
   // comodines (wild y +4) siempre se pueden jugar
   if (card.color === 'wild') return true;
@@ -73,7 +73,7 @@ export function canPlayCard(card, topCard) {
 
 // ====== Estado inicial ======
 
-export function createInitialState({ numPlayers = 2, names = [] } = {}) {
+function createInitialState({ numPlayers = 2, names = [] } = {}) {
   if (numPlayers < 2) {
     throw new Error('UNO necesita al menos 2 jugadores.');
   }
@@ -137,11 +137,11 @@ function cloneState(state) {
   };
 }
 
-export function getTopCard(state) {
+function getTopCard(state) {
   return state.discardPile[state.discardPile.length - 1] ?? null;
 }
 
-export function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, steps = 1) {
+function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, steps = 1) {
   const n = state.players.length;
   let idx = fromIndex;
   for (let i = 0; i < steps; i++) {
@@ -152,7 +152,7 @@ export function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, 
 
 // ====== Acciones ======
 
-export function applyAction(state, action) {
+function applyAction(state, action) {
   if (state.status !== 'playing') {
     return state;
   }
@@ -304,14 +304,26 @@ function applyCallUno(state, action) {
 
 // ====== Helpers para UI / IA ======
 
-export function getPlayableCards(state, playerIndex) {
+function getPlayableCards(state, playerIndex) {
   if (playerIndex !== state.currentPlayerIndex) return [];
   const player = state.players[playerIndex];
   const top = getTopCard(state);
   return player.hand.filter((c) => canPlayCard(c, top));
 }
 
-export function getTurnInfo(state) {
+function getTurnInfo(state) {
+  module.exports = {
+    COLORS,
+    VALUES,
+    ACTION_TYPES,
+    canPlayCard,
+    createInitialState,
+    getTopCard,
+    getNextPlayerIndex,
+    applyAction,
+    getPlayableCards,
+    getTurnInfo,
+  };
   const playerIndex = state.currentPlayerIndex;
   const player = state.players[playerIndex];
   const playableCards = getPlayableCards(state, playerIndex);

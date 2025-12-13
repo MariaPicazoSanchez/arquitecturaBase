@@ -115,26 +115,39 @@ function buscarOCrear(coleccion, criterio, callback) {
     callback({ email: criterio.email });
     return;
   }
+  
+  // Generar nick automático si no existe
+  if (!criterio.nick && criterio.email) {
+    if (criterio.displayName) {
+      // Usar displayName: quitar espacios, convertir a minúsculas, añadir números aleatorios
+      const baseName = criterio.displayName.toLowerCase().replace(/\s+/g, '');
+      criterio.nick = baseName + Math.floor(Math.random() * 1000);
+    } else {
+      // Usar la parte antes del @ del email
+      const emailPart = criterio.email.split('@')[0];
+      criterio.nick = emailPart + Math.floor(Math.random() * 1000);
+    }
+  }
+  
   coleccion.findOneAndUpdate(
-    criterio,
+    { email: criterio.email },
     { $set: criterio },
     {
       upsert: true,
       returnDocument: "after",
-      projection: { email: 1 },
+      projection: { email: 1, nick: 1 },
       maxTimeMS: 4000,
-    },
-    function (err, doc) {
-      if (err) {
-        console.error("[cad.buscarOCrear] error:", err.message);
-        callback(undefined);
-        return;
-      }
-      const email = doc && doc.value ? doc.value.email : undefined;
-      console.log("[cad.buscarOCrear] actualizado:", email);
-      callback(email ? { email } : undefined);
     }
-  );
+  ).then((result) => {
+    console.log("[cad.buscarOCrear] result structure:", { hasValue: !!result.value, isDoc: !!result.ok });
+    const doc = result.value || result;
+    const res = doc && doc.email ? { email: doc.email, nick: doc.nick } : undefined;
+    console.log("[cad.buscarOCrear] actualizado:", res);
+    callback(res);
+  }).catch((err) => {
+    console.error("[cad.buscarOCrear] error:", err.message);
+    callback(undefined);
+  });
 }
 
 function buscar(col, criterio, cb) {

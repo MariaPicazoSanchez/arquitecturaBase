@@ -112,12 +112,12 @@ function ClienteRest() {
     }
 
 
-    this.registrarUsuario = function(email, password){
+    this.registrarUsuario = function(email, password, nick){
         console.log("[cliente] Iniciando registro para:", email);
         $.ajax({
             type: 'POST',
             url: '/registrarUsuario',
-            data: JSON.stringify({ email: email, password: password }),
+            data: JSON.stringify({ email: email, password: password, nick: nick }),
             contentType: 'application/json',
             dataType: 'json',
             
@@ -128,21 +128,29 @@ function ClienteRest() {
                     cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
                     cw.mostrarLogin({ email, keepMessage: true });
                 } else {
-                    console.log("[cliente] Registro fallido (duplicado?):", email);
-                    cw.mostrarModal("No se ha podido registrar el usuario");
+                    console.log("[cliente] Registro fallido:", data);
+                    const errorMsg = data.error || "No se ha podido registrar el usuario";
+                    cw.mostrarModal(errorMsg);
                 }
             },
-            error: function(xhr){
-                console.log("[cliente] ERROR status:", xhr.status, "resp:", xhr.responseText);
-                if (xhr && xhr.status === 409){
-                    cw.mostrarModal("No se ha podido registrar el usuario");
-                } else if (xhr && xhr.status === 504){
-                    cw.mostrarAviso("Timeout del servidor registrando usuario.", "error");
-                    cw.mostrarModal("Error inesperado al registrar el usuario (" + xhr.status + ")");
-                } else {
-                    cw.mostrarAviso("Se ha producido un error al registrar el usuario.", "error");
-                    cw.mostrarModal("Error inesperado al registrar el usuario (" + xhr.status + ")");
+            error: function(xhr, status, error){
+                console.log("[cliente] ERROR status:", xhr.status, "responseText:", xhr.responseText);
+                let errorMsg = "Error al registrar el usuario";
+                
+                // Intentar parsear el JSON de la respuesta de error
+                try {
+                    if (xhr.responseText) {
+                        const resp = JSON.parse(xhr.responseText);
+                        console.log("[cliente] Parsed error response:", resp);
+                        if (resp && resp.error) {
+                            errorMsg = resp.error;
+                        }
+                    }
+                } catch(e) {
+                    console.log("[cliente] No se pudo parsear responseText:", e.message);
                 }
+                
+                cw.mostrarModal(errorMsg);
             },
             complete: function(xhr, textStatus){
                 console.log("[cliente] COMPLETE:", textStatus, "status:", xhr.status);
@@ -184,6 +192,26 @@ function ClienteRest() {
                     cw.mostrarModal("Error inesperado al iniciar sesión (" + (xhr && xhr.status) + ")");
                 }
             }        
+        });
+    };
+    
+    // Obtener registro de actividad del usuario
+    this.obtenerActividad = function(email){
+        const params = $.param({ email: email, limit: 200 });
+        $.ajax({
+            url: '/api/logs?' + params,
+            method: 'GET',
+            dataType: 'json',
+            success: function(logs){
+                if (window.cw && typeof cw.mostrarActividadListado === 'function'){
+                    cw.mostrarActividadListado(logs || []);
+                }
+            },
+            error: function(){
+                if (window.cw){
+                    cw.mostrarAviso('No se pudo obtener el registro de actividad', 'error');
+                }
+            }
         });
     };
     
