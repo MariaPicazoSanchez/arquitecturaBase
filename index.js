@@ -350,7 +350,14 @@ app.get("/confirmarUsuario/:email/:key", (req, res) => {
     if (usr && usr.email && usr.email !== -1) {
       console.log("[/confirmarUsuario] confirmación exitosa para:", usr.email);
       req.session.user = { email: usr.email };
-      res.cookie('nick', usr.email);
+      // res.cookie('nick', usr.email);
+      res.cookie('nick', usr.email, {
+        path: '/',
+        httpOnly: false,
+        sameSite: 'lax',
+        secure: IN_PROD,
+        maxAge: 24 * 60 * 60 * 1000
+      });
     } else {
       console.log("[/confirmarUsuario] confirmación fallida:", usr);
     }
