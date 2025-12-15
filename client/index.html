@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Gestión de Usuarios</title>
+  <!-- <title>Ignition</title> -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28'/%3E%3Ctext x='32' y='38' font-size='28' text-anchor='middle' fill='white'%3EA%3C/text%3E%3C/svg%3E">
@@ -10,6 +10,8 @@
 
   <!-- Bootstrap -->
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+  <!-- Tema Ignition -->
+  <link rel="stylesheet" href="css/ignition.css">
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
@@ -25,37 +27,71 @@
   <div id="onetap-status" style="font:12px/1.2 sans-serif; color:#666; margin-top:8px;"></div>
 
 
-  <!-- Incluir Popper.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
+  <!-- Socket.IO -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="./clienteWS.js"></script>
 
   <!-- Tus scripts -->
   <script src="./clienteRest.js"></script>
   <script src="./controlWeb.js"></script>
 </head>
 <body>
-  <nav class="navbar navbar-expand-sm bg-dark navbar-dark">
-    <!-- Brand/logo -->
-    <a class="navbar-brand" href="#">Usuario</a>
+  <nav class="navbar navbar-expand-sm">
+    <div class="container-fluid d-flex align-items-center justify-content-between" style="padding-top:0.25rem; padding-bottom:0.25rem;">
+      <!-- Logo a la izquierda -->
+      <a class="navbar-brand d-flex align-items-center" href="index.html" style="gap:10px; padding:0;">
+        <img src="img/LogoTR.png" alt="Table Room Logo" style="height:64px; width:auto; margin-right:8px;" class="tableroom-logo" />
+      </a>
+      <!-- Título centrado -->
+      <div class="flex-grow-1 d-flex justify-content-center">
+        <a href="index.html" class="tableroom-title" style="font-weight:800; font-size:2rem; color:var(--primary); text-decoration:none;">Table Room</a>
+      </div>
+      <!-- Botones y menú a la derecha -->
+      <div class="d-flex align-items-center">
+        <!-- Aquí van los botones y menú existentes -->
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navCollapse" aria-controls="navCollapse" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"><span class="bar"></span><span class="bar"></span><span class="bar"></span></span>
+        </button>
+      </div>
+
+      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navCollapse" aria-controls="navCollapse" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"><span class="bar"></span><span class="bar"></span><span class="bar"></span></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navCollapse">
 
     <!-- Links -->
+    <!--
     <ul class="navbar-nav">
-        <li class="nav-item">
-            <a class="nav-link" href="#" id="menuAgregarUsuario">AgregarUsuario</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" id="menuListarUsuarios">Listar Usuarios</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" id="">Link 3</a>
-        </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" id="menuAgregarUsuario">AgregarUsuario</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" id="menuListarUsuarios">Listar Usuarios</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" id="">Link 3</a>
+      </li>
     </ul>
+    -->
+        <ul class="navbar-nav ml-auto">
+          <li class="nav-item mr-2">
+            <a class="nav-link nav-link-pill" href="#" id="menuHelp">Ayuda</a>
+          </li>
+          <li class="nav-item">
+            <button type="button" class="btn btn-ignition" id="menuIniciarSesion">Iniciar sesión</button>
+          </li>
+        </ul>
+      </div>
+    </div>
   </nav>
 
 
-  <div class="container mt-4">
-      <h1 class="mb-3">Gestión de Usuarios</h1>
-      <div id="au"></div>
-  </div>
+  <!-- <div class="container mt-4"> -->
+      <!-- <h1 class="mb-3">Ignition</h1> -->
+      <!-- <div id="au"></div> -->
+  <!-- </div> -->
+   <div class="espacio" style="margin-top: 4em;"></div>
   <!-- One Tap: configuración -->
   <script src="/config.js"></script>
   <script>
@@ -99,10 +135,7 @@
         setTimeout(initGIS, 100);
       }
     })();
-  </script>
-  
 
-  <script>
     window.rest = new ClienteRest();
     window.cw = new ControlWeb();
     
@@ -117,14 +150,260 @@
             cw.mostrarListaUsuarios();
         });
 
+        $('#menuIniciarSesion').click(function() {
+          cw.mostrarLogin();
+        });
+      window.cwSocket = new ClienteWS();
+      window.ws = window.cwSocket;
+
+      // Selector de juego: cuando el usuario pulsa UNO / 4 en raya / etc.
+      $(document).on('click', '.btn-juego', function() {
+        const juego = $(this).data('juego');
+        if (!juego) return;
+        if (window.cw && typeof cw.seleccionarJuego === "function") {
+          cw.seleccionarJuego(juego);
+        }
+      });
+
+
+      // Botones del panel de partidas
+      $('#btn-crear-partida').on('click', function() {
+        if (ws && ws.crearPartida) {
+          ws.crearPartida();
+        }
+      });
+
+
+      $('#btn-unirse-partida').on('click', function() {
+        const codigo = ($('#codigo-unirse').val() || '').trim();
+        if (!codigo){
+          cw.mostrarAviso('Introduce un codigo para unirte', 'error');
+          return;
+        }
+        if (ws && ws.unirAPartida) {
+          ws.unirAPartida(codigo);
+        }
+      });
+
+      $('#codigo-unirse').on('keypress', function(e){
+        if (e.which === 13){
+          $('#btn-unirse-partida').click();
+        }
+      });
+
+      $('#tbody-partidas').on('click', '.btn-continuar', function() {
+        const codigo = $(this).data('codigo');
+        if (ws && ws.continuarPartida) {
+          ws.continuarPartida(codigo);
+        }
+      });
+
+      $('#tbody-partidas').on('click', '.btn-eliminar', function() {
+        const codigo = $(this).data('codigo');
+        if (ws && ws.eliminarPartida) {
+          ws.eliminarPartida(codigo);
+        }
+      });
+
+      // Handler para botón Unirse en la tabla
+      $('#tbody-partidas').on('click', '.btn-unirse', function() {
+        const codigo = $(this).data('codigo');
+        console.log('[UI] Click en Unirse, código:', codigo);
+        if (ws && ws.unirAPartida) {
+          ws.unirAPartida(codigo);
+        }
+      });
+
+      $('#tbody-partidas').on('click', '.btn-copiar-codigo', function() {
+        const codigo = $(this).data('codigo');
+        if (!codigo) return;
+        if (navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(codigo).then(function(){
+            cw.mostrarAviso('Codigo copiado', 'success');
+          }).catch(function(){
+            cw.mostrarAviso('No se pudo copiar el codigo', 'error');
+          });
+        } else {
+          const $tmp = $('<input>').val(codigo).appendTo('body');
+          $tmp[0].select();
+          document.execCommand('copy');
+          $tmp.remove();
+          cw.mostrarAviso('Codigo copiado', 'success');
+        }
+      });
     });
+
+    // Botón "← Volver a las partidas" en la vista de juego
+    $(document).on("click", "#btn-volver-juegos", function(){
+        if (window.cw && typeof cw.volverDesdeJuego === "function") {
+            cw.volverDesdeJuego();
+        }
+    });
+
+    // Botón "Pantalla completa" del juego
+    $(document).on("click", "#btn-fullscreen-juego", function () {
+      // Usamos el contenedor del juego (no solo el iframe)
+      const wrapper = document.querySelector(".uno-game-wrapper");
+      if (!wrapper) return;
+
+      // Si no estamos en fullscreen, entramos
+      if (!document.fullscreenElement) {
+        if (wrapper.requestFullscreen) {
+          wrapper.requestFullscreen();
+        } else if (wrapper.webkitRequestFullscreen) {
+          wrapper.webkitRequestFullscreen(); // Safari
+        } else if (wrapper.msRequestFullscreen) {
+          wrapper.msRequestFullscreen();     // IE/Edge antiguos
+        }
+      } else {
+        // Si ya estamos en fullscreen, salimos
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+        }
+      }
+    });
+
   </script>
 
-  <div class="container">
+  <div class="container" id="mainContent">
     <div id="au"></div>
     <div id="registro"></div>
     <div id="msg"></div>
   </div>
+  <!-- Selector de juegos (se muestra tras el login) -->
+  <div class="container mt-4" id="selector-juegos" style="display:none;">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Elige un juego</h5>
+        <div class="btn-group" role="group" aria-label="Selector de juego">
+          <button class="btn btn-outline-primary btn-juego" data-juego="uno">
+            Última carta
+          </button>
+          <button class="btn btn-outline-secondary btn-juego" data-juego="4raya" disabled>
+            4 en raya
+          </button>
+          <button class="btn btn-outline-secondary btn-juego" data-juego="hundir" disabled>
+            Hundir la flota
+          </button>
+        </div>
+        <small class="text-muted d-block mt-2">
+          (Por ahora solo está activo Última carta.)
+        </small>
+      </div>
+    </div>
+  </div>
+  <!-- Panel de partidas -->
+  <div class="container mt-4" id="panel-partidas" style="display:none;">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 id="titulo-partidas-juego" class="card-title mb-3">
+          Partidas de Última carta
+        </h5>
 
+        <!-- Botones crear / unirse -->
+        <div class="d-flex flex-wrap align-items-center mb-3">
+          <button id="btn-crear-partida" class="btn btn-primary mr-2 mb-2">
+            Crear partida
+          </button>
+
+          <div class="form-inline mb-2">
+            <label for="codigo-unirse" class="mr-2">Código:</label>
+            <input id="codigo-unirse"
+                   class="form-control mr-2"
+                   placeholder="Introduce código">
+            <button id="btn-unirse-partida"
+                    class="btn btn-outline-secondary">
+              Unirse
+            </button>
+          </div>
+        </div>
+
+        <!-- Tabla de partidas -->
+        <div class="table-responsive">
+          <table class="table table-sm table-hover">
+            <thead>
+              <tr>
+                <th>Partida</th>
+                <th class="text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-partidas">
+              <!-- Aquí pinta cw.pintarPartidas() -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Zona donde se incrusta el juego seleccionado (UNO, etc.) -->
+  <div class="container-fluid mt-4" id="zona-juego" style="display:none;">
+    <div class="card shadow-sm">
+      <div class="card-body">
+
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 id="titulo-juego-actual" class="card-title mb-0">
+            Juego: Última carta
+          </h5>
+          <button id="btn-volver-juegos" class="btn btn-outline-secondary btn-sm">
+            ← Volver a las partidas
+          </button>
+        </div>
+
+        <div class="uno-game-wrapper mt-2">
+          <iframe
+            id="iframe-juego"
+            class="uno-game-iframe"
+            src=""
+            allowfullscreen>
+          </iframe>
+
+          <!-- Botón pantalla completa abajo a la derecha -->
+          <button
+            id="btn-fullscreen-juego"
+            class="btn btn-dark btn-sm uno-fullscreen-btn"
+            title="Pantalla completa">
+            ⛶
+          </button>
+        </div>
+
+
+      </div>
+    </div>
+  </div>
+
+
+
+
+  <!-- Modal genérico de la app -->
+  <div class="modal" id="miModal">
+    <div class="modal-dialog">
+      <div class="modal-content">
+
+        <!-- Cabecera del modal -->
+        <div class="modal-header">
+          <h5 class="modal-title">Atención</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+
+        <!-- Cuerpo del modal -->
+        <div class="modal-body" id="mBody">
+
+        </div>
+
+        <!-- Pie del modal -->
+        <div class="modal-footer">
+          <button type="button" class="btn btn-danger" data-dismiss="modal">Cerrar</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
 </body>
 </html>

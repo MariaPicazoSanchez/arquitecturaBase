@@ -1,0 +1,383 @@
+.partida-card-row {
+  background: #dbe2ef;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(24,28,47,0.08);
+  margin-bottom: 14px;
+  padding: 18px 22px;
+  color: #222F3E;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Eliminar cualquier hover/sombra en la tarjeta de partida */
+/* .partida-card-row:hover {
+  box-shadow: 0 1px 4px rgba(24,28,47,0.08) !important;
+  background: #dbe2ef !important;
+  /* Sin sombra ni efecto */
+  /* }*/
+.partida-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.partida-codigo {
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 1px;
+  background: #232946;
+  border-radius: 8px;
+  padding: 2px 10px;
+  margin-right: 8px;
+  color: #F7B731;
+  display: inline-block;
+}
+.partida-acciones {
+  display: flex;
+  gap: 10px;
+}
+.btn-jugar {
+  background: #27ae60;
+  color: #fff !important;
+  border: none;
+  border-radius: 7px;
+  padding: .5rem 1.2rem;
+  font-weight: 700;
+  font-size: 1rem;
+  box-shadow: 0 2px 8px rgba(39,174,96,0.13);
+  transition: background .15s, box-shadow .15s, transform .12s;
+}
+.btn-jugar:hover {
+  background: #219150;
+  box-shadow: 0 4px 16px rgba(39,174,96,0.22);
+  transform: translateY(-2px);
+}
+.btn-eliminar {
+  background: #e74c3c;
+  color: #fff !important;
+  border: none;
+  border-radius: 7px;
+  padding: .5rem 1.2rem;
+  font-weight: 700;
+  font-size: 1rem;
+  box-shadow: 0 2px 8px rgba(231,76,60,0.13);
+  transition: background .15s, box-shadow .15s, transform .12s;
+}
+.btn-eliminar:hover {
+  background: #c0392b;
+  box-shadow: 0 4px 16px rgba(231,76,60,0.22);
+  transform: translateY(-2px);
+}
+
+ :root {
+  --bg-main: #e5e9f2;
+  --primary: #3B3B98;
+  --secondary: #F7B731;
+  --danger: #e74c3c;
+  --danger-hover: #c0392b;
+  --text-main: #222F3E;
+  --text-light: #fff;
+  --btn-hover: #575fcf;
+  --card-bg: #f8f9fb;
+  --input-bg: #f4f6fa;
+  --input-border: #bfc9d1;
+.btn-salir, .btn-danger {
+  background: var(--danger);
+  color: var(--text-light) !important;
+  border: none;
+  border-radius: 8px;
+  padding: .5rem 1.2rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(231,76,60,0.08);
+  transition: background .15s, box-shadow .15s, transform .12s;
+}
+.btn-salir:hover, .btn-danger:hover {
+  background: var(--danger-hover);
+  color: var(--text-light) !important;
+  box-shadow: 0 4px 16px rgba(231,76,60,0.12);
+  transform: translateY(-2px);
+}
+}
+
+/* Page background */
+body {
+  background: var(--bg-main);
+  color: var(--text-main);
+  font-family: 'Segoe UI', Inter, Arial, sans-serif;
+  min-height: 100vh;
+}
+
+/* Bright brand */
+.ignition-brand{
+  color: var(--accent-2);
+  text-shadow: 0 4px 24px rgba(0,212,255,0.12), 0 0 8px rgba(255,0,122,0.06);
+  font-weight:700;
+}
+
+/* Navbar style */
+
+.navbar {
+  background: #fff;
+  border-bottom: 1px solid #e3e3e3;
+  box-shadow: 0 2px 8px rgba(34,47,62,0.03);
+  padding: 0.25rem 1.2rem;
+}
+.navbar .navbar-brand {
+  color: var(--primary) !important;
+  font-weight: 800;
+  font-size: 1.5rem;
+  letter-spacing: 1px;
+  margin: 0 auto;
+  display: block;
+  text-align: center;
+}
+.ignition-logo { display: none !important; }
+
+@media (max-width: 576px) {
+  .ignition-logo{ width:40px; height:40px; margin-right:8px; }
+  .ignition-brand{ font-size:1rem; }
+  .btn-ignition{ padding: .3rem .65rem; }
+}
+.navbar .nav-link{ color: var(--accent-2) !important; }
+
+/* Containers / cards */
+.container, .card{
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border-radius: 12px;
+  padding: 18px;
+}
+
+/* Headings */
+h1, h2, h3 { color: var(--primary); }
+
+/* Buttons with neon effect */
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--text-light);
+  border: none;
+  border-radius: 8px;
+  padding: .5rem 1.2rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(59,59,152,0.08);
+  transition: background .15s, box-shadow .15s, transform .12s;
+}
+.btn-primary:hover {
+  background: var(--btn-hover);
+  box-shadow: 0 4px 16px rgba(59,59,152,0.12);
+  transform: translateY(-2px);
+}
+.btn-outline-primary {
+  color: var(--primary);
+  border: 1.5px solid var(--primary);
+  background: transparent;
+  border-radius: 8px;
+  padding: .45rem 1.1rem;
+  transition: background .12s, color .12s;
+}
+.btn-outline-primary:hover {
+  background: var(--primary);
+  color: var(--text-light);
+}
+
+/* Form controls */
+
+.form-control {
+  background: var(--input-bg);
+  border: 1.5px solid var(--input-border);
+  color: var(--text-main);
+  box-shadow: none;
+}
+.form-control::placeholder { color: #8a8a8a; }
+
+/* Small glowing accent */
+.accent-glow{ text-shadow: 0 4px 18px rgba(0,212,255,0.08); }
+
+/* Footer / small text */
+  /* background: #232946;
+  border-radius: 12px;
+  padding: 18px;
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(34,47,70,0.10); */
+
+.ignition-title, .tableroom-title {
+  display: block;
+  text-align: center;
+  font-weight: 800;
+  color: var(--primary);
+  font-size: 2rem;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 8px rgba(59,59,152,0.08);
+}
+
+.tableroom-logo {
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+/* Botón Ignition para navbar */
+
+
+.btn-ignition {
+  background: var(--secondary);
+
+/* Botón Eliminar (rojo) y Jugar (azul) con mismo formato base */
+.btn-eliminar {
+  background: #c0392b;
+  color: #fff !important;
+  border: none;
+  border-radius: 8px;
+  padding: .5rem 1.2rem;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(192,57,43,0.18);
+  transition: background .15s, box-shadow .15s, transform .12s;
+}
+.btn-eliminar:hover {
+  background: #922b21;
+  color: #fff !important;
+  box-shadow: 0 4px 16px rgba(192,57,43,0.22);
+  transform: translateY(-2px);
+}
+.btn-jugar {
+  background: #3B3B98;
+  color: #fff !important;
+  border: none;
+  border-radius: 8px;
+  padding: .5rem 1.2rem;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(59,59,152,0.18);
+  transition: background .15s, box-shadow .15s, transform .12s;
+}
+.btn-jugar:hover {
+  background: #232946;
+  color: #fff !important;
+  box-shadow: 0 4px 16px rgba(59,59,152,0.22);
+  transform: translateY(-2px);
+}
+
+/* Botón Salir (cerrar sesión) negro */
+.btn-salir, .btn-logout {
+  background: #181818;
+  color: #fff !important;
+  border: none;
+  border-radius: 8px;
+  padding: .5rem 1.2rem;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(24,24,24,0.18);
+  transition: background .15s, box-shadow .15s, transform .12s;
+}
+.btn-salir:hover, .btn-logout:hover {
+  background: #000;
+  color: #fff !important;
+  box-shadow: 0 4px 16px rgba(24,24,24,0.22);
+  transform: translateY(-2px);
+}
+  color: var(--primary);
+  border-radius: 24px;
+  padding: .35rem .85rem;
+  border: none;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(247,183,49,0.08);
+  transition: background .15s, color .15s;
+}
+.btn-ignition:hover {
+  background: var(--primary);
+  color: var(--text-light);
+}
+.navbar .btn-ignition { margin-right: 8px; }
+
+/* Navbar link pills */
+
+.navbar .nav-item .nav-link-pill {
+  background: transparent;
+  color: var(--primary) !important;
+  border-radius: 20px;
+  padding: .35rem .65rem;
+  transition: background .12s, color .12s;
+}
+.navbar .nav-item .nav-link-pill:hover {
+  background: var(--secondary);
+  color: var(--primary) !important;
+}
+
+/* Toggler custom */
+.navbar-toggler{ border: none; }
+.navbar-toggler-icon{ background-image: none; }
+.navbar-toggler .bar { display: block; width: 20px; height: 2px; margin: 4px 0; background: var(--primary); }
+
+/* Estilos para el botón de Google en login */
+
+.btn-google {
+  background: #fff;
+  color: var(--primary);
+  border: 1px solid var(--input-border);
+  padding: .35rem .6rem;
+  border-radius: 8px;
+  gap: .5rem;
+  text-decoration: none;
+  transition: background .12s, color .12s;
+}
+.btn-google img.google-icon { height: 18px; width: 18px; object-fit: cover; border-radius: 3px; margin-right: 8px; }
+.btn-google span { font-weight: 700; color: var(--primary); }
+.btn-google:hover { background: var(--secondary); color: var(--primary); }
+
+/* Ajuste para que el formulario muestre acciones agrupadas */
+.form-group.d-flex .btn{ margin: 6px 4px; }
+
+#miModal .modal-content,
+#miModal .modal-title,
+#miModal .modal-body {
+  color: #000 !important;
+}
+
+/* Contenedor del juego UNO dentro de la app */
+.uno-game-wrapper {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  /* altura grande para que se vea bien */
+  height: 75vh;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.6);
+}
+
+/* El iframe ocupa todo el hueco */
+.uno-game-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #020617;
+}
+/* Contenedor del juego UNO dentro de la app */
+.uno-game-wrapper {
+  position: relative;           /* necesario para posicionar el botón dentro */
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 75vh;                 /* juego grande en vertical */
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.6);
+}
+
+/* El iframe ocupa todo el hueco del contenedor */
+.uno-game-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #020617;
+}
+
+/* Botón de pantalla completa, abajo a la derecha del juego */
+.uno-fullscreen-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  opacity: 0.8;
+}
+
+.uno-fullscreen-btn:hover {
+  opacity: 1;
+}

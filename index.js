@@ -1,19 +1,54 @@
 const fs = require("fs");
+const path = require('path');
 const express = require("express");
 const app = express();
+const http = require('http');
+const httpServer = http.Server(app);
+const { Server } = require("socket.io");
+
 
 const PORT = process.env.PORT || 3000;
 require('dotenv').config();
 const passport=require("passport");
-// const cookieSession=require("cookie-session");
 const session = require('express-session');
 
 require("./server/passport-setup.js");
 const modelo = require("./server/modelo.js");
 let sistema = new modelo.Sistema();
+// Socket.io server
+const moduloWS = require("./server/servidorWS.js");
 
-// Configurar Express
-app.use(express.static(__dirname + "/client"));
+// Enlazamos Socket.IO al httpServer
+let io = new Server(httpServer);
+let ws = new moduloWS.ServidorWS();
+
+// --------------------
+// Juegos 
+// --------------------
+const unoDistPath = path.join(__dirname, 'client/games/uno/dist');
+app.use('/uno', express.static(unoDistPath));
+
+
+// Diagnostic middleware for static assets (helps debug production 503/404)
+app.use(function(req, res, next){
+  // only log requests for likely static assets
+  if (req.path.match(/^\/(css|img|clienteRest\.js|controlWeb\.js|config\.js|favicon\.ico)/)){
+    const fpath = path.join(__dirname, 'client', req.path.replace(/^\//, ''));
+    fs.access(fpath, fs.constants.R_OK, function(err){
+      if (err){
+        console.warn('[static-diagnostic] asset requested but not accessible:', { url: req.url, fsPath: fpath, err: err.message });
+        // continue to static middleware so behavior is unchanged; but also attach flag for later
+        req._staticMissing = true;
+      }
+      next();
+    });
+    return;
+  }
+  next();
+});
+
+// Configurar Express: servir archivos estáticos desde /client
+app.use(express.static(path.join(__dirname, 'client')));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -78,24 +113,48 @@ app.get('/google/callback',
 });
 
 app.get("/good", function(req, res) {
-  console.warn("[/good] usuario autenticado:", req.user && (req.user.displayName || req.user.id || req.user.email));
-  if (!req.user) return res.redirect('/fallo');
+  console.log("[/good] Google OAuth callback, usuario:", req.user ? { id: req.user.id, displayName: req.user.displayName, emails: req.user.emails } : 'NONE');
+  if (!req.user) {
+    console.error("[/good] ERROR: req.user es null/undefined");
+    return res.redirect('/fallo');
+  }
 
-  const email = req.user.emails?.[0]?.value;
-  if (!email) return res.redirect('/fallo');
+  let email = null;
+  if (req.user.emails && Array.isArray(req.user.emails) && req.user.emails.length > 0) {
+    email = req.user.emails[0].value;
+  }
+  
+  if (!email) {
+    console.error("[/good] ERROR: no email en profile");
+    return res.redirect('/fallo');
+  }
 
-  res.cookie('nick', email);
-  res.redirect('/');
+  const displayName = req.user.displayName || '';
+  console.log("[/good] email extraído:", email, "displayName:", displayName);
 
   process.nextTick(() => {
-    sistema.usuarioGoogle({ email }, function(_obj) {
-      console.log("Usuario guardado/actualizado en Mongo:", email);
+    sistema.usuarioGoogle({ email, displayName }, function(obj) {
+      console.log("[/good] usuarioGoogle retornó:", obj);
+      if (!obj || !obj.email) {
+        console.error("[/good] ERROR: objeto inválido de usuarioGoogle");
+        return res.redirect('/fallo');
+      }
+      try {
+        req.session.user = { email };
+      } catch(e) {
+        console.warn("[/good] session.user error:", e && e.message);
+      }
+      const nickToSet = obj.nick || email;
+      console.log("[/good] nick final:", nickToSet);
+      res.cookie('nick', nickToSet);
+      res.redirect('/');
     });
   });
 });
 
 app.get("/fallo", function(req, res) {
-  res.send({ nick: "nook" });
+  console.error("[/fallo] Redirigiendo, usuario no autenticado correctamente");
+  res.redirect('/');
 });
 
 app.get("/agregarUsuario/:nick", haIniciado, function(request, response) {
@@ -158,33 +217,81 @@ app.get('/salir', function(req, res){
 
 // One Tap: callback
 app.post('/oneTap/callback', (req, res, next) => {
-  console.log('[oneTap] callback recibido, body:', req.body);
+  console.log('[oneTap/callback] credential presente:', !!req.body.credential);
+  if (!req.body.credential) {
+    console.error('[oneTap] sin credential');
+    return res.redirect('/fallo');
+  }
+  
   passport.authenticate('google-one-tap', (err, user, info) => {
     if (err) {
-      console.error('[oneTap] error en authenticate:', err);
+      console.error('[oneTap] error:', err);
       return res.redirect('/fallo');
     }
     if (!user) {
-      console.warn('[oneTap] no user returned by strategy, info:', info);
+      console.warn('[oneTap] no user de strategy');
       return res.redirect('/fallo');
     }
-    // req.login establece la sesión
+    
     req.login(user, (loginErr) => {
       if (loginErr) {
-        console.error('[oneTap] req.login error:', loginErr);
+        console.error('[oneTap] login error:', loginErr);
         return res.redirect('/fallo');
       }
-      // Guardar cookie 'nick' y redirigir
-      try {
-        const email = user?.emails?.[0]?.value || (user && user.email);
-        if (email) res.cookie('nick', email);
-      } catch (e) {
-        console.warn('[oneTap] no se pudo setear cookie nick:', e.message);
+      
+      let email = null;
+      if (user.emails && Array.isArray(user.emails) && user.emails.length > 0) {
+        email = user.emails[0].value;
+      } else if (user.email) {
+        email = user.email;
       }
-      console.log('[oneTap] usuario autenticado, redirigiendo a /good, user:', user && (user.displayName || user.id || user.email));
-      return res.redirect('/good');
+      
+      const displayName = user.displayName || '';
+      
+      if (!email) {
+        console.error('[oneTap] sin email');
+        return res.redirect('/fallo');
+      }
+      
+      sistema.usuarioGoogle({ email, displayName }, function(obj) {
+        if (!obj || !obj.email) {
+          console.error('[oneTap] usuarioGoogle fallo');
+          return res.redirect('/fallo');
+        }
+        try {
+          req.session.user = { email };
+          res.cookie('nick', obj.nick || email);
+        } catch (e) {
+          console.warn('[oneTap] cookie error:', e.message);
+        }
+        return res.redirect('/');
+      });
     });
   })(req, res, next);
+});
+
+// Diagnostic endpoint: listar archivos estáticos desplegados (útil en producción)
+app.get('/assets-debug', (req, res) => {
+  const dir = path.join(__dirname, 'client');
+  const walk = (dirPath) => {
+    let results = [];
+    try {
+      const list = fs.readdirSync(dirPath);
+      list.forEach(function(file) {
+        const full = path.join(dirPath, file);
+        const stat = fs.statSync(full);
+        if (stat && stat.isDirectory()) {
+          results = results.concat(walk(full));
+        } else {
+          results.push(path.relative(path.join(__dirname, 'client'), full));
+        }
+      });
+    } catch (e) {
+      return ['ERROR: ' + (e.message || e)];
+    }
+    return results;
+  };
+  res.json({ files: walk(dir) });
 });
 
 
@@ -208,20 +315,26 @@ app.post("/registrarUsuario", function(req, res){
       if (out && out.email && out.email !== -1){
         return send(201, { nick: out.email });
       } else {
-        return send(409, { nick: -1 });
+        // Devolver reason si existe para mejor feedback al cliente
+        const reason = (out && out.reason) || "unknown";
+        const errorMsg = reason === "email_ya_registrado" ? "El email ya está registrado" :
+                        reason === "nick_ya_registrado" ? "El nick ya está en uso" :
+                        reason === "nick_vacio" ? "El nick no puede estar vacío" :
+                        "No se ha podido registrar el usuario";
+        return send(409, { nick: -1, reason, error: errorMsg });
       }
     });
 
     setTimeout(() => {
       if (!responded){
         console.warn("[/registrarUsuario] SIN RESPUESTA tras 10s (posible cuelgue en modelo/CAD)");
-        send(504, { nick: -1, reason: "timeout" });
+        send(504, { nick: -1, reason: "timeout", error: "Tiempo de respuesta agotado" });
       }
     }, 10000);
 
   } catch (err) {
     console.error("[/registrarUsuario] EXCEPCIÓN sin capturar:", err);
-    send(500, { nick: -1 });
+    send(500, { nick: -1, error: "Error interno del servidor" });
   }
 });
 
@@ -285,29 +398,65 @@ app.post('/loginUsuario', function(req, res){
     }
   });
 });
-// const LocalStrategy = require('passport-local').Strategy;
 
-// passport.use(new LocalStrategy(
-//   { usernameField: "email", passwordField: "password" },
-//   function(email, password, done){
-//     sistema.loginUsuario({ email, password }, function(user){
-//       // user será {email: -1} si falla
-//       return done(null, user && user.email != -1 ? user : false);
-//     });
-//   }
-// ));
-
-// app.post('/loginUsuario',
-//   passport.authenticate("local", { failureRedirect: "/fallo", successRedirect: "/ok" })
-// );
-
-// app.get("/ok", function(req, res){
-//   res.send({ nick: req.user.email });
-// });
-
-
-
-app.listen(PORT, () => {
-    console.log(`Servidor escuchando en puerto ${PORT}`);
+app.get('/api/logs', async function(req, res) {
+  const limit = Math.max(1, parseInt(req.query.limit, 10) || 100);
+  const email = (req.query.email || '').toLowerCase();
+  try {
+    const col = sistema && sistema.cad && sistema.cad.logs;
+    if (!col) {
+      throw new Error("Coleccion logs no disponible");
+    }
+    const filtro = email ? { usuario: { $regex: new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } } : {};
+    const docs = await col.find(filtro, { maxTimeMS: 5000 }).sort({ "fecha-hora": -1 }).limit(limit).toArray();
+    return res.status(200).json(docs);
+  } catch (err) {
+    console.error("[/api/logs] Error obteniendo logs:", err && err.message ? err.message : err);
+    return res.status(500).json({ error: "Error al obtener logs" });
+  }
 });
+// ------------------------------------
+// Iniciar el servidor
+// ------------------------------------
+try {
+  const clientDir = path.join(__dirname, 'client');
+  const walkSync = (dir, filelist = []) => {
+    const files = fs.readdirSync(dir);
+    files.forEach((file) => {
+      const full = path.join(dir, file);
+      const stat = fs.statSync(full);
+      if (stat && stat.isDirectory()) {
+        walkSync(full, filelist);
+      } else {
+        filelist.push(path.relative(path.join(__dirname, 'client'), full));
+      }
+    });
+    return filelist;
+  };
+  const files = walkSync(clientDir);
+  console.log('[startup] archivos en client/ (muestra hasta 50):', files.slice(0,50));
+} catch (e) {
+  console.warn('[startup] no se pudo listar client/:', e && e.message);
+}
+
+function startServer(port){
+  try {
+    httpServer.listen(port, () => {
+      console.log(`App está escuchando en el puerto ${port}`);
+      console.log("Ctrl+C para salir");
+      ws.lanzarServidor(io, sistema);
+    });
+  } catch(e) {
+    if (e && e.code === 'EADDRINUSE'){
+      const next = (parseInt(port,10) || 3000) + 1;
+      console.warn(`[startup] Puerto ${port} en uso, intentando ${next}...`);
+      startServer(next);
+    } else {
+      throw e;
+    }
+  }
+}
+
+startServer(PORT);
+
 

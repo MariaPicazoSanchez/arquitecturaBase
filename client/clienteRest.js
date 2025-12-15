@@ -7,6 +7,12 @@ function ClienteRest() {
                 msg="Bienvenido al sistema, "+nick;
                 $.cookie("nick",nick);
                 cw.mostrarMensaje(msg, "success");
+                if (window.ws) {
+                    ws.email = data.email;
+                }
+                if (window.cw && cw.mostrarPartidas) {
+                    cw.mostrarPartidas();
+                }
             } else {
                 cw.mostrarMensaje(msg, "error");
             }
@@ -106,41 +112,51 @@ function ClienteRest() {
     }
 
 
-    this.registrarUsuario = function(email, password){
-  console.log("[cliente] Iniciando registro para:", email);
-  $.ajax({
-    type: 'POST',
-    url: '/registrarUsuario',
-    data: JSON.stringify({ email: email, password: password }),
-    contentType: 'application/json',
-    dataType: 'json',
-    
-    success: function(data, status, xhr){
-      console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
-      if (data.nick && data.nick !== -1){
-        cw.limpiar();
-        cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
-        cw.mostrarLogin({ email, keepMessage: true });
-      } else {
-        console.log("[cliente] Registro fallido (duplicado?):", email);
-        cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
-      }
-    },
-    error: function(xhr){
-      console.log("[cliente] ERROR status:", xhr.status, "resp:", xhr.responseText);
-      if (xhr && xhr.status === 409){
-        cw.mostrarAviso("El email ya está registrado en el sistema.", "error");
-      } else if (xhr && xhr.status === 504){
-        cw.mostrarAviso("Timeout del servidor registrando usuario.", "error");
-      } else {
-        cw.mostrarAviso("Se ha producido un error al registrar el usuario.", "error");
-      }
-    },
-    complete: function(xhr, textStatus){
-      console.log("[cliente] COMPLETE:", textStatus, "status:", xhr.status);
-    }
-  });
-};
+    this.registrarUsuario = function(email, password, nick){
+        console.log("[cliente] Iniciando registro para:", email);
+        $.ajax({
+            type: 'POST',
+            url: '/registrarUsuario',
+            data: JSON.stringify({ email: email, password: password, nick: nick }),
+            contentType: 'application/json',
+            dataType: 'json',
+            
+            success: function(data, status, xhr){
+                console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
+                if (data.nick && data.nick !== -1){
+                    cw.limpiar();
+                    cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
+                    cw.mostrarLogin({ email, keepMessage: true });
+                } else {
+                    console.log("[cliente] Registro fallido:", data);
+                    const errorMsg = data.error || "No se ha podido registrar el usuario";
+                    cw.mostrarModal(errorMsg);
+                }
+            },
+            error: function(xhr, status, error){
+                console.log("[cliente] ERROR status:", xhr.status, "responseText:", xhr.responseText);
+                let errorMsg = "Error al registrar el usuario";
+                
+                // Intentar parsear el JSON de la respuesta de error
+                try {
+                    if (xhr.responseText) {
+                        const resp = JSON.parse(xhr.responseText);
+                        console.log("[cliente] Parsed error response:", resp);
+                        if (resp && resp.error) {
+                            errorMsg = resp.error;
+                        }
+                    }
+                } catch(e) {
+                    console.log("[cliente] No se pudo parsear responseText:", e.message);
+                }
+                
+                cw.mostrarModal(errorMsg);
+            },
+            complete: function(xhr, textStatus){
+                console.log("[cliente] COMPLETE:", textStatus, "status:", xhr.status);
+            }
+        });
+    };
 
 
     this.loginUsuario = function(email, password){
@@ -150,22 +166,52 @@ function ClienteRest() {
             data: JSON.stringify({ email, password }),
             contentType: 'application/json',
             success: function(data){
-            if (data.nick && data.nick !== -1){
-                $.cookie("nick", data.nick);
-                cw.limpiar();
-                $("#msg").empty();
-                cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
-            } else {
-                cw.mostrarAviso("Email o contraseña incorrectos.", "error");
-            }
+                if (data.nick && data.nick !== -1){
+                    $.cookie("nick", data.nick);
+                    cw.email = data.nick;
+                    if (window.ws){
+                        ws.email = data.nick;
+                    }
+                    cw.limpiar();
+                    $("#msg").empty();
+                    cw.mostrarSelectorJuegos();
+                    
+                    try { sessionStorage.setItem("bienvenidaMostrada","1"); } catch(e){}
+                    cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
+                } else {
+                    cw.mostrarAviso("Email o contraseña incorrectos.", "error");
+                    cw.mostrarModal("No se ha podido iniciar sesión. Credenciales incorrectas o usuario inexistente.");
+                }
             },
             error: function(xhr){
                 if (xhr && xhr.status === 401){
                     cw.mostrarAviso("Credenciales inválidas.", "error");
+                    cw.mostrarModal("No se ha podido iniciar sesión. Credenciales inválidas.");
                 } else {
                     cw.mostrarAviso("Se ha producido un error al iniciar sesión.", "error");
+                    cw.mostrarModal("Error inesperado al iniciar sesión (" + (xhr && xhr.status) + ")");
                 }
             }        
+        });
+    };
+    
+    // Obtener registro de actividad del usuario
+    this.obtenerActividad = function(email){
+        const params = $.param({ email: email, limit: 200 });
+        $.ajax({
+            url: '/api/logs?' + params,
+            method: 'GET',
+            dataType: 'json',
+            success: function(logs){
+                if (window.cw && typeof cw.mostrarActividadListado === 'function'){
+                    cw.mostrarActividadListado(logs || []);
+                }
+            },
+            error: function(){
+                if (window.cw){
+                    cw.mostrarAviso('No se pudo obtener el registro de actividad', 'error');
+                }
+            }
         });
     };
     

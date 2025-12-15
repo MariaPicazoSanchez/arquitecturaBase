@@ -23,6 +23,7 @@ passport.use(new GoogleStrategy({
     callbackURL: process.env.GOOGLE_CALLBACK_URL
     },
     function(accessToken, refreshToken, profile, done) {
+        console.log('[GoogleStrategy] profile received:', { id: profile.id, displayName: profile.displayName, emails: profile.emails ? profile.emails.length : 0 });
         return done(null, profile);
     }
 ));

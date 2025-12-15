@@ -1,26 +1,30 @@
 require("dotenv").config();
 const { MongoClient, ObjectId } = require("mongodb");
+const gv = require("./gestorVariables.js");
 
 function CAD() {
   this.client = null;
   this.db = null;
   this.usuarios = undefined;
+  this.logs = undefined;
 
   // ---------- CONEXIÓN ÚNICA, CON TIMEOUTS ----------
   this.conectar = async (callback) => {
-    const uri = process.env.MONGO_URI;
+    const uri = await gv.obtenerMongoUri();
     console.log("[cad.conectar] MONGO_URI presente:", !!uri);
 
     if (!uri) {
       console.warn("[cad.conectar] MONGO_URI no definida. MODO MEMORIA (NO persiste).");
       this.usuarios = undefined;
+      this.logs = undefined;
       if (typeof callback === "function") callback(undefined, new Error("MONGO_URI no definida"));
       return;
     }
     if (!/^mongodb(\+srv)?:\/\//.test(uri)) {
-      console.warn("[cad.conectar] MONGO_URI inválida. MODO MEMORIA (NO persiste).");
+      console.warn("[cad.conectar] MONGO_URI involida. MODO MEMORIA (NO persiste).");
       this.usuarios = undefined;
-      if (typeof callback === "function") callback(undefined, new Error("MONGO_URI inválida"));
+      this.logs = undefined;
+      if (typeof callback === "function") callback(undefined, new Error("MONGO_URI involida"));
       return;
     }
 
@@ -38,6 +42,7 @@ function CAD() {
       await this.client.connect();
       this.db = this.client.db("sistema");
       this.usuarios = this.db.collection("usuarios");
+      this.logs = this.db.collection("logs");
 
       await this.usuarios.createIndex({ email: 1 }, { unique: true });
 
@@ -51,6 +56,7 @@ function CAD() {
         stack: err.stack
       });
       this.usuarios = undefined;
+      this.logs = undefined;
       if (typeof callback === "function") callback(undefined, err);
     }
   };
@@ -71,6 +77,32 @@ function CAD() {
     actualizar(this.usuarios, obj, callback);
   };
 
+  this.insertarLog = async function (tipoOperacion, usuario) {
+    if (!this.logs) {
+      console.error("[cad.insertarLog] Coleccion logs no inicializada");
+      return;
+    }
+
+    const logDoc = {
+      "tipo-operacion": tipoOperacion,
+      usuario: usuario,
+      "fecha-hora": new Date().toISOString(),
+    };
+
+    try {
+      const resultado = await this.logs.insertOne(logDoc, { maxTimeMS: 5000 });
+      console.log("[cad.insertarLog] Log insertado:", {
+        id: resultado && resultado.insertedId,
+        tipoOperacion,
+        usuario,
+      });
+      return resultado;
+    } catch (err) {
+      console.error("[cad.insertarLog] Error insertando log:", err.message);
+      return;
+    }
+  };
+
   
 
 }
@@ -83,26 +115,39 @@ function buscarOCrear(coleccion, criterio, callback) {
     callback({ email: criterio.email });
     return;
   }
+  
+  // Generar nick automático si no existe
+  if (!criterio.nick && criterio.email) {
+    if (criterio.displayName) {
+      // Usar displayName: quitar espacios, convertir a minúsculas, añadir números aleatorios
+      const baseName = criterio.displayName.toLowerCase().replace(/\s+/g, '');
+      criterio.nick = baseName + Math.floor(Math.random() * 1000);
+    } else {
+      // Usar la parte antes del @ del email
+      const emailPart = criterio.email.split('@')[0];
+      criterio.nick = emailPart + Math.floor(Math.random() * 1000);
+    }
+  }
+  
   coleccion.findOneAndUpdate(
-    criterio,
+    { email: criterio.email },
     { $set: criterio },
     {
       upsert: true,
       returnDocument: "after",
-      projection: { email: 1 },
+      projection: { email: 1, nick: 1 },
       maxTimeMS: 4000,
-    },
-    function (err, doc) {
-      if (err) {
-        console.error("[cad.buscarOCrear] error:", err.message);
-        callback(undefined);
-        return;
-      }
-      const email = doc && doc.value ? doc.value.email : undefined;
-      console.log("[cad.buscarOCrear] actualizado:", email);
-      callback(email ? { email } : undefined);
     }
-  );
+  ).then((result) => {
+    console.log("[cad.buscarOCrear] result structure:", { hasValue: !!result.value, isDoc: !!result.ok });
+    const doc = result.value || result;
+    const res = doc && doc.email ? { email: doc.email, nick: doc.nick } : undefined;
+    console.log("[cad.buscarOCrear] actualizado:", res);
+    callback(res);
+  }).catch((err) => {
+    console.error("[cad.buscarOCrear] error:", err.message);
+    callback(undefined);
+  });
 }
 
 function buscar(col, criterio, cb) {
