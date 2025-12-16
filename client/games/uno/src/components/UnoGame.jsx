@@ -439,11 +439,6 @@ export default function UnoGame() {
     setShowColorPicker(false);
 
     if (isMultiplayer) {
-      window.location.reload();
-      return;
-    }
-
-    if (isMultiplayer) {
       if (!engine) return;
       const playable = getPlayableCards(engine, 0);
       if (!playable.some((c) => c.id === cardId)) return;
