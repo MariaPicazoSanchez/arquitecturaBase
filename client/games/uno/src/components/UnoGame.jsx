@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Card from './Card';
 import GameResultModal from './GameResultModal';
+import { createUnoSocket } from '../network/unoSocket';
 import {
   createInitialState,
   applyAction,
@@ -8,9 +9,13 @@ import {
   getPlayableCards,
   getNextPlayerIndex,
   COLORS,
-} from '../../../../../server/game/unoEngineMultiplayer';
+} from '../game/unoEngineMultiplayer';
 
 export default function UnoGame() {
+  const codigoFromUrl = new URLSearchParams(window.location.search).get('codigo');
+  const isMultiplayer = !!codigoFromUrl;
+  const unoNetRef = useRef(null);
+
   // Estado principal del juego (modo 1 vs Bot)
   const [game, setGame] = useState(() => ({
     engine: createInitialState({ numPlayers: 2, names: ['Tú', 'Bot'] }),
@@ -27,11 +32,76 @@ export default function UnoGame() {
   const [showColorPicker, setShowColorPicker] = useState(false);
 
   const { engine, uiStatus } = game;
-  const [player, bot] = engine.players;
-  const isHumanTurn = engine.currentPlayerIndex === 0;
+  const player = engine?.players?.[0] ?? null;
+  const bot = engine?.players?.[1] ?? null;
+  const isHumanTurn = engine?.currentPlayerIndex === 0;
   const isPlaying = uiStatus === 'playing';
 
+  useEffect(() => {
+    console.log('[UNO][client][DBG] mount', {
+      search: window.location.search,
+      players: engine?.players?.map((p) => p.name) ?? null,
+    });
+  }, []);
+
+  useEffect(() => {
+    console.log('[UNO][client][DBG] engine update', {
+      players:
+        engine?.players?.map((p) => ({
+          id: p.id,
+          name: p.name,
+          cards: p.hand.length,
+        })) ?? null,
+      currentPlayerIndex: engine?.currentPlayerIndex ?? null,
+      status: engine?.status ?? null,
+      winnerIndex: engine?.winnerIndex ?? null,
+      lastAction: engine?.lastAction ?? null,
+    });
+  }, [engine]);
+
   // ---------- helpers ----------
+
+  const getCookieValue = (cookieStr, name) => {
+    const parts = (cookieStr || '')
+      .split(';')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    for (const part of parts) {
+      const idx = part.indexOf('=');
+      if (idx === -1) continue;
+      const k = part.slice(0, idx);
+      const v = part.slice(idx + 1);
+      if (k === name) return decodeURIComponent(v);
+    }
+    return null;
+  };
+
+  const resolveNickOrEmail = () => {
+    const localCookie = typeof document !== 'undefined' ? document.cookie : '';
+    const direct =
+      getCookieValue(localCookie, 'nick') || getCookieValue(localCookie, 'email');
+    if (direct) return direct;
+
+    try {
+      const parentCookie = window.parent?.document?.cookie || '';
+      return (
+        getCookieValue(parentCookie, 'nick') ||
+        getCookieValue(parentCookie, 'email') ||
+        null
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  const sendMultiplayerAction = (action) => {
+    const api = unoNetRef.current;
+    if (!api || typeof api.sendAction !== 'function') {
+      console.warn('[UNO] sendAction no disponible todavía', action);
+      return;
+    }
+    api.sendAction(action);
+  };
 
   const clearUnoTimer = () => {
     if (unoTimeoutRef.current) {
@@ -43,6 +113,7 @@ export default function UnoGame() {
   };
 
   const startUnoTimer = () => {
+    if (isMultiplayer) return;
     if (unoTimeoutRef.current) return;
 
     unoCalledRef.current = false;
@@ -93,6 +164,9 @@ export default function UnoGame() {
     if (!unoPrompt || uiStatus !== 'playing') return;
     unoCalledRef.current = true;
     clearUnoTimer();
+    if (isMultiplayer) {
+      sendMultiplayerAction({ type: ACTION_TYPES.CALL_UNO });
+    }
     setGame((prev) => ({
       ...prev,
       message: '¡Has pulsado UNO a tiempo! 😎',
@@ -105,6 +179,102 @@ export default function UnoGame() {
     },
     [],
   );
+
+  // ---------- multiplayer (Socket.IO) ----------
+
+  useEffect(() => {
+    if (!isMultiplayer) return;
+
+    const codigo = codigoFromUrl;
+    const email = resolveNickOrEmail();
+
+    console.log('[UNO][client][DBG] multiplayer init', {
+      codigo,
+      email,
+      cookie: typeof document !== 'undefined' ? document.cookie : null,
+    });
+
+    setGame((prev) => ({
+      ...prev,
+      engine: null,
+      uiStatus: 'waiting',
+      message: 'Conectando a la partida...',
+    }));
+
+    if (!codigo) {
+      setGame((prev) => ({
+        ...prev,
+        engine: null,
+        uiStatus: 'waiting',
+        message: 'Falta el código de partida en la URL.',
+      }));
+      return;
+    }
+
+    if (!email) {
+      setGame((prev) => ({
+        ...prev,
+        engine: null,
+        uiStatus: 'waiting',
+        message:
+          'No se pudo leer tu nick/email (cookie). Vuelve a la app e inicia sesión.',
+      }));
+      return;
+    }
+
+    const api = createUnoSocket({
+      codigo,
+      email,
+      onState: (estado) => {
+        const newEngine = estado && estado.engine;
+        if (!newEngine) return;
+
+        setGame((prev) => {
+          let newUiStatus = prev.uiStatus;
+          let message = prev.message;
+
+          if (newEngine.status === 'finished') {
+            newUiStatus = newEngine.winnerIndex === 0 ? 'won' : 'lost';
+            const winnerName =
+              newEngine.players?.[newEngine.winnerIndex]?.name ?? 'Oponente';
+            message =
+              newEngine.winnerIndex === 0
+                ? '¡Te has quedado sin cartas! Has ganado.'
+                : `${winnerName} se ha quedado sin cartas. Has perdido.`;
+            clearUnoTimer();
+          } else {
+            newUiStatus = 'playing';
+            const turnName =
+              newEngine.players?.[newEngine.currentPlayerIndex]?.name ?? '—';
+            message =
+              newEngine.currentPlayerIndex === 0
+                ? 'Tu turno.'
+                : `Turno de ${turnName}...`;
+          }
+
+          return { ...prev, engine: newEngine, uiStatus: newUiStatus, message };
+        });
+      },
+      onError: (err) => {
+        console.error('[UNO] error WS', err);
+        setGame((prev) => ({
+          ...prev,
+          engine: null,
+          uiStatus: 'waiting',
+          message: 'Error de conexión con el servidor.',
+        }));
+      },
+    });
+
+    unoNetRef.current = api;
+
+    return () => {
+      try {
+        api.disconnect();
+      } catch {}
+      unoNetRef.current = null;
+    };
+  }, []);
 
   // ---------- helper: elegir color del bot ----------
 
@@ -139,7 +309,9 @@ export default function UnoGame() {
   const renderLastAction = (lastAction) => {
     if (!lastAction) return 'Última jugada: —';
 
-    const actor = lastAction.playerIndex === 0 ? 'Tú' : 'Bot';
+    const actor =
+      engine.players?.[lastAction.playerIndex]?.name ??
+      `Jugador ${lastAction.playerIndex + 1}`;
 
     if (lastAction.type === ACTION_TYPES.PLAY_CARD && lastAction.card) {
       const { color, value } = lastAction.card;
@@ -165,6 +337,7 @@ export default function UnoGame() {
   // ---------- Turno jugador humano ----------
 
   const handleCardClick = (card) => {
+    if (!engine || !player) return;
     if (!isPlaying || !isHumanTurn) return;
 
     const hadCardsBefore = player.hand.length;
@@ -182,6 +355,24 @@ export default function UnoGame() {
       }
       setPendingWild({ cardId: card.id, hadCardsBefore });
       setShowColorPicker(true);
+      return;
+    }
+
+    if (isMultiplayer) {
+      const playable = getPlayableCards(engine, 0);
+      if (!playable.some((c) => c.id === card.id)) {
+        setGame((prev) => ({
+          ...prev,
+          message:
+            'Esa carta no se puede jugar. Debe coincidir en color, número o símbolo.',
+        }));
+        return;
+      }
+
+      sendMultiplayerAction({
+        type: ACTION_TYPES.PLAY_CARD,
+        cardId: card.id,
+      });
       return;
     }
 
@@ -247,6 +438,23 @@ export default function UnoGame() {
     setPendingWild(null);
     setShowColorPicker(false);
 
+    if (isMultiplayer) {
+      window.location.reload();
+      return;
+    }
+
+    if (isMultiplayer) {
+      if (!engine) return;
+      const playable = getPlayableCards(engine, 0);
+      if (!playable.some((c) => c.id === cardId)) return;
+      sendMultiplayerAction({
+        type: ACTION_TYPES.PLAY_CARD,
+        cardId,
+        chosenColor: color,
+      });
+      return;
+    }
+
     setGame((prev) => {
       const { engine, uiStatus } = prev;
       if (uiStatus !== 'playing') return prev;
@@ -298,9 +506,22 @@ export default function UnoGame() {
   };
 
   const handleDrawCard = () => {
+    if (!engine) return;
     if (!isPlaying || !isHumanTurn) return;
 
     clearUnoTimer();
+
+    if (isMultiplayer) {
+      if (engine.drawPile.length === 0) {
+        setGame((prev) => ({
+          ...prev,
+          message: 'No quedan cartas en el mazo.',
+        }));
+        return;
+      }
+      sendMultiplayerAction({ type: ACTION_TYPES.DRAW_CARD });
+      return;
+    }
 
     setGame((prev) => {
       const { engine, uiStatus } = prev;
@@ -343,6 +564,8 @@ export default function UnoGame() {
   // ---------- Turno del bot ----------
 
   useEffect(() => {
+    if (isMultiplayer) return;
+    if (!engine) return;
     if (!isPlaying) return;
     if (engine.currentPlayerIndex !== 1) return;
 
@@ -421,6 +644,16 @@ export default function UnoGame() {
   // Render
   // -------------------------
 
+  if (!engine || !player || !bot) {
+    return (
+      <div className="uno-game">
+        <div className="uno-status">
+          <p>{game.message}</p>
+        </div>
+      </div>
+    );
+  }
+
   const lastActionText = renderLastAction(engine.lastAction);
 
   return (
@@ -440,7 +673,7 @@ export default function UnoGame() {
                 : 'uno-turn-badge--bot')
             }
           >
-            {isHumanTurn ? 'Tú' : 'Bot'}
+            {engine.players?.[engine.currentPlayerIndex]?.name ?? '—'}
           </span>
         </div>
       </div>
@@ -448,7 +681,7 @@ export default function UnoGame() {
       {/* Zona bot */}
       <div className="uno-zone uno-zone--bot">
         <h2>
-          Bot ({bot.hand.length} cartas)
+          {bot.name} ({bot.hand.length} cartas)
           {bot.hand.length === 1 && <span className="uno-badge">Última Carta!</span>}
         </h2>
         <div className="uno-hand uno-hand--bot">
@@ -544,7 +777,7 @@ export default function UnoGame() {
       {/* Zona jugador */}
       <div className="uno-zone uno-zone--player">
         <h2>
-          Tú ({player.hand.length} cartas)
+          {player.name} ({player.hand.length} cartas)
           {player.hand.length === 1 && <span className="uno-badge">Última Carta!</span>}
         </h2>
 

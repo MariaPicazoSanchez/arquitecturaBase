@@ -1,7 +1,7 @@
 // ====== Configuración de cartas ======
 
-const COLORS = ['red', 'green', 'blue', 'yellow'];
-const VALUES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+export const COLORS = ['red', 'green', 'blue', 'yellow'];
+export const VALUES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 // Especiales con color
 const SPECIAL_COLOR_VALUES = ['skip', '+2', 'reverse'];
@@ -9,10 +9,11 @@ const SPECIAL_COLOR_VALUES = ['skip', '+2', 'reverse'];
 // Especiales sin color (comodines)
 const COLORLESS_VALUES = ['wild', '+4']; // wild = cambio de color, +4 = roba cuatro
 
-const ACTION_TYPES = {
+export const ACTION_TYPES = {
   PLAY_CARD: 'PLAY_CARD',
   DRAW_CARD: 'DRAW_CARD',
   CALL_UNO: 'CALL_UNO',
+  PASS_TURN: 'PASS_TURN',
 };
 
 // ====== Utilidades de cartas/mazo ======
@@ -63,7 +64,7 @@ function shuffle(array) {
 
 // ====== Reglas básicas ======
 
-function canPlayCard(card, topCard) {
+export function canPlayCard(card, topCard) {
   if (!card || !topCard) return false;
   // comodines (wild y +4) siempre se pueden jugar
   if (card.color === 'wild') return true;
@@ -73,7 +74,7 @@ function canPlayCard(card, topCard) {
 
 // ====== Estado inicial ======
 
-function createInitialState({ numPlayers = 2, names = [] } = {}) {
+export function createInitialState({ numPlayers = 2, names = [] } = {}) {
   if (numPlayers < 2) {
     throw new Error('UNO necesita al menos 2 jugadores.');
   }
@@ -137,11 +138,11 @@ function cloneState(state) {
   };
 }
 
-function getTopCard(state) {
+export function getTopCard(state) {
   return state.discardPile[state.discardPile.length - 1] ?? null;
 }
 
-function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, steps = 1) {
+export function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, steps = 1) {
   const n = state.players.length;
   let idx = fromIndex;
   for (let i = 0; i < steps; i++) {
@@ -152,7 +153,7 @@ function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, steps =
 
 // ====== Acciones ======
 
-function applyAction(state, action) {
+export function applyAction(state, action) {
   if (state.status !== 'playing') {
     return state;
   }
@@ -164,6 +165,8 @@ function applyAction(state, action) {
       return applyDrawCard(state, action);
     case ACTION_TYPES.CALL_UNO:
       return applyCallUno(state, action);
+    case ACTION_TYPES.PASS_TURN:
+      return applyPassTurn(state, action);
     default:
       throw new Error(`Acción desconocida: ${action.type}`);
   }
@@ -302,16 +305,34 @@ function applyCallUno(state, action) {
   return s;
 }
 
+// --- PASS_TURN ---
+
+function applyPassTurn(state, action) {
+  const { playerIndex } = action;
+  if (playerIndex !== state.currentPlayerIndex) {
+    return state;
+  }
+
+  const s = cloneState(state);
+  s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+  s.lastAction = {
+    type: ACTION_TYPES.PASS_TURN,
+    playerIndex,
+  };
+
+  return s;
+}
+
 // ====== Helpers para UI / IA ======
 
-function getPlayableCards(state, playerIndex) {
+export function getPlayableCards(state, playerIndex) {
   if (playerIndex !== state.currentPlayerIndex) return [];
   const player = state.players[playerIndex];
   const top = getTopCard(state);
   return player.hand.filter((c) => canPlayCard(c, top));
 }
 
-function getTurnInfo(state) {
+export function getTurnInfo(state) {
   const playerIndex = state.currentPlayerIndex;
   const player = state.players[playerIndex];
   const playableCards = getPlayableCards(state, playerIndex);
@@ -324,16 +345,3 @@ function getTurnInfo(state) {
     mustCallUno: player.hand.length === 1 && !player.hasCalledUno,
   };
 }
-
-module.exports = {
-  COLORS,
-  VALUES,
-  ACTION_TYPES,
-  canPlayCard,
-  createInitialState,
-  getTopCard,
-  getNextPlayerIndex,
-  applyAction,
-  getPlayableCards,
-  getTurnInfo,
-};

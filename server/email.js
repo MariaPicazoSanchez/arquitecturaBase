@@ -1,33 +1,33 @@
 const nodemailer = require('nodemailer');
 // PRODUCCIÓN
-const gv = require('./gestorVariables.js');
+// const gv = require('./gestorVariables.js');
 
-let options = {
-  user: "",
-  pass: ""
-};
+// let options = {
+//   user: "",
+//   pass: ""
+// };
 
-let transporter;
+// let transporter;
 
-gv.obtenerOptions(function (res) {
-  options = res;
+// gv.obtenerOptions(function (res) {
+//   options = res;
 
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: options
-  });
+//   transporter = nodemailer.createTransport({
+//     service: 'gmail',
+//     auth: options
+//   });
 
-  console.log("[email] Transporter inicializado con correo de:", options.user);
-});
+//   console.log("[email] Transporter inicializado con correo de:", options.user);
+// });
 
 // DESARROLLO LOCAL
-// const transporter = nodemailer.createTransport({
-//   service: 'gmail',
-//   auth: {
-//     user: process.env.MAIL_FROM,
-//     pass: process.env.MAIL_PASS
-//   }
-// });
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.MAIL_FROM,
+    pass: process.env.MAIL_PASS
+  }
+});
 
 module.exports.enviarEmail=async function(direccion, key,men) {
   const APP_URL = process.env.APP_URL;
@@ -55,7 +55,7 @@ module.exports.enviarEmail=async function(direccion, key,men) {
   `;
 
   await transporter.sendMail({
-    from: process.env.MAIL_FROM,
+    from: options.user || process.env.MAIL_FROM,
     to: direccion,
     subject: men || "Confirmar cuenta",
     text: `Bienvenido a Sistema\n\nConfirma tu cuenta aquí:\n${confirmUrl}\n`, // fallback de texto
