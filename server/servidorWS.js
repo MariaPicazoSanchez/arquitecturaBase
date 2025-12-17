@@ -182,13 +182,21 @@ function ServidorWS() {
 
       // === crearPartida ===
       socket.on("crearPartida", function(datos) {
-        let codigo = sistema.crearPartida(datos.email);
+        const rawMaxPlayers = datos && (datos.maxPlayers ?? datos.maxJug);
+        const parsed = parseInt(rawMaxPlayers, 10);
+        const maxPlayers =
+          Number.isFinite(parsed) && parsed >= 2 && parsed <= 8 ? parsed : 2;
+
+        let codigo = sistema.crearPartida(datos.email, datos.juego, maxPlayers);
 
         if (codigo !== -1) {
           socket.join(codigo); // sala de socket.io
         }
 
-        srv.enviarAlRemitente(socket, "partidaCreada", { codigo: codigo });
+        srv.enviarAlRemitente(socket, "partidaCreada", {
+          codigo: codigo,
+          maxPlayers: maxPlayers,
+        });
 
         let lista = sistema.obtenerPartidasDisponibles(datos.juego);
         srv.enviarGlobal(io, "listaPartidas", lista);
@@ -196,7 +204,8 @@ function ServidorWS() {
 
       // === unirAPartida ===
       socket.on("unirAPartida", async function(datos) {
-        let codigo = sistema.unirAPartida(datos.email, datos.codigo);
+        const res = sistema.unirAPartida(datos.email, datos.codigo);
+        const codigo = res && typeof res === "object" ? res.codigo : res;
 
         if (codigo !== -1) {
           socket.join(codigo);
@@ -259,7 +268,11 @@ function ServidorWS() {
           console.warn("[UNO] error sincronizando engine tras unirAPartida", e?.message || e);
         }
 
-        srv.enviarAlRemitente(socket, "unidoAPartida", { codigo: codigo });
+        srv.enviarAlRemitente(
+          socket,
+          "unidoAPartida",
+          res && typeof res === "object" ? res : { codigo: codigo }
+        );
 
         let lista = sistema.obtenerPartidasDisponibles(datos.juego);
         srv.enviarGlobal(io, "listaPartidas", lista);
@@ -268,7 +281,8 @@ function ServidorWS() {
       // === continuarPartida ===
       socket.on("continuarPartida", function(datos) {
         // Marca la partida como "en curso" en tu sistema
-        let codigo = sistema.continuarPartida(datos.email, datos.codigo);
+        const res = sistema.continuarPartida(datos.email, datos.codigo);
+        const codigo = res && typeof res === "object" ? res.codigo : res;
 
         if (codigo !== -1) {
           // Aseguramos que este socket está en la sala
@@ -287,7 +301,11 @@ function ServidorWS() {
           srv.enviarGlobal(io, "listaPartidas", lista);
         } else {
           // No se pudo continuar la partida (no es el propietario, código inválido, etc.)
-          srv.enviarAlRemitente(socket, "partidaContinuada", { codigo: -1 });
+          srv.enviarAlRemitente(
+            socket,
+            "partidaContinuada",
+            res && typeof res === "object" ? res : { codigo: -1 }
+          );
         }
       });
 

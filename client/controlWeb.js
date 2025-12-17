@@ -484,14 +484,21 @@ function ControlWeb() {
                 : (typeof p.jugadores === 'number'
                     ? p.jugadores
                     : (p.numJugadores || 0));
-            const maxJug = (typeof p.maxJug === 'number') ? p.maxJug : 2;
-            const partidaCompleta = jugadores >= maxJug;
+            const maxPlayers = (typeof p.maxPlayers === 'number')
+                ? p.maxPlayers
+                : ((typeof p.maxJug === 'number') ? p.maxJug : 2);
+            const status = (typeof p.status === 'string')
+                ? p.status
+                : (jugadores >= maxPlayers ? 'FULL' : 'OPEN');
+            const partidaCompleta = (status === 'FULL' || status === 'STARTED' || jugadores >= maxPlayers);
             const yaEstoy = Array.isArray(p.jugadores)
                 && p.jugadores.some(j => (j.email || j.nick || "").toLowerCase() === me);
             const puedeUnirse = !partidaCompleta && !yaEstoy;
             let textoBoton;
             if (yaEstoy) {
                 textoBoton = 'En partida';
+            } else if (status === 'STARTED') {
+                textoBoton = 'En curso';
             } else if (partidaCompleta) {
                 textoBoton = 'Completa';
             } else {
@@ -524,7 +531,7 @@ function ControlWeb() {
                       <button class="btn btn-light btn-sm ml-1 btn-copiar-codigo" data-codigo="${p.codigo}" title="Copiar código">Copiar</button>
                     </div>
                     <small class="text-muted">
-                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto} · ${jugadores}/${maxJug} jugadores
+                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto} · ${jugadores}/${maxPlayers} · ${status}
                     </small>
                   </div>
                   <div class="partida-acciones">${acciones}</div>

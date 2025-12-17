@@ -45,12 +45,32 @@ function ClienteWS() {
 
       this.socket.on("partidaCreada", function(datos){
           console.log("Partida creada:", datos.codigo);
+          if (!datos || !datos.codigo || datos.codigo === -1){
+              if (window.cw && cw.mostrarAviso){
+                  cw.mostrarAviso("No se pudo crear la partida.", "error");
+              }
+              return;
+          }
           ws.codigo = datos.codigo;
           ws.pedirListaPartidas();
       });
 
       this.socket.on("unidoAPartida", function(datos){
           console.log("Unido a partida:", datos.codigo);
+          if (!datos || !datos.codigo || datos.codigo === -1){
+              const reason = datos && datos.reason;
+              const message = (datos && datos.message) || (
+                  reason === "FULL" ? "La partida está llena." :
+                  reason === "STARTED" ? "La partida ya ha empezado." :
+                  reason === "NOT_FOUND" ? "La partida no existe." :
+                  "No se pudo unir a la partida."
+              );
+              if (window.cw && cw.mostrarAviso){
+                  cw.mostrarAviso(message, "error");
+              }
+              ws.pedirListaPartidas();
+              return;
+          }
           ws.codigo = datos.codigo;
           ws.pedirListaPartidas();
       });
@@ -62,6 +82,10 @@ function ClienteWS() {
 
         if (!datos.codigo || datos.codigo === -1){
             console.warn("No se pudo continuar la partida (código inválido).");
+            const message = (datos && datos.message) || "No se pudo iniciar la partida.";
+            if (window.cw && cw.mostrarAviso){
+                cw.mostrarAviso(message, "error");
+            }
             return;
         }
 
@@ -96,9 +120,11 @@ function ClienteWS() {
         console.warn("No hay email en ws, no se puede crear partida.");
         return;
     }
+    const maxPlayers = arguments[0];
     this.socket.emit("crearPartida", { 
         email: this.email,
-        juego: this.gameType
+        juego: this.gameType,
+        maxPlayers: maxPlayers
     });
   };
 

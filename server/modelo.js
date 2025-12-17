@@ -11,6 +11,42 @@ function Sistema() {
     return (email || "").trim().toLowerCase();
   };
 
+  const normalizarMaxPlayers = function(maxPlayers, fallback = 2) {
+    const n = Number(maxPlayers);
+    if (!Number.isFinite(n)) return fallback;
+    const v = Math.trunc(n);
+    if (v < 2 || v > 8) return fallback;
+    return v;
+  };
+
+  const obtenerMaxPlayers = function(partida) {
+    if (!partida) return 2;
+    if (typeof partida.maxPlayers === "number") return partida.maxPlayers;
+    if (typeof partida.maxJug === "number") return partida.maxJug;
+    return 2;
+  };
+
+  const recalcularEstadoPartida = function(partida) {
+    if (!partida) return;
+
+    if (typeof partida.maxPlayers !== "number") {
+      partida.maxPlayers = obtenerMaxPlayers(partida);
+    }
+    // Compatibilidad: el frontend actual usa `maxJug`
+    partida.maxJug = partida.maxPlayers;
+
+    partida.playersCount = Array.isArray(partida.jugadores)
+      ? partida.jugadores.length
+      : 0;
+
+    if (partida.estado && partida.estado !== "pendiente") {
+      partida.status = "STARTED";
+      return;
+    }
+    const maxPlayers = obtenerMaxPlayers(partida);
+    partida.status = partida.playersCount >= maxPlayers ? "FULL" : "OPEN";
+  };
+
 
   this.cad = new datos.CAD();
 
@@ -53,7 +89,7 @@ function Sistema() {
   this.obtenerCodigo = function() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
   };
-  this.crearPartida = function(email, juego) {
+  this.crearPartida = function(email, juego, maxPlayers) {
     email = normalizarEmail(email);
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
     if (!usuario) {
@@ -79,11 +115,12 @@ function Sistema() {
 
     // Usar el nick del usuario como propietario (si no disponible, caer a email)
     let propietarioVisible = usuario.nick || email;
-    let p = new Partida(codigo, propietarioVisible, juego);
+    let p = new Partida(codigo, propietarioVisible, juego, normalizarMaxPlayers(maxPlayers, 2));
     // Guardar también el email para validaciones
     p.propietarioEmail = email;
 
     p.jugadores.push(usuario);
+    recalcularEstadoPartida(p);
     this.partidas[codigo] = p;
     this.registrarActividad("crearPartida", email, { partida: codigo });
     return codigo;
@@ -95,32 +132,45 @@ function Sistema() {
     if (!usuario) {
       console.log("Usuario no encontrado");
       this.registrarActividad("unirAPartidaFallido", email);
-      return -1;
+      return { codigo: -1, reason: "INVALID_USER", message: "Usuario no encontrado" };
     }
     let partida = this.partidas[codigo];
     if (!partida) {
       console.log("Partida no encontrada");
       this.registrarActividad("unirAPartidaFallido", email);
-      return -1;
+      return { codigo: -1, reason: "NOT_FOUND", message: "Partida no encontrada" };
     }
 
-    if (partida.jugadores.length >= partida.maxJug) {
-      console.log("Partida llena");
-      console.log("Jugadores:", partida.jugadores.length, "MaxJug:", partida.maxJug, partida.jugadores.map(j => j.email));
+    recalcularEstadoPartida(partida);
+    if (partida.status === "STARTED") {
       this.registrarActividad("unirAPartidaFallido", email);
-      return -1
+      return { codigo: -1, reason: "STARTED", message: "La partida ya ha empezado" };
+    }
+
+    const maxPlayers = obtenerMaxPlayers(partida);
+    if (partida.jugadores.length >= maxPlayers && !partida.jugadores.some(j => j.email === usuario.email)) {
+      console.log("Partida llena");
+      console.log("Jugadores:", partida.jugadores.length, "MaxPlayers:", maxPlayers, partida.jugadores.map(j => j.email));
+      this.registrarActividad("unirAPartidaFallido", email);
+      return { codigo: -1, reason: "FULL", message: "La partida está llena" };
     }
 
     let yaEsta = partida.jugadores.some(j => j.email === usuario.email);
     if (yaEsta) {
       console.log("Usuario ya está en la partida");
       this.registrarActividad("unirAPartidaFallido", email);
-      return -1;
+      return { codigo: -1, reason: "ALREADY_IN", message: "Ya estás en la partida" };
     }
 
     partida.jugadores.push(usuario);
+    recalcularEstadoPartida(partida);
     this.registrarActividad("unirAPartida", email, { partida: codigo });
-    return codigo;
+    return {
+      codigo: codigo,
+      status: partida.status,
+      playersCount: partida.playersCount,
+      maxPlayers: obtenerMaxPlayers(partida),
+    };
   };
 
   this.continuarPartida = function(email, codigo) {
@@ -129,21 +179,30 @@ function Sistema() {
     if (!partida) {
       console.log("Partida no encontrada");
       this.registrarActividad("continuarPartidaFallido", email);
-      return -1;
+      return { codigo: -1, reason: "NOT_FOUND", message: "Partida no encontrada" };
     }
     if (normalizarEmail(partida.propietarioEmail || partida.propietario) !== email) {
       console.log("Solo el propietario puede continuar su partida");
       this.registrarActividad("continuarPartidaFallido", email);
-      return -1;
+      return { codigo: -1, reason: "NOT_HOST", message: "Solo el propietario puede iniciar la partida" };
     }
+
+    recalcularEstadoPartida(partida);
+    if ((partida.playersCount || partida.jugadores.length) < 2) {
+      this.registrarActividad("continuarPartidaFallido", email);
+      return { codigo: -1, reason: "NOT_ENOUGH_PLAYERS", message: "Se requieren al menos 2 jugadores para iniciar" };
+    }
+
     partida.estado = 'enCurso';
+    partida.status = "STARTED";
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
     let yaEsta = partida.jugadores.some(j => j.email === usuario.email);
     if (!yaEsta) {
       partida.jugadores.push(usuario);
     }
+    recalcularEstadoPartida(partida);
     this.registrarActividad("continuarPartida", email);
-    return codigo;
+    return { codigo: codigo, status: partida.status };
   };
 
   this.eliminarPartida = function(email, codigo) {
@@ -172,6 +231,7 @@ function Sistema() {
     // si no eres propietario, solo te borras de la lista de jugadores
     if (esJugador) {
       partida.jugadores = partida.jugadores.filter(j => normalizarEmail(j.email) !== email);
+      recalcularEstadoPartida(partida);
       if (partida.jugadores.length === 0) {
         delete this.partidas[codigo];
       }
@@ -197,6 +257,8 @@ function Sistema() {
      return Object.values(this.partidas).filter(p => {
       // Solo queremos partidas pendientes
       if (p.estado && p.estado !== 'pendiente') return false;
+
+      recalcularEstadoPartida(p);
 
       // Si no se nos pide un juego concreto, devolvemos todas las pendientes
       if (!juego) return true;
@@ -246,7 +308,6 @@ function Sistema() {
   };
 
   this.obtenerUsuarios = function () {
-    this.registrarActividad("obtenerUsuarios", email);
     return this.usuarios;
   };
 
@@ -472,7 +533,11 @@ function Partida(codigo, propietario, juego, maxJug) {
   this.codigo = codigo;
   this.propietario = propietario;
   this.jugadores = [];
-  this.maxJug = typeof maxJug === 'number' ? maxJug : getMaxJugPorJuego(juego);
+  // `maxJug` se mantiene por compatibilidad con código existente (UI/legacy).
+  this.maxPlayers = typeof maxJug === 'number' ? maxJug : 2;
+  this.maxJug = this.maxPlayers;
+  this.playersCount = 0;
+  this.status = "OPEN"; // OPEN|FULL|STARTED
   this.estado = 'pendiente';
   this.juego = juego || 'uno' ;
 }
