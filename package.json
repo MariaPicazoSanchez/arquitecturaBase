@@ -1,10 +1,11 @@
 {
   "name": "ignition",
   "version": "1.0.0",
-  "description": "Ignition: interfaz con tema llamativo y colores neon.",
+  "description": "Table Room",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js && npm --prefix client/games/uno ci && npm --prefix client/games/uno run build",
+    "start": "node index.js",
+    "build": "npm --prefix client/games/uno ci && npm --prefix client/games/uno run build",
     "test": "npx jasmine-node server",
     "dev": "node --env-file .env index.js"
   },
