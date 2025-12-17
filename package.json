@@ -4,7 +4,7 @@
   "description": "Ignition: interfaz con tema llamativo y colores neon.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node index.js && npm --prefix client/games/uno ci && npm --prefix client/games/uno run build",
     "test": "npx jasmine-node server",
     "dev": "node --env-file .env index.js"
   },
