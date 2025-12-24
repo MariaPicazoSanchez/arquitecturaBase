@@ -14,3 +14,10 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+## UNO - Audio (SFX)
+
+Este juego genera SFX 100% por código (Web Audio API) y no requiere assets de audio.
+
+- Mute se guarda en `localStorage` con la key `uno_muted`.
+- El audio se “desbloquea” tras el primer gesto del usuario dentro del tablero (click/tap).

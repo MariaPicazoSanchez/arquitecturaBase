@@ -7,6 +7,10 @@ const {
   getNextPlayerIndex,
 } = require("./game/unoEngineMultiplayer");
 
+const UNO_CALL_WINDOW_MS = (() => {
+  const parsed = Number.parseInt(process.env.UNO_CALL_WINDOW_MS, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5000;
+})();
 
 function ServidorWS() {
   let srv = this;
@@ -89,6 +93,63 @@ function ServidorWS() {
     return updated;
   };
 
+  const deriveActionEffectFromCard = (card, byPlayerId) => {
+    if (!card) return null;
+    if (card.value === "+2") return { type: "+2", value: 2, byPlayerId };
+    if (card.value === "+4") return { type: "+4", value: 4, color: card.color, byPlayerId };
+    if (card.value === "skip") return { type: "SKIP", byPlayerId };
+    if (card.value === "reverse") return { type: "REVERSE", byPlayerId };
+    if (card.value === "wild") return { type: "WILD", color: card.color, byPlayerId };
+    return null;
+  };
+
+  const runBotTurnsIfNeededWithEffects = (engine) => {
+    if (!engine || !engine.hasBot) return { engine, effects: [] };
+
+    let updated = engine;
+    const effects = [];
+    let safety = 0;
+    while (
+      updated.status === "playing" &&
+      updated.currentPlayerIndex === 1 &&
+      safety < 25
+    ) {
+      safety++;
+
+      let playable = getPlayableCards(updated, 1);
+      while (playable.length === 0 && updated.drawPile.length > 0) {
+        updated = applyAction(updated, {
+          type: ACTION_TYPES.DRAW_CARD,
+          playerIndex: 1,
+        });
+        playable = getPlayableCards(updated, 1);
+      }
+
+      if (playable.length > 0) {
+        const card = playable[0];
+        const needsColor = card.color === "wild";
+        updated = applyAction(updated, {
+          type: ACTION_TYPES.PLAY_CARD,
+          playerIndex: 1,
+          cardId: card.id,
+          ...(needsColor ? { chosenColor: chooseBotColor(updated, 1) } : {}),
+        });
+        const byPlayerId = updated.players?.[1]?.id ?? 1;
+        const effect = deriveActionEffectFromCard(updated.lastAction?.card, byPlayerId);
+        if (effect) effects.push(effect);
+        continue;
+      }
+
+      // Sin jugadas posibles y sin mazo: pasar turno manualmente.
+      updated = {
+        ...updated,
+        currentPlayerIndex: getNextPlayerIndex(updated, 1, 1),
+      };
+    }
+
+    return { engine: updated, effects };
+  };
+
   const rotateEngineForViewer = (engine, viewerIndex) => {
     if (!engine || !Array.isArray(engine.players) || engine.players.length < 2) {
       return engine;
@@ -153,6 +214,167 @@ function ServidorWS() {
       });
       io.to(codigo).emit("uno:estado", { codigo, engine: datosUNO.engine });
     }
+  };
+
+  const ensureUnoTimers = (datosUNO) => {
+    if (!datosUNO.unoTimers) {
+      datosUNO.unoTimers = {
+        deadlinesByPlayerId: {},
+        timeoutsByPlayerId: {},
+      };
+    }
+    return datosUNO.unoTimers;
+  };
+
+  const clearUnoDeadline = (io, codigo, datosUNO, playerId, { emit = true } = {}) => {
+    if (!datosUNO) return;
+    const unoTimers = ensureUnoTimers(datosUNO);
+    const key = String(playerId);
+    const t = unoTimers.timeoutsByPlayerId[key];
+    if (t) clearTimeout(t);
+    delete unoTimers.timeoutsByPlayerId[key];
+    if (unoTimers.deadlinesByPlayerId[key] != null) {
+      delete unoTimers.deadlinesByPlayerId[key];
+      if (emit) io.to(codigo).emit("uno:uno_cleared", { codigo, playerId });
+    }
+  };
+
+  const clearAllUnoDeadlines = (io, codigo, datosUNO) => {
+    if (!datosUNO) return;
+    const unoTimers = ensureUnoTimers(datosUNO);
+    for (const key of Object.keys(unoTimers.timeoutsByPlayerId || {})) {
+      clearTimeout(unoTimers.timeoutsByPlayerId[key]);
+      delete unoTimers.timeoutsByPlayerId[key];
+    }
+    unoTimers.deadlinesByPlayerId = {};
+  };
+
+  const syncUnoDeadlinesFromEngine = (io, codigo, datosUNO) => {
+    if (!datosUNO || !datosUNO.engine) return;
+    const engine = datosUNO.engine;
+    const unoTimers = ensureUnoTimers(datosUNO);
+
+    if (engine.status !== "playing") {
+      clearAllUnoDeadlines(io, codigo, datosUNO);
+      return;
+    }
+
+    const requiresUno = new Set();
+    for (const p of engine.players || []) {
+      if (p && p.hand && p.hand.length === 1 && !p.hasCalledUno) {
+        requiresUno.add(String(p.id));
+      }
+    }
+
+    // Cancelar timers que ya no aplican.
+    for (const key of Object.keys(unoTimers.deadlinesByPlayerId || {})) {
+      if (!requiresUno.has(key)) {
+        clearUnoDeadline(io, codigo, datosUNO, isNaN(Number(key)) ? key : Number(key));
+      }
+    }
+
+    // Programar nuevos timers donde toque.
+    for (const p of engine.players || []) {
+      const key = String(p.id);
+      if (!requiresUno.has(key)) continue;
+      if (unoTimers.deadlinesByPlayerId[key] != null) continue;
+
+      const deadlineTs = Date.now() + UNO_CALL_WINDOW_MS;
+      unoTimers.deadlinesByPlayerId[key] = deadlineTs;
+
+      io.to(codigo).emit("uno:uno_required", {
+        codigo,
+        playerId: p.id,
+        deadlineTs,
+        windowMs: UNO_CALL_WINDOW_MS,
+      });
+
+      unoTimers.timeoutsByPlayerId[key] = setTimeout(async () => {
+        try {
+          const current = estadosUNO[codigo];
+          if (!current || !current.engine) return;
+          const currentTimers = ensureUnoTimers(current);
+          const currentDeadline = currentTimers.deadlinesByPlayerId[key];
+          if (currentDeadline !== deadlineTs) return;
+
+          const still = (current.engine.players || []).find((pl) => String(pl.id) === key);
+          if (!still) {
+            clearUnoDeadline(io, codigo, current, p.id);
+            return;
+          }
+          const stillRequires =
+            current.engine.status === "playing" &&
+            still.hand?.length === 1 &&
+            !still.hasCalledUno;
+          if (!stillRequires) {
+            clearUnoDeadline(io, codigo, current, p.id);
+            return;
+          }
+
+          const loserIndex = current.engine.players.findIndex((pl) => String(pl.id) === key);
+          const winnerIndex =
+            current.engine.players.length === 2
+              ? loserIndex === 0
+                ? 1
+                : 0
+              : getNextPlayerIndex(current.engine, loserIndex, 1);
+
+          current.engine = {
+            ...current.engine,
+            status: "finished",
+            winnerIndex,
+            lastAction: { type: "UNO_TIMEOUT", playerIndex: loserIndex },
+          };
+
+          clearAllUnoDeadlines(io, codigo, current);
+
+          io.to(codigo).emit("uno:player_lost", {
+            codigo,
+            playerId: p.id,
+            reason: "uno_timeout",
+            deadlineTs,
+            atTs: Date.now(),
+          });
+          io.to(codigo).emit("uno:game_over", {
+            codigo,
+            reason: "uno_timeout",
+            loserPlayerId: p.id,
+            winnerPlayerId: current.engine.players?.[winnerIndex]?.id ?? null,
+            atTs: Date.now(),
+          });
+
+          await emitirEstadoUNO(io, codigo, current);
+        } catch (e) {
+          console.warn("[UNO] error en timeout UNO", e?.message || e);
+        }
+      }, UNO_CALL_WINDOW_MS);
+    }
+  };
+
+  const tryHandleUnoCallByIndex = async (io, codigo, datosUNO, playerIndex) => {
+    if (!datosUNO || !datosUNO.engine) return false;
+    const player = datosUNO.engine.players?.[playerIndex];
+    if (!player) return false;
+
+    const unoTimers = ensureUnoTimers(datosUNO);
+    const key = String(player.id);
+    const deadlineTs = unoTimers.deadlinesByPlayerId[key];
+    if (deadlineTs == null) return false;
+    if (Date.now() > deadlineTs) return false;
+
+    clearUnoDeadline(io, codigo, datosUNO, player.id, { emit: false });
+    datosUNO.engine = applyAction(datosUNO.engine, {
+      type: ACTION_TYPES.CALL_UNO,
+      playerIndex,
+    });
+
+    io.to(codigo).emit("uno:uno_called", {
+      codigo,
+      playerId: player.id,
+      atTs: Date.now(),
+    });
+
+    return true;
   };
 
   this.enviarAlRemitente = function(socket, mensaje, datos) {
@@ -244,6 +466,7 @@ function ServidorWS() {
               !arraysEqual(existingNames, desiredNames);
 
             if (needsRecreate) {
+              clearAllUnoDeadlines(io, codigo, datosUNO);
               const engine = createInitialState({
                 numPlayers: desiredNumPlayers,
                 names: desiredNames,
@@ -314,6 +537,7 @@ function ServidorWS() {
         let codigo = sistema.eliminarPartida(datos.email, datos.codigo);
 
         if (codigo !== -1 && estadosUNO[codigo]) {
+          clearAllUnoDeadlines(io, codigo, estadosUNO[codigo]);
           delete estadosUNO[codigo];
           console.log("[UNO] engine eliminado para partida", codigo);
         }
@@ -413,6 +637,7 @@ function ServidorWS() {
           !arraysEqual(existingNames, desiredNames);
 
         if (needsRecreate) {
+          clearAllUnoDeadlines(io, codigo, datosUNO);
           const engine = createInitialState({
             numPlayers: desiredNumPlayers,
             names: desiredNames,
@@ -449,9 +674,45 @@ function ServidorWS() {
         socket.join(codigo);
 
         await emitirEstadoUNO(io, codigo, datosUNO);
+
+        // Si hay un requisito UNO vigente, reenviarlo a este socket (útil en reconexión).
+        try {
+          const unoTimers = ensureUnoTimers(datosUNO);
+          for (const key of Object.keys(unoTimers.deadlinesByPlayerId || {})) {
+            socket.emit("uno:uno_required", {
+              codigo,
+              playerId: isNaN(Number(key)) ? key : Number(key),
+              deadlineTs: unoTimers.deadlinesByPlayerId[key],
+              windowMs: UNO_CALL_WINDOW_MS,
+            });
+          }
+        } catch (e) {
+          console.warn("[UNO] error reenviando uno_required al suscribir", e?.message || e);
+        }
       });
 
       // Cuando un jugador realiza una acción en el UNO
+      socket.on("uno:uno_call", async function(datos) {
+        const codigo = datos && datos.codigo;
+        const email = datos && datos.email;
+        if (!codigo || !email) return;
+
+        const partida = sistema.partidas[codigo];
+        const datosUNO = estadosUNO[codigo];
+        if (!partida || !datosUNO || !datosUNO.engine) return;
+        if (partida.juego !== "uno") return;
+
+        const playerId = normalizePlayerId(email);
+        const playerIndex = datosUNO.humanIds.indexOf(playerId);
+        if (playerIndex === -1) return;
+
+        const handled = await tryHandleUnoCallByIndex(io, codigo, datosUNO, playerIndex);
+        if (handled) {
+          syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
+          await emitirEstadoUNO(io, codigo, datosUNO);
+        }
+      });
+
       socket.on("uno:accion", async function(datos) {
         const codigo = datos && datos.codigo;
         const email  = datos && datos.email;
@@ -494,9 +755,33 @@ function ServidorWS() {
         });
 
         // Inyectamos playerIndex en la acción y aplicamos el engine
+        // Retrocompatible: clientes antiguos envían CALL_UNO via uno:accion.
+        if (action.type === ACTION_TYPES.CALL_UNO) {
+          const handled = await tryHandleUnoCallByIndex(io, codigo, datosUNO, playerIndex);
+          if (handled) {
+            syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
+            await emitirEstadoUNO(io, codigo, datosUNO);
+          }
+          return;
+        }
+
         const fullAction = { ...action, playerIndex };
-        const newEngine = applyAction(datosUNO.engine, fullAction);
-        datosUNO.engine = runBotTurnsIfNeeded(newEngine);
+        const engineAfterHuman = applyAction(datosUNO.engine, fullAction);
+
+        const actionEffects = [];
+        if (fullAction.type === ACTION_TYPES.PLAY_CARD) {
+          const byPlayerId = engineAfterHuman.players?.[playerIndex]?.id ?? playerIndex;
+          const effect = deriveActionEffectFromCard(engineAfterHuman.lastAction?.card, byPlayerId);
+          if (effect) actionEffects.push(effect);
+        }
+
+        const botResult = runBotTurnsIfNeededWithEffects(engineAfterHuman);
+        datosUNO.engine = botResult.engine;
+        actionEffects.push(...(botResult.effects || []));
+
+        for (const effect of actionEffects) {
+          io.to(codigo).emit("uno:action_effect", { codigo, ...effect });
+        }
 
         console.log("[UNO][DBG] accion aplicada", {
           codigo,
@@ -505,7 +790,19 @@ function ServidorWS() {
           winnerIndex: datosUNO.engine.winnerIndex,
         });
 
+        syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
         await emitirEstadoUNO(io, codigo, datosUNO);
+      });
+
+      socket.on("disconnect", function() {
+        // Evitar leaks de mapeo socket->playerId
+        for (const [codigo, datosUNO] of Object.entries(estadosUNO)) {
+          if (datosUNO?.socketToPlayerId?.[socket.id]) {
+            delete datosUNO.socketToPlayerId[socket.id];
+            // No borramos timers UNO: son por jugador, no por socket.
+            console.log("[UNO][DBG] socket desconectado", { codigo, socketId: socket.id });
+          }
+        }
       });
 
     });

@@ -1,21 +1,35 @@
 import { io } from "socket.io-client";
 
-export function createUnoSocket({ codigo, email, onState, onError }) {
-  // Conexión al mismo host donde corre tu server
+export function createUnoSocket({
+  codigo,
+  email,
+  onState,
+  onError,
+  onUnoRequired,
+  onUnoCleared,
+  onUnoCalled,
+  onPlayerLost,
+  onGameOver,
+  onActionEffect,
+} = {}) {
   const socket = io("/", { withCredentials: true });
 
   socket.on("connect", () => {
     console.log("[UNO] conectado al WS", socket.id);
-
-    // Registrarnos en la partida y juego UNO
     socket.emit("uno:suscribirse", { codigo, email });
   });
 
-  // El servidor enviará el estado completo del UNO aquí
   socket.on("uno:estado", (estado) => {
     console.log("[UNO] estado recibido:", estado);
     onState?.(estado);
   });
+
+  socket.on("uno:uno_required", (payload) => onUnoRequired?.(payload));
+  socket.on("uno:uno_cleared", (payload) => onUnoCleared?.(payload));
+  socket.on("uno:uno_called", (payload) => onUnoCalled?.(payload));
+  socket.on("uno:player_lost", (payload) => onPlayerLost?.(payload));
+  socket.on("uno:game_over", (payload) => onGameOver?.(payload));
+  socket.on("uno:action_effect", (payload) => onActionEffect?.(payload));
 
   socket.on("connect_error", (err) => {
     console.error("[UNO] error de conexión:", err);
@@ -26,9 +40,14 @@ export function createUnoSocket({ codigo, email, onState, onError }) {
     socket.emit("uno:accion", { codigo, email, action });
   }
 
+  function callUno() {
+    socket.emit("uno:uno_call", { codigo, email });
+  }
+
   function disconnect() {
     socket.disconnect();
   }
 
-  return { socket, sendAction, disconnect };
+  return { socket, sendAction, callUno, disconnect };
 }
+

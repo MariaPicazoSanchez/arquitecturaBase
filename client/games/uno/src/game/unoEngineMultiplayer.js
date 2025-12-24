@@ -1,5 +1,7 @@
 // ====== Configuración de cartas ======
 
+import { rebuildDeckIfNeeded, shuffle } from './deckUtils';
+
 export const COLORS = ['red', 'green', 'blue', 'yellow'];
 export const VALUES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
@@ -51,15 +53,6 @@ function createDeck() {
   }
 
   return shuffle(deck);
-}
-
-function shuffle(array) {
-  const a = [...array];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
 }
 
 // ====== Reglas básicas ======
@@ -172,6 +165,41 @@ export function applyAction(state, action) {
   }
 }
 
+function drawOneFromPile(s) {
+  let rebuiltDeck = false;
+
+  if (s.drawPile.length === 0) {
+    const rebuilt = rebuildDeckIfNeeded({
+      deck: s.drawPile,
+      discard: s.discardPile,
+    });
+    if (rebuilt.rebuilt) {
+      s.drawPile = rebuilt.deck;
+      s.discardPile = rebuilt.discard;
+      rebuiltDeck = true;
+    }
+  }
+
+  const card = s.drawPile.shift() ?? null;
+  return { card, rebuiltDeck };
+}
+
+function drawCardsIntoHand(s, playerIndex, count) {
+  const player = s.players[playerIndex];
+  let drawnCount = 0;
+  let rebuiltDeck = false;
+
+  for (let i = 0; i < count; i++) {
+    const res = drawOneFromPile(s);
+    if (!res.card) break;
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    player.hand.push(res.card);
+    drawnCount++;
+  }
+
+  return { drawnCount, rebuiltDeck };
+}
+
 // --- PLAY_CARD ---
 
 function applyPlayCard(state, action) {
@@ -211,7 +239,7 @@ function applyPlayCard(state, action) {
     player.hasCalledUno = false;
   }
 
-  s.lastAction = {
+  const baseLastAction = {
     type: ACTION_TYPES.PLAY_CARD,
     playerIndex,
     card: cardForDiscard,
@@ -219,18 +247,21 @@ function applyPlayCard(state, action) {
 
   // ¿ha ganado?
   if (player.hand.length === 0) {
+    s.lastAction = baseLastAction;
     s.status = 'finished';
     s.winnerIndex = playerIndex;
     return s;
   }
 
   // Efectos especiales según valor
+  let rebuiltDeck = false;
+  let forcedDraw = null;
+
   if (card.value === '+2') {
     const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    const victim = s.players[victimIndex];
-    for (let i = 0; i < 2 && s.drawPile.length > 0; i++) {
-      victim.hand.push(s.drawPile.shift());
-    }
+    const res = drawCardsIntoHand(s, victimIndex, 2);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
     s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
   } else if (card.value === 'skip') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 2);
@@ -239,10 +270,9 @@ function applyPlayCard(state, action) {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+4') {
     const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    const victim = s.players[victimIndex];
-    for (let i = 0; i < 4 && s.drawPile.length > 0; i++) {
-      victim.hand.push(s.drawPile.shift());
-    }
+    const res = drawCardsIntoHand(s, victimIndex, 4);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
     s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
@@ -250,6 +280,12 @@ function applyPlayCard(state, action) {
     // carta normal
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   }
+
+  s.lastAction = {
+    ...baseLastAction,
+    ...(rebuiltDeck ? { rebuiltDeck: true } : null),
+    ...(forcedDraw ? { forcedDraw } : null),
+  };
 
   return s;
 }
@@ -265,22 +301,16 @@ function applyDrawCard(state, action) {
   const s = cloneState(state);
   const player = s.players[playerIndex];
 
-  if (s.drawPile.length === 0) {
-    s.lastAction = {
-      type: ACTION_TYPES.DRAW_CARD,
-      playerIndex,
-      card: null,
-    };
-    return s;
+  const res = drawOneFromPile(s);
+  if (res.card) {
+    player.hand.push(res.card);
   }
-
-  const card = s.drawPile.shift();
-  player.hand.push(card);
 
   s.lastAction = {
     type: ACTION_TYPES.DRAW_CARD,
     playerIndex,
-    card,
+    card: res.card,
+    ...(res.rebuiltDeck ? { rebuiltDeck: true } : null),
   };
 
   return s;

@@ -78,9 +78,133 @@ h1 {
 }
 
 .uno-status {
+  position: relative;
   text-align: center;
   font-size: 0.95rem;
   color: #cbd5f5;
+}
+
+.uno-events {
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.uno-events-title {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.35rem;
+}
+
+.uno-events-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 110px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.uno-events-item {
+  font-size: 0.85rem;
+  color: #e5e7eb;
+  opacity: 0.95;
+}
+
+.uno-mute-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.65);
+  color: #e5e7eb;
+  border-radius: 9999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease,
+    background 0.12s ease;
+}
+
+.uno-mute-toggle:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.uno-mute-toggle--muted {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.55);
+  color: #fecaca;
+}
+
+.uno-players-panel {
+  padding: 0.6rem 0.8rem;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.uno-players-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.uno-players-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+  max-height: 165px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.uno-player-tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.uno-player-tile--active {
+  border-color: rgba(34, 197, 94, 0.7);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18);
+}
+
+.uno-player-tile--lost {
+  border-color: rgba(239, 68, 68, 0.7);
+  background: rgba(239, 68, 68, 0.08);
+  color: #fecaca;
+}
+
+.uno-player-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uno-player-count {
+  font-size: 0.8rem;
+  color: #cbd5f5;
+  opacity: 0.9;
+  white-space: nowrap;
 }
 
 /* Zonas jugador/bot con banda translúcida para contrastar */
@@ -120,12 +244,16 @@ h1 {
   min-height: 190px;   /* espacio para la carta grande y el mazo */
 }
 
+.centerPiles {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+}
+
 /* Montón de descarte PERFECTAMENTE centrado */
 .uno-discard {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -137,6 +265,25 @@ h1 {
   position: relative;
   width: 120px;
   height: 180px;
+}
+
+@keyframes uno-rebuild-glow {
+  0% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(56, 189, 248, 0));
+  }
+  40% {
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.65));
+  }
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(56, 189, 248, 0));
+  }
+}
+
+.uno-discard-stack--rebuilding {
+  animation: uno-rebuild-glow 650ms ease-out;
 }
 
 /* Carta superior e inferior apiladas como ya tenías */
@@ -153,9 +300,7 @@ h1 {
 
 /* Mazo (botón) pegado a la derecha */
 .uno-draw-button {
-  position: absolute;
-  top: 10px;
-  right: 10px;
+  position: relative;
   border: none;
   background: transparent;
   padding: 0;
@@ -544,9 +689,49 @@ button:disabled {
   animation: uno-pulse 0.9s infinite alternate;
 }
 
+.uno-uno-tooltip {
+  display: inline-block;
+}
+
+.uno-uno-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  filter: saturate(0.7);
+  animation: none;
+  box-shadow:
+    0 0 0 2px rgba(148, 163, 184, 0.25),
+    0 12px 28px rgba(2, 6, 23, 0.65);
+}
+
 .uno-uno-subtext {
   font-size: 0.75rem;
   color: #fed7aa;
+}
+
+.uno-lastcard-timer {
+  width: 240px;
+  height: 8px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(248, 250, 252, 0.25);
+}
+
+.uno-lastcard-timer-fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, #f97316, #b91c1c);
+  transition: transform 0.1s linear;
+}
+
+@keyframes uno-lastcard-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 @keyframes uno-pulse {
@@ -579,6 +764,330 @@ button:disabled {
   to {
     transform: scale(1) rotate(-4deg);
     opacity: 1;
+  }
+}
+
+/* ==========================
+   Mesa circular (8 seats)
+   ========================== */
+
+.uno-table-area {
+  position: relative;
+  height: clamp(360px, 52vh, 520px);
+  border-radius: 26px;
+  overflow: hidden;
+
+  background:
+    radial-gradient(circle at 30% 20%, rgba(34, 197, 94, 0.18), transparent 55%),
+    radial-gradient(circle at 70% 80%, rgba(59, 130, 246, 0.22), transparent 60%),
+    radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.95));
+
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(2, 6, 23, 0.7);
+}
+
+.uno-table-seats {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.uno-seat-pos {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 180px;
+  max-width: 42vw;
+}
+
+.uno-seat {
+  position: relative;
+  padding: 0.55rem 0.6rem;
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 12px 24px rgba(2, 6, 23, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.uno-seat--active {
+  border-color: rgba(34, 197, 94, 0.75);
+  box-shadow:
+    0 0 0 2px rgba(34, 197, 94, 0.28),
+    0 18px 40px rgba(16, 185, 129, 0.2);
+  animation: uno-seat-glow 0.95s ease-in-out infinite alternate;
+}
+
+.uno-seat--lost {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+@keyframes uno-seat-glow {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-2px);
+  }
+}
+
+.uno-seat-arrow {
+  position: absolute;
+  left: 50%;
+  top: -12px;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 14px solid rgba(34, 197, 94, 0.95);
+  filter: drop-shadow(0 6px 10px rgba(16, 185, 129, 0.4));
+  animation: uno-seat-arrow 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes uno-seat-arrow {
+  from {
+    transform: translateX(-50%) translateY(0);
+  }
+  to {
+    transform: translateX(-50%) translateY(-2px);
+  }
+}
+
+.uno-seat-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.uno-seat-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  background: linear-gradient(135deg, #f97316, #6366f1);
+  color: #0b1220;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.45);
+}
+
+.uno-seat-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.uno-seat-name {
+  font-size: 0.85rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.uno-seat-count {
+  font-size: 0.75rem;
+  color: #cbd5f5;
+  opacity: 0.9;
+}
+
+.uno-seat-turn-badge {
+  margin-left: auto;
+  padding: 0.18rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.55);
+  color: #bbf7d0;
+}
+
+.uno-seat-cards {
+  margin-top: 0.4rem;
+  position: relative;
+  height: 46px;
+}
+
+.uno-seat-cardback {
+  position: absolute;
+  width: 30px;
+  height: 42px;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(248, 250, 252, 0.25), transparent 55%),
+    radial-gradient(circle at 70% 80%, rgba(2, 6, 23, 0.55), transparent 60%),
+    linear-gradient(135deg, #111827, #0b1220);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.55);
+}
+
+.uno-seat-cardback-count {
+  position: absolute;
+  right: 0;
+  top: 0;
+  transform: translate(18px, -6px);
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  background: rgba(2, 6, 23, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #e5e7eb;
+}
+
+.uno-seat-uno {
+  margin-top: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.uno-seat-uno-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #fed7aa;
+}
+
+.uno-seat-uno-bar {
+  height: 6px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(248, 250, 252, 0.18);
+}
+
+.uno-seat-uno-bar-fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, #f97316, #b91c1c);
+  transition: transform 0.1s linear;
+}
+
+.uno-table-center {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.uno-table-hud {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  z-index: 3;
+}
+
+.uno-direction {
+  padding: 0.18rem 0.6rem;
+  border-radius: 9999px;
+  background: rgba(2, 6, 23, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  font-weight: 900;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  color: #e5e7eb;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.45);
+}
+
+/* Overlay de efectos */
+.uno-action-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.uno-action-overlay-card {
+  padding: 1rem 1.4rem;
+  border-radius: 26px;
+  background: rgba(2, 6, 23, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  box-shadow:
+    0 0 0 2px rgba(248, 250, 252, 0.1),
+    0 26px 60px rgba(2, 6, 23, 0.75);
+  backdrop-filter: blur(10px);
+  animation: uno-effect-pop 1.2s ease-out forwards;
+  text-align: center;
+  min-width: 220px;
+}
+
+.uno-action-overlay-text {
+  font-size: 2.25rem;
+  font-weight: 1000;
+  letter-spacing: 0.16em;
+  color: #f8fafc;
+  text-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+.uno-action-overlay-color {
+  margin: 0.7rem auto 0;
+  width: 84px;
+  height: 10px;
+  border-radius: 9999px;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.55);
+}
+
+.uno-action-overlay-color--red {
+  background: linear-gradient(90deg, #fb7185, #ef4444);
+}
+.uno-action-overlay-color--yellow {
+  background: linear-gradient(90deg, #fde047, #facc15);
+}
+.uno-action-overlay-color--green {
+  background: linear-gradient(90deg, #4ade80, #22c55e);
+}
+.uno-action-overlay-color--blue {
+  background: linear-gradient(90deg, #60a5fa, #3b82f6);
+}
+
+@keyframes uno-effect-pop {
+  0% {
+    transform: translateY(12px) scale(0.92);
+    opacity: 0;
+  }
+  18% {
+    transform: translateY(0) scale(1.02);
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-6px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .uno-seat-pos {
+    width: 150px;
+  }
+  .uno-seat-name {
+    max-width: 96px;
+  }
+  .uno-seat-cards {
+    height: 34px;
+  }
+  .uno-seat-cardback {
+    width: 24px;
+    height: 34px;
+    border-radius: 9px;
+  }
+  .uno-action-overlay-text {
+    font-size: 1.9rem;
   }
 }
 
@@ -648,6 +1157,31 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+@keyframes uno-rebuild-shake {
+  0% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-3px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.uno-draw-stack--rebuilding {
+  animation: uno-rebuild-shake 650ms ease-out;
 }
 
 .uno-card-back--stack {
