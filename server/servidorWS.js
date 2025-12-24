@@ -226,6 +226,37 @@ function ServidorWS() {
     return datosUNO.unoTimers;
   };
 
+  const ensureRematchState = (datosUNO) => {
+    if (!datosUNO.rematch) {
+      datosUNO.rematch = {
+        round: 0,
+        inProgress: false,
+        readyByPlayerId: {},
+      };
+    }
+    if (!datosUNO.rematch.readyByPlayerId) datosUNO.rematch.readyByPlayerId = {};
+    return datosUNO.rematch;
+  };
+
+  const emitRematchStatus = (io, codigo, datosUNO, { socket = null } = {}) => {
+    if (!datosUNO) return;
+    const rematch = ensureRematchState(datosUNO);
+    const activePlayerIds = Array.isArray(datosUNO.humanIds) ? datosUNO.humanIds : [];
+    const readyPlayerIds = activePlayerIds.filter(
+      (id) => !!rematch.readyByPlayerId[String(id)],
+    );
+    const payload = {
+      codigo,
+      readyCount: readyPlayerIds.length,
+      totalCount: activePlayerIds.length,
+      readyPlayerIds,
+      round: rematch.round,
+      inProgress: rematch.inProgress,
+    };
+    if (socket) socket.emit("uno:rematch_status", payload);
+    else io.to(codigo).emit("uno:rematch_status", payload);
+  };
+
   const clearUnoDeadline = (io, codigo, datosUNO, playerId, { emit = true } = {}) => {
     if (!datosUNO) return;
     const unoTimers = ensureUnoTimers(datosUNO);
@@ -638,6 +669,9 @@ function ServidorWS() {
 
         if (needsRecreate) {
           clearAllUnoDeadlines(io, codigo, datosUNO);
+          const rematch = ensureRematchState(datosUNO);
+          rematch.readyByPlayerId = {};
+          rematch.inProgress = false;
           const engine = createInitialState({
             numPlayers: desiredNumPlayers,
             names: desiredNames,
@@ -675,6 +709,10 @@ function ServidorWS() {
 
         await emitirEstadoUNO(io, codigo, datosUNO);
 
+        if (datosUNO.engine && datosUNO.engine.status === "finished") {
+          emitRematchStatus(io, codigo, datosUNO, { socket });
+        }
+
         // Si hay un requisito UNO vigente, reenviarlo a este socket (útil en reconexión).
         try {
           const unoTimers = ensureUnoTimers(datosUNO);
@@ -692,6 +730,107 @@ function ServidorWS() {
       });
 
       // Cuando un jugador realiza una acción en el UNO
+      socket.on("uno:rematch_ready", async function(datos) {
+        const codigo = datos && datos.codigo;
+        const email = datos && datos.email;
+        if (!codigo || !email) return;
+
+        const partida = sistema.partidas[codigo];
+        const datosUNO = estadosUNO[codigo];
+        if (!partida || !datosUNO || !datosUNO.engine) return;
+        if (partida.juego !== "uno") return;
+
+        if (datosUNO.engine.status !== "finished") {
+          console.log("[UNO][REMATCH] ready ignorado (partida no finalizada)", {
+            codigo,
+          });
+          return;
+        }
+
+        const playerId = normalizePlayerId(email);
+        if (!playerId) return;
+        if (!datosUNO.humanIds.includes(playerId)) {
+          console.warn("[UNO][REMATCH] ready rechazado (no pertenece)", {
+            codigo,
+            email,
+            playerId,
+          });
+          return;
+        }
+
+        const rematch = ensureRematchState(datosUNO);
+        const key = String(playerId);
+        if (rematch.readyByPlayerId[key]) {
+          emitRematchStatus(io, codigo, datosUNO);
+          return;
+        }
+
+        rematch.readyByPlayerId[key] = true;
+        emitRematchStatus(io, codigo, datosUNO);
+
+        const activePlayerIds = Array.isArray(datosUNO.humanIds) ? datosUNO.humanIds : [];
+        const readyPlayerIds = activePlayerIds.filter(
+          (id) => !!rematch.readyByPlayerId[String(id)],
+        );
+
+        console.log("[UNO][REMATCH] ready", {
+          codigo,
+          playerId,
+          ready: readyPlayerIds.length,
+          total: activePlayerIds.length,
+          readyPlayerIds,
+          round: rematch.round,
+          inProgress: rematch.inProgress,
+        });
+
+        if (rematch.inProgress) return;
+        if (activePlayerIds.length === 0) return;
+        if (readyPlayerIds.length !== activePlayerIds.length) return;
+
+        rematch.inProgress = true;
+        rematch.round += 1;
+
+        try {
+          clearAllUnoDeadlines(io, codigo, datosUNO);
+
+          const numHumanPlayers = activePlayerIds.length;
+          const shouldHaveBot = numHumanPlayers < 2;
+          const desiredNames = shouldHaveBot
+            ? [pickDisplayName(partida, activePlayerIds[0], email), "Bot"]
+            : activePlayerIds.map((id) => pickDisplayName(partida, id, id));
+          const desiredNumPlayers = shouldHaveBot ? 2 : numHumanPlayers;
+
+          const engine = createInitialState({
+            numPlayers: desiredNumPlayers,
+            names: desiredNames,
+          });
+          engine.numHumanPlayers = numHumanPlayers;
+          engine.hasBot = shouldHaveBot;
+          datosUNO.engine = engine;
+
+          rematch.readyByPlayerId = {};
+
+          console.log("[UNO][REMATCH] start", {
+            codigo,
+            round: rematch.round,
+            players: engine.players?.map((p) => p.name),
+            numHumanPlayers: engine.numHumanPlayers,
+            hasBot: engine.hasBot,
+          });
+
+          io.to(codigo).emit("uno:rematch_start", {
+            codigo,
+            round: rematch.round,
+          });
+
+          syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
+          await emitirEstadoUNO(io, codigo, datosUNO);
+        } finally {
+          rematch.inProgress = false;
+          emitRematchStatus(io, codigo, datosUNO);
+        }
+      });
+
       socket.on("uno:uno_call", async function(datos) {
         const codigo = datos && datos.codigo;
         const email = datos && datos.email;

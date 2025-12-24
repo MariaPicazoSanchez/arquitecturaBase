@@ -11,6 +11,8 @@ export function createUnoSocket({
   onPlayerLost,
   onGameOver,
   onActionEffect,
+  onRematchStatus,
+  onRematchStart,
 } = {}) {
   const socket = io("/", { withCredentials: true });
 
@@ -30,6 +32,8 @@ export function createUnoSocket({
   socket.on("uno:player_lost", (payload) => onPlayerLost?.(payload));
   socket.on("uno:game_over", (payload) => onGameOver?.(payload));
   socket.on("uno:action_effect", (payload) => onActionEffect?.(payload));
+  socket.on("uno:rematch_status", (payload) => onRematchStatus?.(payload));
+  socket.on("uno:rematch_start", (payload) => onRematchStart?.(payload));
 
   socket.on("connect_error", (err) => {
     console.error("[UNO] error de conexión:", err);
@@ -44,10 +48,13 @@ export function createUnoSocket({
     socket.emit("uno:uno_call", { codigo, email });
   }
 
+  function rematchReady() {
+    socket.emit("uno:rematch_ready", { codigo, email });
+  }
+
   function disconnect() {
     socket.disconnect();
   }
 
-  return { socket, sendAction, callUno, disconnect };
+  return { socket, sendAction, callUno, rematchReady, disconnect };
 }
-

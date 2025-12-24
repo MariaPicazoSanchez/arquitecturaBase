@@ -48,6 +48,11 @@ export default function UnoGame() {
     initSfxFromStorage();
     return isSfxMuted();
   });
+  const [rematch, setRematch] = useState(() => ({
+    isReady: false,
+    readyCount: 0,
+    totalCount: 0,
+  }));
   const prevUiStatusRef = useRef(null);
   const prevEngineRef = useRef(null);
   const prevEngineForRulesRef = useRef(null);
@@ -85,6 +90,13 @@ export default function UnoGame() {
   const player = engine?.players?.[0] ?? null;
   const isHumanTurn = engine?.currentPlayerIndex === 0;
   const isPlaying = uiStatus === 'playing' && !isLocallyEliminated;
+
+  useEffect(() => {
+    if (!isMultiplayer) return;
+    if (uiStatus === 'playing') {
+      setRematch({ isReady: false, readyCount: 0, totalCount: 0 });
+    }
+  }, [isMultiplayer, uiStatus]);
 
   const showActionEffect = useCallback((effect) => {
     if (!effect) return;
@@ -400,6 +412,7 @@ export default function UnoGame() {
 
     const codigo = codigoFromUrl;
     const email = resolveNickOrEmail();
+    const localPlayerKey = String(email || '').trim().toLowerCase();
 
     console.log('[UNO][client][DBG] multiplayer init', {
       codigo,
@@ -468,6 +481,13 @@ export default function UnoGame() {
 
           if (newEngine.status === 'finished') {
             newUiStatus = newEngine.winnerIndex === 0 ? 'won' : 'lost';
+            setRematch((prevRematch) => ({
+              ...prevRematch,
+              totalCount:
+                typeof newEngine.numHumanPlayers === 'number' && newEngine.numHumanPlayers > 0
+                  ? newEngine.numHumanPlayers
+                  : newEngine.players?.length ?? prevRematch.totalCount,
+            }));
             const winnerName =
               newEngine.players?.[newEngine.winnerIndex]?.name ?? 'Oponente';
             message =
@@ -565,6 +585,36 @@ export default function UnoGame() {
         const effect = payload && payload.type ? payload : null;
         if (!effect) return;
         showActionEffect(effect);
+      },
+      onRematchStatus: (payload) => {
+        const totalCount =
+          typeof payload?.totalCount === 'number' ? payload.totalCount : null;
+        const readyCount =
+          typeof payload?.readyCount === 'number' ? payload.readyCount : null;
+        const readyPlayerIds = Array.isArray(payload?.readyPlayerIds)
+          ? payload.readyPlayerIds
+          : [];
+        setRematch((prevRematch) => ({
+          ...prevRematch,
+          totalCount: totalCount ?? prevRematch.totalCount,
+          readyCount: readyCount ?? prevRematch.readyCount,
+          isReady: readyPlayerIds.includes(localPlayerKey) || prevRematch.isReady,
+        }));
+      },
+      onRematchStart: () => {
+        setPendingWild(null);
+        setShowColorPicker(false);
+        setUnoDeadlinesByPlayerId({});
+        setLostPlayerIds([]);
+        setUnoCallPending(false);
+        setIsLocallyEliminated(false);
+        setEvents([]);
+        setRematch({ isReady: false, readyCount: 0, totalCount: 0 });
+        setGame((prev) => ({
+          ...prev,
+          uiStatus: 'waiting',
+          message: 'Reiniciando partida...',
+        }));
       },
       onError: (err) => {
         console.error('[UNO] error WS', err);
@@ -1114,6 +1164,16 @@ export default function UnoGame() {
   };
 
   const handleRestart = () => {
+    if (isMultiplayer) {
+      const api = unoNetRef.current;
+      if (!api || typeof api.rematchReady !== 'function') return;
+      setRematch((prevRematch) =>
+        prevRematch.isReady ? prevRematch : { ...prevRematch, isReady: true },
+      );
+      api.rematchReady();
+      return;
+    }
+
     setPendingWild(null);
     setShowColorPicker(false);
 
@@ -1551,8 +1611,13 @@ export default function UnoGame() {
         </div>
       </div>
 
-      {uiStatus !== 'playing' && (
-        <GameResultModal status={uiStatus} onRestart={handleRestart} />
+      {(uiStatus === 'won' || uiStatus === 'lost') && (
+        <GameResultModal
+          status={uiStatus}
+          onRestart={handleRestart}
+          isMultiplayer={isMultiplayer}
+          rematch={isMultiplayer ? rematch : null}
+        />
       )}
     </div>
   );
