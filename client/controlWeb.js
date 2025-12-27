@@ -496,7 +496,7 @@ function ControlWeb() {
             const puedeUnirse = !partidaCompleta && !yaEstoy;
             let textoBoton;
             if (yaEstoy) {
-                textoBoton = 'En partida';
+                textoBoton = 'Esperando...';
             } else if (status === 'STARTED') {
                 textoBoton = 'En curso';
             } else if (partidaCompleta) {

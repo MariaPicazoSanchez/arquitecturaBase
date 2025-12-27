@@ -795,7 +795,7 @@ button:disabled {
 .uno-seat-pos {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 180px;
+  width: clamp(120px, 20vw, 180px);
   max-width: 42vw;
 }
 
@@ -978,12 +978,148 @@ button:disabled {
   justify-content: center;
 }
 
+.uno-table-center-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.direction {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+.direction--changed {
+  animation: uno-direction-bump 650ms ease-out;
+}
+
+@keyframes uno-direction-bump {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    filter: drop-shadow(0 0 0 rgba(34, 197, 94, 0));
+  }
+  35% {
+    transform: translate(-50%, -50%) scale(1.18);
+    filter: drop-shadow(0 0 18px rgba(34, 197, 94, 0.45));
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    filter: drop-shadow(0 0 0 rgba(34, 197, 94, 0));
+  }
+}
+
+/* Aliases requested by TableRing */
+.table {
+  position: relative;
+}
+.seat {
+  position: absolute;
+}
+.playerBadge {
+  /* styling comes mostly from .uno-seat */
+}
+.turn {
+  /* styling comes from .uno-seat--active */
+}
+
+.playerBadgeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.playerBadgeAvatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  background: linear-gradient(135deg, #f97316, #6366f1);
+  color: #0b1220;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.45);
+}
+
+.playerBadgeMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.playerBadgeName {
+  font-size: 0.92rem;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.playerBadgeYou {
+  padding: 0.08rem 0.4rem;
+  border-radius: 9999px;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  color: #bfdbfe;
+}
+
+.playerBadgeCount {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #e5e7eb;
+  opacity: 0.95;
+}
+
+.playerBadgeChips {
+  margin-left: auto;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.playerBadgeChip {
+  padding: 0.16rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(2, 6, 23, 0.45);
+  color: #e5e7eb;
+  white-space: nowrap;
+}
+
+.playerBadgeChip--turn {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.55);
+  color: #bbf7d0;
+}
+
+.playerBadgeChip--next {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fde68a;
+}
+
 .uno-table-hud {
   position: absolute;
   left: 50%;
   top: 12px;
   transform: translateX(-50%);
   z-index: 3;
+}
+
+/* Direction is now shown in the table center (TableRing). */
+.uno-table-hud {
+  display: none;
 }
 
 .uno-direction {

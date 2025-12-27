@@ -178,14 +178,28 @@ function ServidorWS() {
     if (!datosUNO || !datosUNO.engine) return;
     try {
       const sockets = await io.in(codigo).fetchSockets();
-      console.log("[UNO][DBG] emitirEstadoUNO", {
-        codigo,
-        recipients: sockets.length,
-        numHumanPlayers: datosUNO.engine.numHumanPlayers,
-        hasBot: datosUNO.engine.hasBot,
-        players: datosUNO.engine.players?.map((p) => p.name),
-        currentPlayerIndex: datosUNO.engine.currentPlayerIndex,
-      });
+
+      const sanitizeEngineForViewer = (engineView) => {
+        const drawCount = engineView?.drawPile?.length ?? 0;
+        const safePlayers = (engineView?.players || []).map((p, idx) => {
+          const handCount = p?.hand?.length ?? 0;
+          const base = {
+            id: p?.id,
+            name: p?.name,
+            handCount,
+            hasCalledUno: !!p?.hasCalledUno,
+          };
+          if (idx === 0) return { ...base, hand: p?.hand || [] };
+          return base;
+        });
+
+        return {
+          ...engineView,
+          players: safePlayers,
+          drawPile: Array.from({ length: drawCount }),
+        };
+      };
+
       for (const s of sockets) {
         const playerId = datosUNO.socketToPlayerId?.[s.id];
         const canonicalIndex = playerId
@@ -195,24 +209,45 @@ function ServidorWS() {
           canonicalIndex > 0
             ? rotateEngineForViewer(datosUNO.engine, canonicalIndex)
             : datosUNO.engine;
-        console.log("[UNO][DBG] -> socket", {
+        const engineSafe = sanitizeEngineForViewer(engineView);
+        const players = (engineSafe.players || []).map(({ id, name, handCount }) => ({
+          id,
+          name,
+          handCount,
+        }));
+        const payload = {
           codigo,
-          socketId: s.id,
-          playerId,
-          canonicalIndex,
-          viewPlayers: engineView.players?.map((p) => p.name),
-          viewCurrentPlayerIndex: engineView.currentPlayerIndex,
-        });
-        s.emit("uno:estado", { codigo, engine: engineView });
+          myPlayerId: engineSafe.players?.[0]?.id ?? null,
+          players,
+          turnIndex: engineSafe.currentPlayerIndex,
+          direction: engineSafe.direction,
+          engine: engineSafe,
+        };
+
+        s.emit("uno:estado", payload);
       }
     } catch (e) {
-      console.log("[UNO][DBG] emitirEstadoUNO fallback broadcast", {
+      const drawCount = datosUNO.engine?.drawPile?.length ?? 0;
+      const safePlayers = (datosUNO.engine?.players || []).map((p) => ({
+        id: p?.id,
+        name: p?.name,
+        handCount: p?.hand?.length ?? 0,
+        hasCalledUno: !!p?.hasCalledUno,
+      }));
+      const engineSafe = {
+        ...datosUNO.engine,
+        players: safePlayers,
+        drawPile: Array.from({ length: drawCount }),
+      };
+
+      io.to(codigo).emit("uno:estado", {
         codigo,
-        numHumanPlayers: datosUNO.engine.numHumanPlayers,
-        hasBot: datosUNO.engine.hasBot,
-        players: datosUNO.engine.players?.map((p) => p.name),
+        myPlayerId: null,
+        players: safePlayers.map(({ id, name, handCount }) => ({ id, name, handCount })),
+        turnIndex: engineSafe.currentPlayerIndex,
+        direction: engineSafe.direction,
+        engine: engineSafe,
       });
-      io.to(codigo).emit("uno:estado", { codigo, engine: datosUNO.engine });
     }
   };
 
@@ -505,12 +540,6 @@ function ServidorWS() {
               engine.numHumanPlayers = numHumanPlayers;
               engine.hasBot = shouldHaveBot;
               datosUNO.engine = engine;
-              console.log("[UNO][DBG] sync tras unirAPartida", {
-                codigo,
-                players: engine.players.map((p) => p.name),
-                numHumanPlayers: engine.numHumanPlayers,
-                hasBot: engine.hasBot,
-              });
             } else {
               datosUNO.engine.numHumanPlayers = numHumanPlayers;
               datosUNO.engine.hasBot = shouldHaveBot;
@@ -570,7 +599,6 @@ function ServidorWS() {
         if (codigo !== -1 && estadosUNO[codigo]) {
           clearAllUnoDeadlines(io, codigo, estadosUNO[codigo]);
           delete estadosUNO[codigo];
-          console.log("[UNO] engine eliminado para partida", codigo);
         }
 
         srv.enviarAlRemitente(socket, "partidaEliminada", { codigo: codigo });
@@ -647,19 +675,6 @@ function ServidorWS() {
           : [...datosUNO.humanNames];
         const desiredNumPlayers = shouldHaveBot ? 2 : numHumanPlayers;
 
-        console.log("[UNO][DBG] suscribirse", {
-          codigo,
-          socketId: socket.id,
-          email,
-          playerId,
-          humanIds: [...datosUNO.humanIds],
-          humanNames: [...datosUNO.humanNames],
-          numHumanPlayers,
-          shouldHaveBot,
-          desiredNames,
-          desiredNumPlayers,
-        });
-
         const existingNames = datosUNO.engine?.players?.map((p) => p.name) || null;
         const needsRecreate =
           !datosUNO.engine ||
@@ -679,29 +694,9 @@ function ServidorWS() {
           engine.numHumanPlayers = numHumanPlayers;
           engine.hasBot = shouldHaveBot;
           datosUNO.engine = engine;
-          console.log("[UNO][DBG] engine creado/actualizado", {
-            codigo,
-            players: engine.players.map((p) => p.name),
-            numHumanPlayers: engine.numHumanPlayers,
-            hasBot: engine.hasBot,
-          });
-          console.log(
-            "[UNO] engine creado/actualizado para partida",
-            codigo,
-            "humanos=",
-            numHumanPlayers,
-            "bot=",
-            shouldHaveBot
-          );
         } else {
           datosUNO.engine.numHumanPlayers = numHumanPlayers;
           datosUNO.engine.hasBot = shouldHaveBot;
-          console.log("[UNO][DBG] engine reutilizado", {
-            codigo,
-            players: datosUNO.engine.players.map((p) => p.name),
-            numHumanPlayers: datosUNO.engine.numHumanPlayers,
-            hasBot: datosUNO.engine.hasBot,
-          });
         }
 
         // Este socket entra en la room de la partida
@@ -880,21 +875,6 @@ function ServidorWS() {
           return;
         }
 
-        console.log("[UNO][DBG] accion", {
-          codigo,
-          socketId: socket.id,
-          email,
-          playerId,
-          playerIndex,
-          actionType: action.type,
-          enginePlayers: datosUNO.engine.players?.map((p) => p.name),
-          engineCurrentPlayerIndex: datosUNO.engine.currentPlayerIndex,
-          engineHasBot: datosUNO.engine.hasBot,
-          engineNumHumanPlayers: datosUNO.engine.numHumanPlayers,
-        });
-
-        // Inyectamos playerIndex en la acción y aplicamos el engine
-        // Retrocompatible: clientes antiguos envían CALL_UNO via uno:accion.
         if (action.type === ACTION_TYPES.CALL_UNO) {
           const handled = await tryHandleUnoCallByIndex(io, codigo, datosUNO, playerIndex);
           if (handled) {
@@ -922,13 +902,6 @@ function ServidorWS() {
           io.to(codigo).emit("uno:action_effect", { codigo, ...effect });
         }
 
-        console.log("[UNO][DBG] accion aplicada", {
-          codigo,
-          engineCurrentPlayerIndex: datosUNO.engine.currentPlayerIndex,
-          status: datosUNO.engine.status,
-          winnerIndex: datosUNO.engine.winnerIndex,
-        });
-
         syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
         await emitirEstadoUNO(io, codigo, datosUNO);
       });
@@ -938,8 +911,6 @@ function ServidorWS() {
         for (const [codigo, datosUNO] of Object.entries(estadosUNO)) {
           if (datosUNO?.socketToPlayerId?.[socket.id]) {
             delete datosUNO.socketToPlayerId[socket.id];
-            // No borramos timers UNO: son por jugador, no por socket.
-            console.log("[UNO][DBG] socket desconectado", { codigo, socketId: socket.id });
           }
         }
       });

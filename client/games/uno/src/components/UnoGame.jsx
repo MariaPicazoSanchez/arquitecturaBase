@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Card from './Card';
 import GameResultModal from './GameResultModal';
-import TableLayout from './TableLayout';
+import TableRing from './TableRing';
 import ActionOverlay from './ActionOverlay';
 import { createUnoSocket } from '../network/unoSocket';
 import {
@@ -53,6 +53,7 @@ export default function UnoGame() {
     readyCount: 0,
     totalCount: 0,
   }));
+  const [tableState, setTableState] = useState(null);
   const prevUiStatusRef = useRef(null);
   const prevEngineRef = useRef(null);
   const prevEngineForRulesRef = useRef(null);
@@ -64,7 +65,7 @@ export default function UnoGame() {
   const [lastCardCalledByPlayerId, setLastCardCalledByPlayerId] = useState(null);
   const [lastCardDeadlineTs, setLastCardDeadlineTs] = useState(null);
   const [isLocallyEliminated, setIsLocallyEliminated] = useState(false);
-  const [lostPlayerIds, setLostPlayerIds] = useState([]);
+  const [setLostPlayerIds] = useState([]);
 
   const [unoDeadlinesByPlayerId, setUnoDeadlinesByPlayerId] = useState({});
   const [unoWindowMs, setUnoWindowMs] = useState(UNO_CALL_WINDOW_MS);
@@ -95,6 +96,7 @@ export default function UnoGame() {
     if (!isMultiplayer) return;
     if (uiStatus === 'playing') {
       setRematch({ isReady: false, readyCount: 0, totalCount: 0 });
+      setTableState(null);
     }
   }, [isMultiplayer, uiStatus]);
 
@@ -143,7 +145,7 @@ export default function UnoGame() {
         engine?.players?.map((p) => ({
           id: p.id,
           name: p.name,
-          cards: p.hand.length,
+          cards: p.handCount ?? p.hand?.length ?? 0,
         })) ?? null,
       currentPlayerIndex: engine?.currentPlayerIndex ?? null,
       status: engine?.status ?? null,
@@ -373,7 +375,7 @@ export default function UnoGame() {
       player.hand.length === 1 &&
       !player.hasCalledUno &&
       deadlineTs != null &&
-      Date.now() < deadlineTs;
+      nowTs < deadlineTs;
 
     if (!canCall) return;
     if (unoCallPending) return;
@@ -465,6 +467,22 @@ export default function UnoGame() {
       onState: (estado) => {
         const newEngine = estado && estado.engine;
         if (!newEngine) return;
+
+        setTableState({
+          players:
+            estado?.players ??
+            (newEngine.players ?? []).map((p) => ({
+              id: p.id,
+              name: p.name,
+              handCount: p.handCount ?? p.hand?.length ?? 0,
+            })),
+          turnIndex:
+            typeof estado?.turnIndex === 'number'
+              ? estado.turnIndex
+              : newEngine.currentPlayerIndex ?? 0,
+          direction: estado?.direction === -1 ? -1 : 1,
+          myPlayerId: estado?.myPlayerId ?? newEngine.players?.[0]?.id ?? null,
+        });
 
         const localHasCalled = !!newEngine.players?.[0]?.hasCalledUno;
         if (localHasCalled) {
@@ -1419,14 +1437,19 @@ export default function UnoGame() {
         )}
       </div>
 
-      <TableLayout
-        players={engine.players}
-        activePlayerIndex={engine.currentPlayerIndex}
-        localPlayerId={player.id}
-        lostPlayerIds={lostPlayerIds}
-        unoDeadlinesByPlayerId={tableUnoDeadlines}
-        unoWindowMs={isMultiplayer ? unoWindowMs : UNO_CALL_WINDOW_MS}
-        nowTs={nowTs}
+      <TableRing
+        gameState={
+          tableState ?? {
+            players: (engine.players ?? []).map((p) => ({
+              id: p.id,
+              name: p.name,
+              handCount: p.handCount ?? p.hand?.length ?? 0,
+            })),
+            turnIndex: engine.currentPlayerIndex ?? 0,
+            direction: engine.direction === -1 ? -1 : 1,
+            myPlayerId: player.id,
+          }
+        }
       >
         <ActionOverlay effect={actionEffect} key={actionEffect?._id ?? 'x'} />
 
@@ -1516,7 +1539,7 @@ export default function UnoGame() {
             </button>
           </div>
         </div>
-      </TableLayout>
+      </TableRing>
 
       {/* Zona jugador */}
       <div className="uno-zone uno-zone--player">
