@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo } from 'react';
 import PlayerBadge from './PlayerBadge';
 
 const TWO_PI = Math.PI * 2;
@@ -18,16 +18,6 @@ export default function TableRing({ gameState, children }) {
   const myPlayerId = gameState?.myPlayerId ?? null;
   const turnIndex = typeof gameState?.turnIndex === 'number' ? gameState.turnIndex : 0;
   const direction = gameState?.direction === -1 ? -1 : 1;
-
-  const [dirBump, setDirBump] = useState(false);
-  const prevDirRef = useRef(direction);
-  useEffect(() => {
-    if (prevDirRef.current === direction) return;
-    prevDirRef.current = direction;
-    setDirBump(true);
-    const t = setTimeout(() => setDirBump(false), 650);
-    return () => clearTimeout(t);
-  }, [direction]);
 
   const seats = useMemo(() => {
     const ordered = buildSeats(players, myPlayerId);
@@ -54,8 +44,6 @@ export default function TableRing({ gameState, children }) {
     });
   }, [players, myPlayerId, turnIndex, direction]);
 
-  const directionLabel = direction === 1 ? '\u21BB' : '\u21BA';
-
   return (
     <div className="uno-table-area table">
       <div className="uno-table-seats" aria-label="Mesa">
@@ -73,12 +61,8 @@ export default function TableRing({ gameState, children }) {
       </div>
 
       <div className="uno-table-center">
-        <div className={`uno-direction direction ${dirBump ? 'direction--changed' : ''}`}>
-          {directionLabel}
-        </div>
         <div className="uno-table-center-inner">{children}</div>
       </div>
     </div>
   );
 }
-

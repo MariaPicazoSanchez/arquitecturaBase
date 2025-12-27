@@ -65,7 +65,7 @@ export default function UnoGame() {
   const [lastCardCalledByPlayerId, setLastCardCalledByPlayerId] = useState(null);
   const [lastCardDeadlineTs, setLastCardDeadlineTs] = useState(null);
   const [isLocallyEliminated, setIsLocallyEliminated] = useState(false);
-  const [setLostPlayerIds] = useState([]);
+  const [, setLostPlayerIds] = useState([]);
 
   const [unoDeadlinesByPlayerId, setUnoDeadlinesByPlayerId] = useState({});
   const [unoWindowMs, setUnoWindowMs] = useState(UNO_CALL_WINDOW_MS);
@@ -1453,12 +1453,6 @@ export default function UnoGame() {
       >
         <ActionOverlay effect={actionEffect} key={actionEffect?._id ?? 'x'} />
 
-        <div className="uno-table-hud" aria-hidden="true">
-          <div className="uno-direction">
-            {engine.direction === 1 ? '↻' : '↺'}
-          </div>
-        </div>
-
         <div className="uno-table-main">
           <div className="centerPiles">
             <div className="uno-discard">
@@ -1506,7 +1500,6 @@ export default function UnoGame() {
               disabled={!isPlaying || !isHumanTurn || !canDraw || isUnoBlockingForMe}
             >
               <div className="uno-draw-area">
-                <h3>Mazo</h3>
                 <div
                   className={
                     'uno-draw-stack' +
