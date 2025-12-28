@@ -178,15 +178,23 @@
           }
           return;
         }
+        $('#chk-vs-bot').prop('checked', false);
+        $('#select-max-players').prop('disabled', false);
         $('#modalCrearPartida').modal('show');
       });
 
       $('#btn-confirmar-crear-partida').on('click', function() {
-        const maxPlayers = parseInt($('#select-max-players').val(), 10) || 2;
+        const vsBot = $('#chk-vs-bot').is(':checked');
+        const maxPlayers = vsBot ? 1 : (parseInt($('#select-max-players').val(), 10) || 2);
         if (ws && ws.crearPartida) {
-          ws.crearPartida(maxPlayers);
+          ws.crearPartida(maxPlayers, { vsBot });
         }
         $('#modalCrearPartida').modal('hide');
+      });
+
+      $('#chk-vs-bot').on('change', function() {
+        const on = $(this).is(':checked');
+        $('#select-max-players').prop('disabled', on);
       });
 
 
@@ -553,6 +561,11 @@
         </div>
         <div class="modal-body">
           <div class="form-group">
+            <div class="custom-control custom-checkbox mb-2">
+              <input type="checkbox" class="custom-control-input" id="chk-vs-bot">
+              <label class="custom-control-label" for="chk-vs-bot">1 jugador (vs bot)</label>
+            </div>
+            <small class="text-muted d-block mb-2">Crea una partida privada y empieza autom&aacute;ticamente.</small>
             <label for="select-max-players">Máximo de jugadores</label>
             <select id="select-max-players" class="form-control">
               <option value="2" selected>2</option>

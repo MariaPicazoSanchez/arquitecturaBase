@@ -61,6 +61,7 @@ function ClienteWS() {
               const reason = datos && datos.reason;
               const message = (datos && datos.message) || (
                   reason === "FULL" ? "La partida está llena." :
+                  reason === "BOT_MATCH" ? "Esta partida es de 1 jugador (vs bot)." :
                   reason === "STARTED" ? "La partida ya ha empezado." :
                   reason === "NOT_FOUND" ? "La partida no existe." :
                   "No se pudo unir a la partida."
@@ -123,10 +124,13 @@ function ClienteWS() {
         return;
     }
     const maxPlayers = arguments[0];
+    const opts = arguments[1] && typeof arguments[1] === "object" ? arguments[1] : {};
+    const vsBot = !!opts.vsBot;
     this.socket.emit("crearPartida", { 
         email: this.email,
         juego: this.gameType,
-        maxPlayers: maxPlayers
+        maxPlayers: maxPlayers,
+        vsBot: vsBot,
     });
   };
 

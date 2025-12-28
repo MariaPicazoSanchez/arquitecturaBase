@@ -491,16 +491,24 @@ function ServidorWS() {
       // === crearPartida ===
       socket.on("crearPartida", function(datos) {
         const juego = datos && datos.juego;
+        const vsBotRaw = datos && datos.vsBot;
+        const vsBot =
+          vsBotRaw === true ||
+          vsBotRaw === 1 ||
+          vsBotRaw === "1" ||
+          String(vsBotRaw).toLowerCase() === "true";
         const rawMaxPlayers = datos && (datos.maxPlayers ?? datos.maxJug);
         const parsed = parseInt(rawMaxPlayers, 10);
         const maxPlayers =
           juego === "4raya"
             ? 2
+            : vsBot && juego === "uno"
+              ? 1
             : Number.isFinite(parsed) && parsed >= 2 && parsed <= 8
               ? parsed
               : 2;
 
-        let codigo = sistema.crearPartida(datos.email, juego, maxPlayers);
+        let codigo = sistema.crearPartida(datos.email, juego, maxPlayers, { vsBot });
 
         if (codigo !== -1) {
           socket.join(codigo); // sala de socket.io
@@ -510,6 +518,20 @@ function ServidorWS() {
           codigo: codigo,
           maxPlayers: maxPlayers,
         });
+
+        if (codigo !== -1 && vsBot && juego === "uno") {
+          const contRes = sistema.continuarPartida(datos.email, codigo);
+          const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
+          if (contCodigo !== -1) {
+            io.to(codigo).emit("partidaContinuada", { codigo, juego });
+          } else {
+            srv.enviarAlRemitente(
+              socket,
+              "partidaContinuada",
+              contRes && typeof contRes === "object" ? contRes : { codigo: -1 }
+            );
+          }
+        }
 
         let lista = sistema.obtenerPartidasDisponibles(juego);
         srv.enviarGlobal(io, "listaPartidas", lista);

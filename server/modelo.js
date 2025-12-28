@@ -93,7 +93,7 @@ function Sistema() {
   this.obtenerCodigo = function() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
   };
-  this.crearPartida = function(email, juego, maxPlayers) {
+  this.crearPartida = function(email, juego, maxPlayers, opts) {
     email = normalizarEmail(email);
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
     if (!usuario) {
@@ -103,6 +103,11 @@ function Sistema() {
     }
 
     // Si el nick del usuario aún es su email (carga perezosa), intenta resolverlo desde BD
+    const vsBot =
+      (typeof opts === "boolean" && opts) ||
+      (opts && typeof opts === "object" && !!opts.vsBot) ||
+      false;
+
     if (usuario.nick === email && this.cad && typeof this.cad.buscarUsuario === "function") {
       try {
         this.cad.buscarUsuario({ email }, (usr) => {
@@ -119,9 +124,15 @@ function Sistema() {
 
     // Usar el nick del usuario como propietario (si no disponible, caer a email)
     let propietarioVisible = usuario.nick || email;
-    let p = new Partida(codigo, propietarioVisible, juego, normalizarMaxPlayers(maxPlayers, 2));
+    const normalizedJuego = juego || "uno";
+    const effectiveMaxPlayers =
+      vsBot && normalizedJuego === "uno"
+        ? 1
+        : normalizarMaxPlayers(maxPlayers, 2);
+    let p = new Partida(codigo, propietarioVisible, normalizedJuego, effectiveMaxPlayers);
     // Guardar también el email para validaciones
     p.propietarioEmail = email;
+    p.vsBot = !!(vsBot && normalizedJuego === "uno");
 
     p.jugadores.push(usuario);
     recalcularEstadoPartida(p);
@@ -143,6 +154,18 @@ function Sistema() {
       console.log("Partida no encontrada");
       this.registrarActividad("unirAPartidaFallido", email);
       return { codigo: -1, reason: "NOT_FOUND", message: "Partida no encontrada" };
+    }
+
+    if (partida.vsBot) {
+      const hostEmail = normalizarEmail(partida.propietarioEmail || partida.propietario);
+      if (hostEmail && hostEmail !== email) {
+        this.registrarActividad("unirAPartidaFallido", email);
+        return {
+          codigo: -1,
+          reason: "BOT_MATCH",
+          message: "Esta partida es de 1 jugador (vs bot).",
+        };
+      }
     }
 
     recalcularEstadoPartida(partida);
@@ -192,9 +215,15 @@ function Sistema() {
     }
 
     recalcularEstadoPartida(partida);
-    if ((partida.playersCount || partida.jugadores.length) < 2) {
+    const minPlayers =
+      partida.vsBot && (partida.juego || "uno") === "uno" ? 1 : 2;
+    if ((partida.playersCount || partida.jugadores.length) < minPlayers) {
       this.registrarActividad("continuarPartidaFallido", email);
-      return { codigo: -1, reason: "NOT_ENOUGH_PLAYERS", message: "Se requieren al menos 2 jugadores para iniciar" };
+      return {
+        codigo: -1,
+        reason: "NOT_ENOUGH_PLAYERS",
+        message: `Se requieren al menos ${minPlayers} jugador(es) para iniciar`,
+      };
     }
 
     partida.estado = 'enCurso';
@@ -882,5 +911,6 @@ function Partida(codigo, propietario, juego, maxJug) {
   this.status = "OPEN"; // OPEN|FULL|STARTED
   this.estado = 'pendiente';
   this.juego = juego || 'uno' ;
+  this.vsBot = false;
 }
 module.exports.Sistema = Sistema;
