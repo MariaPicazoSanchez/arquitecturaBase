@@ -214,7 +214,97 @@ function ClienteRest() {
             }
         });
     };
-    
+
+    // --------------------
+    // Mi cuenta
+    // --------------------
+    this.obtenerMiCuenta = function(onOk, onErr){
+        if (window.userService && typeof userService.getMe === "function"){
+            userService.getMe()
+                .done(function(user){ if (typeof onOk === "function") onOk(user); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo cargar tu cuenta';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+
+    this.actualizarMiCuenta = function(payload, onOk, onErr){
+        if (window.userService && typeof userService.updateMe === "function"){
+            userService.updateMe(payload || {})
+                .done(function(user){ if (typeof onOk === "function") onOk(user); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo actualizar el perfil';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+
+    this.solicitarCambioPasswordMiCuenta = function(onOk, onErr){
+        if (window.userService && typeof userService.requestPasswordChange === "function"){
+            userService.requestPasswordChange()
+                .done(function(){ if (typeof onOk === "function") onOk(); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo enviar el correo';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+
+    this.confirmarCambioPasswordMiCuenta = function(payload, onOk, onErr){
+        const code = payload && (payload.code || payload.codeOrToken);
+        const newPassword = payload && payload.newPassword;
+        if (window.userService && typeof userService.confirmPasswordChange === "function"){
+            userService.confirmPasswordChange(code, newPassword)
+                .done(function(){ if (typeof onOk === "function") onOk(); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo cambiar la contraseña';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+
+    this.eliminarMiCuenta = function(payload, onOk, onErr){
+        if (window.userService && typeof userService.deleteMe === "function"){
+            userService.deleteMe(payload || {})
+                .done(function(){ if (typeof onOk === "function") onOk(); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo eliminar la cuenta';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+     
 
 }
 

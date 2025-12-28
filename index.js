@@ -99,6 +99,29 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+// CORS (solo para /api) cuando el cliente está en otro origen y APP_URL está configurada.
+app.use('/api', function(req, res, next){
+  const origin = req.headers && req.headers.origin;
+  const appUrl = process.env.APP_URL || "";
+  let allowedOrigin = "";
+  try {
+    if (origin && appUrl) {
+      const u = new URL(appUrl);
+      allowedOrigin = u.origin;
+    }
+  } catch (e) {}
+
+  if (origin && allowedOrigin && origin === allowedOrigin) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
 const haIniciado = function(request, response, next){
   try{
     const isAuth = (typeof request.isAuthenticated === 'function' && request.isAuthenticated())
@@ -112,9 +135,27 @@ const haIniciado = function(request, response, next){
     console.warn('[haIniciado] error comprobando auth:', e && e.message);
   }
 
-  console.warn('[haIniciado] acceso no autorizado:', { path: request.path, method: request.method, ip: request.ip });
+  const acceptsJson = !!(request.xhr
+    || (request.headers && request.headers.accept && request.headers.accept.indexOf('application/json') !== -1)
+    || (request.path && String(request.path).startsWith('/api/')));
 
-  // Si no hay usuario, redirigimos al cliente (/) como indica el ejemplo
+  console.warn('[haIniciado] acceso no autorizado:', {
+    path: request.path,
+    method: request.method,
+    ip: request.ip,
+    acceptsJson,
+    hasCookieHeader: !!(request.headers && request.headers.cookie),
+    hasAuthorization: !!(request.headers && request.headers.authorization),
+    hasSessionId: !!request.sessionID,
+    hasSessionUser: !!(request.session && request.session.user),
+    hasPassportUser: !!request.user
+  });
+
+  if (acceptsJson) {
+    return response.status(401).json({ error: "No autenticado" });
+  }
+
+  // Si no hay usuario, redirigimos al cliente (/)
   return response.redirect('/');
 };
 
@@ -434,6 +475,115 @@ app.get('/api/logs', async function(req, res) {
     console.error("[/api/logs] Error obteniendo logs:", err && err.message ? err.message : err);
     return res.status(500).json({ error: "Error al obtener logs" });
   }
+});
+
+function getAuthEmail(req) {
+  try {
+    const sessionEmail = req && req.session && req.session.user && req.session.user.email;
+    if (sessionEmail) return String(sessionEmail).trim().toLowerCase();
+    const userEmail =
+      req && req.user && req.user.emails && Array.isArray(req.user.emails) && req.user.emails[0] && req.user.emails[0].value;
+    if (userEmail) return String(userEmail).trim().toLowerCase();
+  } catch (e) {}
+  return "";
+}
+
+function clearAuthSession(req, res, done) {
+  try {
+    if (req && typeof req.logout === 'function') {
+      try { req.logout(); } catch (e) {}
+    }
+  } catch (e) {}
+
+  const finish = () => {
+    try { res.clearCookie('nick'); } catch (e) {}
+    if (typeof done === 'function') done();
+  };
+
+  if (req && req.session) {
+    return req.session.destroy(function() { finish(); });
+  }
+  finish();
+}
+
+// --------------------
+// API: Mi cuenta
+// --------------------
+app.get('/api/user/me', haIniciado, function(req, res) {
+  const email = getAuthEmail(req);
+  if (!email) return res.status(401).json({ error: "No autenticado" });
+  sistema.obtenerUsuarioSeguro(email, function(user) {
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+    return res.status(200).json(user);
+  });
+});
+
+app.put('/api/user/me', haIniciado, function(req, res) {
+  const email = getAuthEmail(req);
+  if (!email) return res.status(401).json({ error: "No autenticado" });
+  sistema.actualizarUsuarioSeguro(email, req.body, function(result) {
+    if (!result || result.ok === false) {
+      const status = result && result.status ? result.status : 500;
+      const message = result && result.message ? result.message : "Error actualizando perfil";
+      return res.status(status).json({ error: message });
+    }
+    return res.status(200).json(result.user);
+  });
+});
+
+app.put('/api/user/me/password', haIniciado, function(req, res) {
+  const email = getAuthEmail(req);
+  if (!email) return res.status(401).json({ error: "No autenticado" });
+  sistema.cambiarPasswordUsuario(email, req.body, function(result) {
+    if (!result || result.ok === false) {
+      const status = result && result.status ? result.status : 500;
+      const message = result && result.message ? result.message : "Error cambiando contraseña";
+      return res.status(status).json({ error: message });
+    }
+    return res.status(200).json({ ok: true });
+  });
+});
+
+app.post('/api/user/password-change/request', haIniciado, function(req, res) {
+  const email = getAuthEmail(req);
+  if (!email) return res.status(401).json({ error: "No autenticado" });
+  sistema.solicitarCambioPasswordPorEmail(email, function(result) {
+    if (!result || result.ok === false) {
+      const status = result && result.status ? result.status : 500;
+      const message = result && result.message ? result.message : "Error solicitando cambio de contraseña";
+      return res.status(status).json({ error: message });
+    }
+    return res.status(200).json({ ok: true });
+  });
+});
+
+app.post('/api/user/password-change/confirm', haIniciado, function(req, res) {
+  const email = getAuthEmail(req);
+  if (!email) return res.status(401).json({ error: "No autenticado" });
+  sistema.confirmarCambioPasswordPorEmail(email, req.body, function(result) {
+    if (!result || result.ok === false) {
+      const status = result && result.status ? result.status : 500;
+      const message = result && result.message ? result.message : "Error confirmando cambio de contraseña";
+      return res.status(status).json({ error: message });
+    }
+    return res.status(200).json({ ok: true });
+  });
+});
+
+app.delete('/api/user/me', haIniciado, function(req, res) {
+  const email = getAuthEmail(req);
+  if (!email) return res.status(401).json({ error: "No autenticado" });
+
+  sistema.eliminarCuentaUsuario(email, req.body, function(result) {
+    if (!result || result.ok === false) {
+      const status = result && result.status ? result.status : 500;
+      const message = result && result.message ? result.message : "Error eliminando cuenta";
+      return res.status(status).json({ error: message });
+    }
+    clearAuthSession(req, res, function() {
+      return res.status(200).json({ ok: true });
+    });
+  });
 });
 // ------------------------------------
 // Iniciar el servidor

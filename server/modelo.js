@@ -72,15 +72,19 @@ function Sistema() {
     return this.usuarios[e];
   };
 
-  (async () => {
-    await this.cad.conectar((db, err) => {
-      if (err) {
-        console.warn("Mongo no disponible. Operando en memoria:", err.message);
-      } else {
-        console.log("Conectado a Mongo Atlas");
-      }
-    });
-  })();
+  const runningJasmine = Array.isArray(process.argv) && process.argv.some(a => String(a).includes("jasmine-node"));
+  const disableAutoConnect = process.env.DISABLE_MONGO_AUTOCONNECT === "1" || process.env.NODE_ENV === "test" || runningJasmine;
+  if (!disableAutoConnect) {
+    (async () => {
+      await this.cad.conectar((db, err) => {
+        if (err) {
+          console.warn("Mongo no disponible. Operando en memoria:", err.message);
+        } else {
+          console.log("Conectado a Mongo Atlas");
+        }
+      });
+    })();
+  }
 
   // ----------------------------
   // MÉTODOS DE PARTIDAS
@@ -383,9 +387,11 @@ function Sistema() {
       const nuevoUsuario = {
         email: obj.email,
         nick: obj.nick,
+        displayName: obj.displayName ? String(obj.displayName).trim() : undefined,
         password: hash,
         key: key,
         confirmada: false,
+        createdAt: new Date().toISOString(),
       };
 
       modelo.cad.insertarUsuario(nuevoUsuario, function (res) {
@@ -475,6 +481,342 @@ function Sistema() {
         modelo.registrarActividad("loginUsuarioFallido", obj.email);
         callback({ email: -1 });
       }
+    });
+  };
+
+  // ===========================
+  // PERFIL / CUENTA (REST)
+  // ===========================
+
+  const validarNickPerfil = function(nick){
+    const n = String(nick || "").trim();
+    if (!n) return { ok: false, message: "El nick no puede estar vacío." };
+    if (n.length < 3 || n.length > 24) return { ok: false, message: "El nick debe tener entre 3 y 24 caracteres." };
+    if (/\s/.test(n)) return { ok: false, message: "El nick no puede contener espacios." };
+    return { ok: true, value: n };
+  };
+
+  const validarDisplayNamePerfil = function(displayName){
+    const name = String(displayName || "").trim();
+    if (!name) return { ok: true, value: "" };
+    if (name.length > 60) return { ok: false, message: "El nombre es demasiado largo." };
+    return { ok: true, value: name };
+  };
+
+  const validarNuevaPassword = function(pwd){
+    const p = String(pwd || "");
+    if (p.length < 8) return { ok: false, message: "La nueva contraseña debe tener mínimo 8 caracteres." };
+    const strong = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9\W_]).{8,}$/;
+    if (!strong.test(p)) {
+      return { ok: false, message: "La nueva contraseña debe incluir mayúsculas, minúsculas y un número o símbolo." };
+    }
+    return { ok: true, value: p };
+  };
+
+  this.obtenerUsuarioSeguro = function(email, callback){
+    const e = normalizarEmail(email);
+    if (!e) {
+      callback(undefined);
+      return;
+    }
+    if (!this.cad || typeof this.cad.buscarUsuarioRaw !== "function") {
+      const mem = this.usuarios[e];
+      callback({
+        email: e,
+        nick: mem && mem.nick ? mem.nick : e,
+        displayName: "",
+        createdAt: null,
+        canChangePassword: false,
+      });
+      return;
+    }
+    this.cad.buscarUsuarioRaw({ email: e }, function(usr){
+      if (!usr) {
+        const mem = (this.usuarios && this.usuarios[e]) ? this.usuarios[e] : null;
+        callback({
+          email: e,
+          nick: mem && mem.nick ? mem.nick : e,
+          nombre: "",
+          displayName: "",
+          createdAt: null,
+          canChangePassword: false,
+        });
+        return;
+      }
+      callback({
+        id: usr._id,
+        email: usr.email,
+        nick: usr.nick || usr.email,
+        nombre: usr.displayName || "",
+        displayName: usr.displayName || "",
+        createdAt: usr.createdAt || null,
+        confirmada: typeof usr.confirmada === "boolean" ? usr.confirmada : undefined,
+        canChangePassword: !!usr.password,
+      });
+    }.bind(this));
+  };
+
+  this.actualizarUsuarioSeguro = function(email, payload, callback){
+    const e = normalizarEmail(email);
+    if (!e) {
+      callback({ ok: false, status: 400, message: "Email inválido." });
+      return;
+    }
+    const body = payload && typeof payload === "object" ? payload : {};
+
+    let displayNameCheck = { ok: true, value: undefined };
+    if (Object.prototype.hasOwnProperty.call(body, "displayName")) {
+      displayNameCheck = validarDisplayNamePerfil(body.displayName);
+      if (!displayNameCheck.ok) {
+        callback({ ok: false, status: 400, message: displayNameCheck.message });
+        return;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "nombre")) {
+      displayNameCheck = validarDisplayNamePerfil(body.nombre);
+      if (!displayNameCheck.ok) {
+        callback({ ok: false, status: 400, message: displayNameCheck.message });
+        return;
+      }
+    }
+    const nickCheck = (typeof body.nick !== "undefined") ? validarNickPerfil(body.nick) : { ok: true, value: undefined };
+    if (!nickCheck.ok) {
+      callback({ ok: false, status: 400, message: nickCheck.message });
+      return;
+    }
+
+    if (!this.cad || typeof this.cad.buscarUsuarioRaw !== "function" || typeof this.cad.actualizarUsuarioPorEmail !== "function") {
+      if (typeof nickCheck.value === "string") {
+        const u = this._obtenerOcrearUsuarioEnMemoria(e, nickCheck.value);
+        if (u) u.nick = nickCheck.value;
+      }
+      callback({ ok: true, user: { email: e, nick: nickCheck.value || e, displayName: (typeof displayNameCheck.value === "string" ? displayNameCheck.value : ""), createdAt: null, canChangePassword: false } });
+      return;
+    }
+
+    const modelo = this;
+    this.cad.buscarUsuarioRaw({ email: e }, function(usr){
+      if (!usr) {
+        callback({ ok: false, status: 404, message: "Usuario no encontrado." });
+        return;
+      }
+
+      const patch = {};
+      if (typeof displayNameCheck.value === "string") patch.displayName = displayNameCheck.value;
+      if (typeof nickCheck.value === "string") patch.nick = nickCheck.value;
+
+      const applyUpdate = function(){
+        modelo.cad.actualizarUsuarioPorEmail(e, patch, function(updated){
+          if (!updated) {
+            callback({ ok: false, status: 500, message: "No se pudo actualizar el perfil." });
+            return;
+          }
+          try {
+            const mem = modelo._obtenerOcrearUsuarioEnMemoria(e, updated.nick);
+            if (mem && updated.nick) mem.nick = updated.nick;
+          } catch(e2) {}
+          callback({
+            ok: true,
+            user: {
+              email: updated.email,
+              nick: updated.nick || updated.email,
+              nombre: updated.displayName || "",
+              displayName: updated.displayName || "",
+              createdAt: updated.createdAt || null,
+              canChangePassword: !!updated.password,
+            }
+          });
+        });
+      };
+
+      if (typeof nickCheck.value === "string" && nickCheck.value !== (usr.nick || "")) {
+        modelo.cad.buscarUsuarioRaw({ nick: nickCheck.value }, function(usrNick){
+          if (usrNick && usrNick.email && normalizarEmail(usrNick.email) !== e) {
+            callback({ ok: false, status: 409, message: "Ese nick ya está en uso." });
+            return;
+          }
+          applyUpdate();
+        });
+      } else {
+        applyUpdate();
+      }
+    });
+  };
+
+  this.cambiarPasswordUsuario = function(email, payload, callback){
+    const e = normalizarEmail(email);
+    if (!e) {
+      callback({ ok: false, status: 400, message: "Email inválido." });
+      return;
+    }
+    const body = payload && typeof payload === "object" ? payload : {};
+    const currentPassword = String(body.currentPassword || "");
+    const newPwdCheck = validarNuevaPassword(body.newPassword);
+    if (!newPwdCheck.ok) {
+      callback({ ok: false, status: 400, message: newPwdCheck.message });
+      return;
+    }
+    if (!this.cad || typeof this.cad.buscarUsuarioRaw !== "function" || typeof this.cad.actualizarUsuarioPorEmail !== "function") {
+      callback({ ok: false, status: 503, message: "Cambio de contraseña no disponible sin base de datos." });
+      return;
+    }
+    const modelo = this;
+    this.cad.buscarUsuarioRaw({ email: e }, function(usr){
+      if (!usr) {
+        callback({ ok: false, status: 404, message: "Usuario no encontrado." });
+        return;
+      }
+      if (!usr.password) {
+        callback({ ok: false, status: 409, message: "No disponible para cuentas Google." });
+        return;
+      }
+      const ok = bcrypt.compareSync(currentPassword, usr.password);
+      if (!ok) {
+        callback({ ok: false, status: 401, message: "La contraseña actual no es correcta." });
+        return;
+      }
+      const hash = bcrypt.hashSync(newPwdCheck.value, 10);
+      modelo.cad.actualizarUsuarioPorEmail(e, { password: hash }, function(updated){
+        if (!updated) {
+          callback({ ok: false, status: 500, message: "No se pudo cambiar la contraseña." });
+          return;
+        }
+        callback({ ok: true });
+      });
+    });
+  };
+
+  this.solicitarCambioPasswordPorEmail = function(email, callback){
+    const e = normalizarEmail(email);
+    if (!e) {
+      callback({ ok: false, status: 400, message: "Email inválido." });
+      return;
+    }
+    if (!this.cad || typeof this.cad.buscarUsuarioRaw !== "function" || typeof this.cad.actualizarUsuarioPorEmail !== "function") {
+      callback({ ok: false, status: 503, message: "Cambio de contraseña no disponible sin base de datos." });
+      return;
+    }
+    const modelo = this;
+    this.cad.buscarUsuarioRaw({ email: e }, function(usr){
+      if (!usr) return callback({ ok: false, status: 404, message: "Usuario no encontrado." });
+      if (!usr.password) return callback({ ok: false, status: 409, message: "No disponible para cuentas Google." });
+
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+      modelo.cad.actualizarUsuarioPorEmail(e, { passwordResetCode: code, passwordResetExpiresAt: expiresAt }, function(updated){
+        if (!updated) return callback({ ok: false, status: 500, message: "No se pudo iniciar el cambio de contraseña." });
+        Promise.resolve()
+          .then(() => correo.enviarEmailCambioPassword(e, code))
+          .then(() => callback({ ok: true }))
+          .catch((err) => {
+            console.warn("[password-change] fallo enviando email:", err && err.message ? err.message : err);
+            callback({ ok: false, status: 500, message: "No se pudo enviar el correo de cambio de contraseña." });
+          });
+      });
+    });
+  };
+
+  this.confirmarCambioPasswordPorEmail = function(email, payload, callback){
+    const e = normalizarEmail(email);
+    if (!e) {
+      callback({ ok: false, status: 400, message: "Email inválido." });
+      return;
+    }
+    const body = payload && typeof payload === "object" ? payload : {};
+    const code = String(body.code || body.codeOrToken || "").trim();
+    const newPwdCheck = validarNuevaPassword(body.newPassword);
+    if (!code) return callback({ ok: false, status: 400, message: "Código requerido." });
+    if (!newPwdCheck.ok) return callback({ ok: false, status: 400, message: newPwdCheck.message });
+
+    if (!this.cad || typeof this.cad.buscarUsuarioRaw !== "function" || typeof this.cad.actualizarUsuarioPorEmail !== "function") {
+      callback({ ok: false, status: 503, message: "Cambio de contraseña no disponible sin base de datos." });
+      return;
+    }
+
+    const modelo = this;
+    this.cad.buscarUsuarioRaw({ email: e }, function(usr){
+      if (!usr) return callback({ ok: false, status: 404, message: "Usuario no encontrado." });
+      if (!usr.password) return callback({ ok: false, status: 409, message: "No disponible para cuentas Google." });
+
+      const saved = String(usr.passwordResetCode || "").trim();
+      const expiresAt = usr.passwordResetExpiresAt ? Date.parse(usr.passwordResetExpiresAt) : NaN;
+      if (!saved || saved !== code) return callback({ ok: false, status: 401, message: "Código inválido." });
+      if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) return callback({ ok: false, status: 410, message: "El código ha expirado. Solicita uno nuevo." });
+
+      const hash = bcrypt.hashSync(newPwdCheck.value, 10);
+      modelo.cad.actualizarUsuarioPorEmail(e, { password: hash, passwordResetCode: null, passwordResetExpiresAt: null }, function(updated){
+        if (!updated) return callback({ ok: false, status: 500, message: "No se pudo actualizar la contraseña." });
+        callback({ ok: true });
+      });
+    });
+  };
+
+  this.eliminarCuentaUsuario = function(email, payload, callback){
+    const e = normalizarEmail(email);
+    if (!e) {
+      callback({ ok: false, status: 400, message: "Email inválido." });
+      return;
+    }
+    const body = payload && typeof payload === "object" ? payload : {};
+
+    if (!this.cad || typeof this.cad.buscarUsuarioRaw !== "function" || typeof this.cad.eliminarUsuarioPorEmail !== "function") {
+      callback({ ok: false, status: 503, message: "Eliminación de cuenta no disponible sin base de datos." });
+      return;
+    }
+
+    const modelo = this;
+    this.cad.buscarUsuarioRaw({ email: e }, function(usr){
+      if (!usr) {
+        callback({ ok: false, status: 404, message: "Usuario no encontrado." });
+        return;
+      }
+
+      if (usr.password) {
+        const pwd = String(body.password || "");
+        if (!pwd) {
+          callback({ ok: false, status: 400, message: "Debes confirmar con tu contraseña." });
+          return;
+        }
+        const ok = bcrypt.compareSync(pwd, usr.password);
+        if (!ok) {
+          callback({ ok: false, status: 401, message: "Contraseña incorrecta." });
+          return;
+        }
+      } else {
+        const confirm = body.confirm === true || body.confirm === "true";
+        if (!confirm) {
+          callback({ ok: false, status: 400, message: "Confirmación requerida para eliminar la cuenta." });
+          return;
+        }
+      }
+
+      modelo.cad.eliminarUsuarioPorEmail(e, function(deleted){
+        if (!deleted) {
+          callback({ ok: false, status: 500, message: "No se pudo eliminar la cuenta." });
+          return;
+        }
+        try { delete modelo.usuarios[e]; } catch(ex) {}
+        // Best-effort: si hay partidas en memoria del usuario, intentar desvincularlo.
+        try {
+          Object.keys(modelo.partidas || {}).forEach(function(c){
+            const p = modelo.partidas[c];
+            if (!p) return;
+            if (p.propietarioEmail && normalizarEmail(p.propietarioEmail) === e) {
+              p.propietarioEmail = "deleted@local";
+              p.propietario = "Usuario eliminado";
+            }
+            if (Array.isArray(p.jugadores)) {
+              p.jugadores = p.jugadores.filter(j => normalizarEmail(j && j.email) !== e);
+            }
+            // Si se queda sin jugadores, eliminar la partida
+            if (Array.isArray(p.jugadores) && p.jugadores.length === 0) {
+              delete modelo.partidas[c];
+            }
+          });
+        } catch(ex2) {}
+        callback({ ok: true });
+      });
     });
   };
   // ===========================

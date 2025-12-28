@@ -126,6 +126,36 @@ function ControlWeb() {
                 //     ws.pedirListaPartidas();
                 // }
             }
+            // Verificar sesión real (cookie "nick" puede quedar "stale" si el servidor se reinicia)
+            if (window.userService && typeof userService.getMe === "function"){
+                userService.getMe()
+                    .done(function(me){
+                        const label = (me && (me.nick || me.email)) || nick;
+                        cw._setNavToLogout();
+                        cw._setNavUserLabel(label);
+                        cw.mostrarSelectorJuegos();
+                        if (!sessionStorage.getItem("bienvenidaMostrada")){
+                            sessionStorage.setItem("bienvenidaMostrada","1");
+                            cw.mostrarMensaje("Bienvenido a Table Room, "+label, "success");
+                        }
+                    })
+                    .fail(function(xhr){
+                        if (xhr && xhr.status === 401){
+                            try { $.removeCookie('nick'); } catch(e) {}
+                            cw.email = null;
+                            if (window.ws){ try { ws.email = null; } catch(e) {} }
+                            cw._setNavToLogin();
+                            cw.mostrarRegistro();
+                            cw.mostrarAviso("Tu sesión ha caducado. Inicia sesión de nuevo.", "error");
+                            return;
+                        }
+                        // fallback best-effort: mantener comportamiento antiguo
+                        cw.mostrarSelectorJuegos();
+                        cw._setNavToLogout();
+                    });
+                return;
+            }
+
             // cw.mostrarPartidas();
             cw.mostrarSelectorJuegos();
             if (!sessionStorage.getItem("bienvenidaMostrada")){
@@ -149,6 +179,8 @@ function ControlWeb() {
 
         // Ocultamos el panel de partidas hasta que elijan juego
         $("#panel-partidas").hide();
+        $("#panel-cuenta").hide();
+        this._cuentaVisible = false;
 
         // Mostramos el selector de juegos
         $("#selector-juegos").show();
@@ -175,6 +207,8 @@ function ControlWeb() {
         $("#selector-juegos").show();
         $("#panel-partidas").show();
         $("#zona-juego").hide();
+        $("#panel-cuenta").hide();
+        this._cuentaVisible = false;
 
         if (window.ws && typeof ws.pedirListaPartidas === "function"){
             ws.pedirListaPartidas();
@@ -230,31 +264,72 @@ function ControlWeb() {
             cw.mostrarMensaje("Hasta pronto, " + nick);
         }
         try { sessionStorage.removeItem("bienvenidaMostrada"); } catch(e){}
+        $("#panel-cuenta").hide();
+        this._cuentaVisible = false;
         rest.salidaDeUsuario();
     };
 
     this._setNavToLogout = function(){
-        let $login = $("#menuIniciarSesion");
-        if ($login.length){
-            let $wrap = $("<span id='navUserActions'></span>");
-            let $btnAct = $("<button id='btnVerActividad' class='btn btn-outline-primary btn-sm mr-2'>Actividad</button>");
-            let $btnSalir = $("<button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button>");
-            $wrap.append($btnAct).append($btnSalir);
-            $login.replaceWith($wrap);
-            $btnSalir.on('click', function(){ cw.salir(); });
-            $btnAct.on('click', function(){ cw.mostrarActividad(); });
-        } else {
-            let $nav = $(".navbar-nav.ml-auto");
-            if ($nav.length && $nav.find('#btnSalirNav').length===0){
-                $nav.append("<li class='nav-item mr-2'><button id='btnVerActividad' class='btn btn-outline-primary btn-sm'>Actividad</button></li>");
-                $nav.append("<li class='nav-item'><button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button></li>");
-                $("#btnSalirNav").on('click', function(){ cw.salir(); });
-                $("#btnVerActividad").on('click', function(){ cw.mostrarActividad(); });
-            }
-        }
+        const $nav = $(".navbar-nav.ml-auto");
+        if (!$nav.length) return;
+
+        try { $("#menuHelp").closest("li").hide(); } catch(e) {}
+        try { $("#menuIniciarSesion").closest("li").hide(); } catch(e) {}
+
+        $("#navUserDropdown").remove();
+        $("#navUserActions").remove();
+        $("#btnSalirNav").closest("li").remove();
+        $("#btnVerActividad").closest("li").remove();
+        $("#btnMiCuenta").closest("li").remove();
+        $("#navUserLabel").remove();
+
+        const $dropdown = $(`
+          <li class="nav-item dropdown" id="navUserDropdown">
+            <a class="nav-link dropdown-toggle nav-user-toggle" href="#" id="navUserToggle" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"></a>
+            <div class="dropdown-menu dropdown-menu-right" aria-labelledby="navUserToggle">
+              <a class="dropdown-item" href="#" id="navGestionarCuenta">Gestionar cuenta</a>
+              <a class="dropdown-item" href="#" id="navActividad">Actividad</a>
+              <a class="dropdown-item" href="#" id="navAyuda">Ayuda</a>
+              <div class="dropdown-divider"></div>
+              <a class="dropdown-item text-danger" href="#" id="navSalir">Salir</a>
+            </div>
+          </li>
+        `);
+
+        $nav.append($dropdown);
+
+        $("#navGestionarCuenta").off("click").on("click", function(e){
+            e.preventDefault();
+            try { window.location.hash = "#/mi-cuenta"; } catch(ex) {}
+            cw.mostrarMiCuenta();
+        });
+        $("#navActividad").off("click").on("click", function(e){
+            e.preventDefault();
+            try { window.location.hash = "#/actividad"; } catch(ex) {}
+            cw.mostrarActividad();
+        });
+        $("#navAyuda").off("click").on("click", function(e){
+            e.preventDefault();
+            try { $("#menuHelp").trigger("click"); } catch(ex) {}
+        });
+        $("#navSalir").off("click").on("click", function(e){
+            e.preventDefault();
+            cw.salir();
+        });
+
+        try {
+            const fallback = ($.cookie && $.cookie("nick")) || this.email || "";
+            if (fallback) { this._setNavUserLabel(fallback); }
+        } catch(e) {}
     };
 
     this._setNavToLogin = function(){
+        // Navbar nuevo: dropdown de usuario (restaurar estado "no logueado")
+        $("#navUserDropdown").remove();
+        try { $("#menuHelp").closest("li").show(); } catch(e) {}
+        try { $("#menuIniciarSesion").closest("li").show(); } catch(e) {}
+        $("#menuIniciarSesion").off("click").on("click", function(){ cw.mostrarLogin(); });
+        return;
         let $salir = $("#btnSalirNav");
         if ($salir.length){
             let $btn = $("<button type='button' class='btn btn-ignition' id='menuIniciarSesion'>Iniciar sesión</button>");
@@ -269,9 +344,23 @@ function ControlWeb() {
         }
     };
 
+    this._setNavUserLabel = function(text){
+        const tNew = String(text || "").trim();
+        const $toggle = $("#navUserToggle");
+        if ($toggle.length) { $toggle.text(tNew); return; }
+        const t = String(text || "").trim();
+        const $label = $("#navUserLabel");
+        if ($label.length){
+            $label.text(t);
+        }
+    };
+
     // Mostrar actividad del usuario
     // Estado de visibilidad del panel de actividad
     this._actividadVisible = false;
+    this._cuentaVisible = false;
+    this._perfil = null;
+    this._cargandoCuenta = false;
 
     this.mostrarActividad = function(){
         // Toggle: si ya está visible, ocultar
@@ -279,7 +368,7 @@ function ControlWeb() {
             $("#au").empty();
             this._actividadVisible = false;
             // Restaurar etiqueta del botón
-            const $btn = $("#btnVerActividad");
+            const $btn = $("#btnVerActividad, #navActividad");
             if ($btn.length) { $btn.text("Actividad"); }
             this._updateMainVisibility();
             return;
@@ -292,6 +381,240 @@ function ControlWeb() {
         if (window.rest && typeof rest.obtenerActividad === 'function'){
             rest.obtenerActividad(email);
         }
+    };
+
+    // ---------------------------
+    // Mi cuenta
+    // ---------------------------
+
+    this._setAccountAlert = function(msg, tipo){
+        const t = tipo || "info";
+        const cls = "alert-" + (t === "error" ? "danger" : t === "success" ? "success" : "info");
+        if (!msg){
+            $("#account-alert").empty();
+            return;
+        }
+        $("#account-alert").html("<div class='alert " + cls + "' role='alert'>" + msg + "</div>");
+    };
+
+    this._renderCuenta = function(user){
+        if (!user) return;
+        this._perfil = user;
+
+        const name = user.nombre || user.displayName || "";
+        const nick = user.nick || "";
+        const email = user.email || "";
+        const createdAt = user.createdAt || "";
+
+        $("#account-nombre").text(name || "—");
+        $("#account-nick").text(nick || "—");
+        $("#account-email").text(email || "—");
+        $("#account-createdAt").text(createdAt ? createdAt : "—");
+
+        $("#input-nombre").val(name);
+        $("#input-nick").val(nick);
+        $("#input-password-code").val("");
+        $("#input-newPassword").val("");
+        $("#input-newPassword2").val("");
+        $("#password-change-form").hide();
+
+        const label = (name || nick || email);
+        if (label) this._setNavUserLabel(label);
+
+        const canChangePassword = !!user.canChangePassword;
+        if (canChangePassword){
+            $("#card-password").show();
+            $("#btn-request-password-change").prop("disabled", false);
+            $("#password-disabled").hide();
+            $("#delete-password-group").show();
+            $("#delete-account-hint").text("");
+        } else {
+            $("#btn-request-password-change").prop("disabled", true);
+            $("#password-disabled").show();
+            $("#delete-password-group").hide();
+            $("#delete-account-hint").text("Cuenta Google: la eliminación solo requiere confirmación.");
+        }
+    };
+
+    this._cargarCuenta = function(){
+        if (this._cargandoCuenta) return;
+        this._cargandoCuenta = true;
+        this._setAccountAlert("Cargando tu perfil...", "info");
+
+        if (window.rest && typeof rest.obtenerMiCuenta === "function"){
+            rest.obtenerMiCuenta(function(user){
+                cw._cargandoCuenta = false;
+                cw._setAccountAlert("", "info");
+                cw._renderCuenta(user);
+            }, function(errMsg){
+                cw._cargandoCuenta = false;
+                cw._setAccountAlert(errMsg || "No se pudo cargar tu cuenta.", "error");
+            });
+        } else {
+            this._cargandoCuenta = false;
+            this._setAccountAlert("Servicio de cuenta no disponible.", "error");
+        }
+    };
+
+    this._wireCuentaHandlers = function(){
+        $("#btn-volver-cuenta").off("click").on("click", function(){
+            cw._cuentaVisible = false;
+            $("#panel-cuenta").hide();
+            cw.mostrarSelectorJuegos();
+        });
+
+        $("#form-editar-perfil").off("submit").on("submit", function(e){
+            e.preventDefault();
+            const nombre = ($("#input-nombre").val() || "").trim();
+            let nick = ($("#input-nick").val() || "").trim();
+            // Normalizar espacios para evitar errores de validación
+            nick = nick.replace(/\s+/g, "_");
+            $("#input-nick").val(nick);
+            const $btn = $("#btn-guardar-perfil");
+            $btn.prop("disabled", true).text("Guardando...");
+            cw._setAccountAlert("", "info");
+
+            if (window.rest && typeof rest.actualizarMiCuenta === "function"){
+                rest.actualizarMiCuenta({ nombre, nick }, function(user){
+                    $btn.prop("disabled", false).text("Guardar cambios");
+                    cw._setAccountAlert("Perfil actualizado.", "success");
+                    cw._renderCuenta(user);
+                }, function(errMsg){
+                    $btn.prop("disabled", false).text("Guardar cambios");
+                    cw._setAccountAlert(errMsg || "No se pudo actualizar el perfil.", "error");
+                });
+            } else {
+                $btn.prop("disabled", false).text("Guardar cambios");
+                cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
+            }
+        });
+
+        $("#btn-request-password-change").off("click").on("click", function(){
+            const $btn = $("#btn-request-password-change");
+            $btn.prop("disabled", true).text("Enviando...");
+            cw._setAccountAlert("", "info");
+
+            if (window.rest && typeof rest.solicitarCambioPasswordMiCuenta === "function"){
+                rest.solicitarCambioPasswordMiCuenta(function(){
+                    $btn.prop("disabled", false).text("Cambio de contraseña");
+                    $("#password-change-form").show();
+                    cw._setAccountAlert("Correo enviado. Revisa tu bandeja e introduce el código.", "success");
+                }, function(errMsg){
+                    $btn.prop("disabled", false).text("Cambio de contraseña");
+                    cw._setAccountAlert(errMsg || "No se pudo enviar el correo.", "error");
+                });
+            } else {
+                $btn.prop("disabled", false).text("Cambio de contraseña");
+                cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
+            }
+        });
+
+        $("#form-confirm-password-change").off("submit").on("submit", function(e){
+            e.preventDefault();
+            const code = ($("#input-password-code").val() || "").trim();
+            const newPassword = ($("#input-newPassword").val() || "");
+            const newPassword2 = ($("#input-newPassword2").val() || "");
+            if (!code){
+                cw._setAccountAlert("Introduce el código del correo.", "error");
+                return;
+            }
+            if (!newPassword){
+                cw._setAccountAlert("Introduce la nueva contraseña.", "error");
+                return;
+            }
+            if (newPassword !== newPassword2){
+                cw._setAccountAlert("Las contraseñas no coinciden.", "error");
+                return;
+            }
+
+            const $btn = $("#btn-confirm-password-change");
+            $btn.prop("disabled", true).text("Confirmando...");
+            cw._setAccountAlert("", "info");
+
+            if (window.rest && typeof rest.confirmarCambioPasswordMiCuenta === "function"){
+                rest.confirmarCambioPasswordMiCuenta({ codeOrToken: code, newPassword: newPassword }, function(){
+                    $btn.prop("disabled", false).text("Confirmar cambio");
+                    $("#input-password-code").val("");
+                    $("#input-newPassword").val("");
+                    $("#input-newPassword2").val("");
+                    cw._setAccountAlert("Contraseña actualizada.", "success");
+                }, function(errMsg){
+                    $btn.prop("disabled", false).text("Confirmar cambio");
+                    cw._setAccountAlert(errMsg || "No se pudo cambiar la contraseña.", "error");
+                });
+            } else {
+                $btn.prop("disabled", false).text("Confirmar cambio");
+                cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
+            }
+        });
+
+        $("#btn-confirmar-eliminar-cuenta").off("click").on("click", function(){
+            const confirmText = ($("#input-confirmDelete").val() || "").trim();
+            const password = ($("#input-deletePassword").val() || "");
+            const irreversible = $("#check-irrevocable").is(":checked");
+            if (confirmText !== "ELIMINAR"){
+                cw._setAccountAlert("Escribe ELIMINAR para confirmar.", "error");
+                return;
+            }
+            if (!irreversible){
+                cw._setAccountAlert("Debes marcar la casilla de confirmación.", "error");
+                return;
+            }
+
+            const canChangePassword = !!(cw._perfil && cw._perfil.canChangePassword);
+            if (canChangePassword && !password){
+                cw._setAccountAlert("Introduce tu contraseña para confirmar.", "error");
+                return;
+            }
+            const payload = canChangePassword ? { password } : { confirm: true };
+
+            const $btn = $("#btn-confirmar-eliminar-cuenta");
+            $btn.prop("disabled", true).text("Eliminando...");
+
+            if (window.rest && typeof rest.eliminarMiCuenta === "function"){
+                rest.eliminarMiCuenta(payload, function(){
+                    $("#modalEliminarCuenta").modal("hide");
+                    cw._setAccountAlert("Cuenta eliminada. Cerrando sesión...", "success");
+                    try { sessionStorage.removeItem("bienvenidaMostrada"); } catch(e){}
+                    setTimeout(function(){ window.location.href = "/"; }, 600);
+                }, function(errMsg){
+                    $btn.prop("disabled", false).text("Eliminar definitivamente");
+                    cw._setAccountAlert(errMsg || "No se pudo eliminar la cuenta.", "error");
+                });
+            } else {
+                $btn.prop("disabled", false).text("Eliminar definitivamente");
+                cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
+            }
+        });
+    };
+
+    this.mostrarMiCuenta = function(){
+        if (this._cuentaVisible){
+            this._cuentaVisible = false;
+            $("#panel-cuenta").hide();
+            this.mostrarSelectorJuegos();
+            return;
+        }
+        const nick = $.cookie("nick");
+        if (!nick){
+            this.mostrarAviso("Debes iniciar sesión para acceder a tu cuenta.", "error");
+            return;
+        }
+
+        $("#selector-juegos").hide();
+        $("#panel-partidas").hide();
+        $("#zona-juego").hide();
+        $("#registro").empty();
+        $("#au").empty();
+        $("#msg").empty();
+
+        this._actividadVisible = false;
+        $("#panel-cuenta").show();
+        this._cuentaVisible = true;
+        this._updateMainVisibility();
+
+        this._wireCuentaHandlers();
+        this._cargarCuenta();
     };
 
     // Render de la actividad en el panel principal
@@ -319,7 +642,7 @@ function ControlWeb() {
         $("#au").append(html);
         this._actividadVisible = true;
         // Cambiar etiqueta del botón mientras está visible
-        const $btn = $("#btnVerActividad");
+        const $btn = $("#btnVerActividad, #navActividad");
         if ($btn.length) { $btn.text("Cerrar actividad"); }
         this._updateMainVisibility();
     };

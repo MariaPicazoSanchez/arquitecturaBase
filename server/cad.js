@@ -45,6 +45,11 @@ function CAD() {
       this.logs = this.db.collection("logs");
 
       await this.usuarios.createIndex({ email: 1 }, { unique: true });
+      try {
+        await this.usuarios.createIndex({ nick: 1 }, { unique: true, sparse: true });
+      } catch (e) {
+        console.warn("[cad.conectar] No se pudo crear índice único en nick (continuo):", e && e.message);
+      }
 
       console.log("[cad.conectar] Conectado a Mongo. Colección: sistema.usuarios");
       if (typeof callback === "function") callback(this.db);
@@ -69,12 +74,73 @@ function CAD() {
     buscar(this.usuarios, criterio, cb);
   };
 
+  this.buscarUsuarioRaw = (criterio, cb) => {
+    buscarRaw(this.usuarios, criterio, cb);
+  };
+
+  this.buscarUsuarioPublico = (criterio, cb) => {
+    buscarConProyeccion(this.usuarios, criterio, {
+      _id: 1,
+      email: 1,
+      nick: 1,
+      displayName: 1,
+      createdAt: 1,
+      confirmada: 1,
+    }, cb);
+  };
+
   this.insertarUsuario = (usuario, cb) => {
     insertar(this.usuarios, usuario, cb);
   };
 
   this.actualizarUsuario = function (obj, callback) {
     actualizar(this.usuarios, obj, callback);
+  };
+
+  this.actualizarUsuarioPorEmail = function(email, patch, callback){
+    if (!this.usuarios) {
+      callback(undefined);
+      return;
+    }
+    const e = (email || "").trim().toLowerCase();
+    if (!e) {
+      callback(undefined);
+      return;
+    }
+    const safePatch = patch && typeof patch === "object" ? patch : {};
+    this.usuarios.findOneAndUpdate(
+      { email: e },
+      { $set: safePatch },
+      {
+        upsert: false,
+        returnDocument: "after",
+        projection: { _id: 1, email: 1, nick: 1, displayName: 1, createdAt: 1, confirmada: 1, password: 1 },
+        maxTimeMS: 5000,
+      }
+    ).then((result) => {
+      callback(result && result.value ? result.value : undefined);
+    }).catch((err) => {
+      console.error("[cad.actualizarUsuarioPorEmail] error:", err && err.message ? err.message : err);
+      callback(undefined);
+    });
+  };
+
+  this.eliminarUsuarioPorEmail = function(email, callback){
+    if (!this.usuarios) {
+      callback(false);
+      return;
+    }
+    const e = (email || "").trim().toLowerCase();
+    if (!e) {
+      callback(false);
+      return;
+    }
+    this.usuarios.deleteOne({ email: e }, { maxTimeMS: 5000 })
+      .then((res) => callback(!!(res && res.deletedCount === 1)))
+      .catch((err) => {
+        console.error("[cad.eliminarUsuarioPorEmail] error:", err && err.message ? err.message : err);
+        callback(false);
+      });
   };
 
   this.insertarLog = async function (tipoOperacion, usuario) {
@@ -131,7 +197,7 @@ function buscarOCrear(coleccion, criterio, callback) {
   
   coleccion.findOneAndUpdate(
     { email: criterio.email },
-    { $set: criterio },
+    { $set: criterio, $setOnInsert: { createdAt: new Date().toISOString() } },
     {
       upsert: true,
       returnDocument: "after",
@@ -163,6 +229,32 @@ function buscar(col, criterio, cb) {
     })
     .catch((err) => {
       console.error("[cad.buscar] error:", err.message);
+      cb(undefined);
+    });
+}
+
+function buscarRaw(col, criterio, cb) {
+  if (!col) {
+    cb(undefined);
+    return;
+  }
+  col.findOne(criterio, { maxTimeMS: 5000 })
+    .then((doc) => cb(doc))
+    .catch((err) => {
+      console.error("[cad.buscarRaw] error:", err && err.message ? err.message : err);
+      cb(undefined);
+    });
+}
+
+function buscarConProyeccion(col, criterio, projection, cb) {
+  if (!col) {
+    cb(undefined);
+    return;
+  }
+  col.findOne(criterio, { maxTimeMS: 5000, projection })
+    .then((doc) => cb(doc))
+    .catch((err) => {
+      console.error("[cad.buscarConProyeccion] error:", err && err.message ? err.message : err);
       cb(undefined);
     });
 }

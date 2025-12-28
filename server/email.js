@@ -7,6 +7,12 @@ const nodemailer = require('nodemailer');
 //   pass: ""
 // };
 
+// fallback (DESARROLLO LOCAL / cuando no se carga gv.obtenerOptions)
+const options = {
+  user: process.env.MAIL_FROM || "",
+  pass: process.env.MAIL_PASS || ""
+};
+
 // let transporter;
 
 // gv.obtenerOptions(function (res) {
@@ -63,3 +69,26 @@ module.exports.enviarEmail=async function(direccion, key,men) {
   });
 
 }
+
+module.exports.enviarEmailCambioPassword = async function(direccion, code) {
+  const APP_URL = process.env.APP_URL || "";
+  const codeStr = String(code || "").trim();
+
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#111">
+      <p>Has solicitado cambiar tu contraseña en <strong>Table Room</strong>.</p>
+      <p>Introduce este código en la sección <strong>Seguridad</strong> de “Mi cuenta”:</p>
+      <p style="font-size:20px;font-weight:800;letter-spacing:2px;margin:12px 0">${codeStr}</p>
+      ${APP_URL ? `<p>Volver a la app: <a href="${APP_URL}" target="_blank">${APP_URL}</a></p>` : ""}
+      <p style="color:#6b7280;font-size:13px;margin-top:16px">Si no has sido tú, ignora este correo.</p>
+    </div>
+  `;
+
+  await transporter.sendMail({
+    from: options.user || process.env.MAIL_FROM,
+    to: direccion,
+    subject: "Cambiar contraseña",
+    text: `Código para cambiar contraseña: ${codeStr}\n\nSi no has sido tú, ignora este correo.\n`,
+    html
+  });
+};
