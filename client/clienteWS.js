@@ -99,7 +99,9 @@ function ClienteWS() {
             cw.mostrarJuegoEnApp(juego, datos.codigo);
         } else {
             if (juego === "uno") {
-                window.location.href = "/uno";
+                window.location.href = "/uno?codigo=" + encodeURIComponent(datos.codigo);
+            } else if (juego === "4raya") {
+                window.location.href = "/4raya?codigo=" + encodeURIComponent(datos.codigo);
             } else {
                 console.warn("Partida continuada para juego:", juego,
                             "pero aún no tiene interfaz asociada.");

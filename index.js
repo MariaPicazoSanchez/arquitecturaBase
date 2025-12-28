@@ -7,14 +7,31 @@ const httpServer = http.Server(app);
 const { Server } = require("socket.io");
 
 
-const PORT = process.env.PORT || 3000;
 require('dotenv').config();
+const PORT = Number.parseInt(process.env.PORT, 10) || 3000;
 const passport=require("passport");
 const session = require('express-session');
 
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] uncaughtException:', err && err.stack ? err.stack : err);
+  process.exitCode = 1;
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] unhandledRejection:', reason && reason.stack ? reason.stack : reason);
+  process.exitCode = 1;
+});
+
 require("./server/passport-setup.js");
 const modelo = require("./server/modelo.js");
-let sistema = new modelo.Sistema();
+console.log('[START] creando Sistema()...');
+let sistema;
+try {
+  sistema = new modelo.Sistema();
+  console.log('[START] Sistema() creado');
+} catch (e) {
+  console.error('[FATAL] fallo creando Sistema():', e && e.stack ? e.stack : e);
+  process.exit(1);
+}
 // Socket.io server
 const moduloWS = require("./server/servidorWS.js");
 
@@ -27,6 +44,9 @@ let ws = new moduloWS.ServidorWS();
 // --------------------
 const unoDistPath = path.join(__dirname, 'client/games/uno/dist');
 app.use('/uno', express.static(unoDistPath));
+
+const connect4DistPath = path.join(__dirname, 'client/games/4raya/dist');
+app.use('/4raya', express.static(connect4DistPath));
 
 
 // Diagnostic middleware for static assets (helps debug production 503/404)
@@ -418,45 +438,80 @@ app.get('/api/logs', async function(req, res) {
 // ------------------------------------
 // Iniciar el servidor
 // ------------------------------------
-try {
-  const clientDir = path.join(__dirname, 'client');
-  const walkSync = (dir, filelist = []) => {
-    const files = fs.readdirSync(dir);
-    files.forEach((file) => {
-      const full = path.join(dir, file);
-      const stat = fs.statSync(full);
-      if (stat && stat.isDirectory()) {
-        walkSync(full, filelist);
-      } else {
-        filelist.push(path.relative(path.join(__dirname, 'client'), full));
-      }
-    });
-    return filelist;
-  };
-  const files = walkSync(clientDir);
-  console.log('[startup] archivos en client/ (muestra hasta 50):', files.slice(0,50));
-} catch (e) {
-  console.warn('[startup] no se pudo listar client/:', e && e.message);
-}
+function logClientFilesNonBlocking() {
+  if (process.env.STARTUP_DEBUG_FILES !== '1') return;
 
-function startServer(port){
-  try {
-    httpServer.listen(port, () => {
-      console.log(`App está escuchando en el puerto ${port}`);
-      console.log("Ctrl+C para salir");
-      ws.lanzarServidor(io, sistema);
-    });
-  } catch(e) {
-    if (e && e.code === 'EADDRINUSE'){
-      const next = (parseInt(port,10) || 3000) + 1;
-      console.warn(`[startup] Puerto ${port} en uso, intentando ${next}...`);
-      startServer(next);
-    } else {
-      throw e;
+  setImmediate(() => {
+    try {
+      const clientDir = path.join(__dirname, 'client');
+      const ignored = new Set(['node_modules', '.git', 'dist', 'build']);
+      const results = [];
+
+      const walkSync = (dir) => {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            if (ignored.has(entry.name)) continue;
+            walkSync(path.join(dir, entry.name));
+            if (results.length >= 50) return;
+          } else {
+            results.push(path.relative(clientDir, path.join(dir, entry.name)));
+            if (results.length >= 50) return;
+          }
+        }
+      };
+
+      walkSync(clientDir);
+      console.log('[startup] archivos en client/ (muestra hasta 50):', results);
+    } catch (e) {
+      console.warn('[startup] no se pudo listar client/:', e && e.message);
     }
-  }
+  });
 }
 
+function startServer(port, attempt = 0) {
+  const maxAttempts = 10;
+  const desiredPort = Number.parseInt(port, 10) || 3000;
+
+  console.log(`[START] intentando listen en puerto ${desiredPort}...`);
+
+  const onError = (err) => {
+    httpServer.off('listening', onListening);
+
+    if (err && err.code === 'EADDRINUSE' && attempt < maxAttempts) {
+      const next = desiredPort + 1;
+      console.warn(`[START] Puerto ${desiredPort} en uso, intentando ${next}...`);
+      return startServer(next, attempt + 1);
+    }
+
+    console.error('[FATAL] Error arrancando servidor:', err && err.stack ? err.stack : err);
+    process.exit(1);
+  };
+
+  const onListening = () => {
+    httpServer.off('error', onError);
+    const addr = httpServer.address();
+    const actualPort = typeof addr === 'object' && addr ? addr.port : desiredPort;
+
+    console.log(`[START] Listening on http://localhost:${actualPort}`);
+    console.log("Ctrl+C para salir");
+
+    try {
+      ws.lanzarServidor(io, sistema);
+    } catch (e) {
+      console.error('[FATAL] ws.lanzarServidor fallo:', e && e.stack ? e.stack : e);
+      process.exit(1);
+    }
+
+    logClientFilesNonBlocking();
+  };
+
+  httpServer.once('error', onError);
+  httpServer.once('listening', onListening);
+  httpServer.listen(desiredPort);
+}
+
+console.log('[START] llamando startServer(PORT)...');
 startServer(PORT);
 
 

@@ -7,6 +7,12 @@ const {
   getNextPlayerIndex,
 } = require("./game/unoEngineMultiplayer");
 
+const {
+  createInitialState: createConnect4InitialState,
+  applyAction: applyConnect4Action,
+  ACTION_TYPES: CONNECT4_ACTION_TYPES,
+} = require("./game/connect4EngineMultiplayer");
+
 const UNO_CALL_WINDOW_MS = (() => {
   const parsed = Number.parseInt(process.env.UNO_CALL_WINDOW_MS, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5000;
@@ -15,6 +21,10 @@ const UNO_CALL_WINDOW_MS = (() => {
 function ServidorWS() {
   let srv = this;
   const estadosUNO = {};
+  const estados4raya = {};
+  const rematchVotes4raya = {};
+  const socketTo4RayaPlayerId = {};
+  const socketTo4RayaCodigo = {};
 
   const normalizePlayerId = (value) =>
     (value || "").toString().trim().toLowerCase();
@@ -251,6 +261,16 @@ function ServidorWS() {
     }
   };
 
+  const emitirEstado4Raya = (io, codigo, datos4Raya) => {
+    const engine = datos4Raya?.engine ?? null;
+    if (!engine) return;
+
+    io.to(codigo).emit("4raya:estado", {
+      codigo,
+      engine,
+    });
+  };
+
   const ensureUnoTimers = (datosUNO) => {
     if (!datosUNO.unoTimers) {
       datosUNO.unoTimers = {
@@ -470,12 +490,17 @@ function ServidorWS() {
 
       // === crearPartida ===
       socket.on("crearPartida", function(datos) {
+        const juego = datos && datos.juego;
         const rawMaxPlayers = datos && (datos.maxPlayers ?? datos.maxJug);
         const parsed = parseInt(rawMaxPlayers, 10);
         const maxPlayers =
-          Number.isFinite(parsed) && parsed >= 2 && parsed <= 8 ? parsed : 2;
+          juego === "4raya"
+            ? 2
+            : Number.isFinite(parsed) && parsed >= 2 && parsed <= 8
+              ? parsed
+              : 2;
 
-        let codigo = sistema.crearPartida(datos.email, datos.juego, maxPlayers);
+        let codigo = sistema.crearPartida(datos.email, juego, maxPlayers);
 
         if (codigo !== -1) {
           socket.join(codigo); // sala de socket.io
@@ -486,7 +511,7 @@ function ServidorWS() {
           maxPlayers: maxPlayers,
         });
 
-        let lista = sistema.obtenerPartidasDisponibles(datos.juego);
+        let lista = sistema.obtenerPartidasDisponibles(juego);
         srv.enviarGlobal(io, "listaPartidas", lista);
       });
 
@@ -568,19 +593,22 @@ function ServidorWS() {
         const codigo = res && typeof res === "object" ? res.codigo : res;
 
         if (codigo !== -1) {
+          const partida = sistema.partidas[codigo];
+          const juego = partida?.juego || datos.juego || "uno";
+
           // Aseguramos que este socket está en la sala
           socket.join(codigo);
 
           // Enviar a TODOS los jugadores de la sala que la partida empieza
           io.to(codigo).emit("partidaContinuada", {
             codigo: codigo,
-            juego: datos.juego || "uno"
+            juego,
           });
 
           // Actualizar la lista para TODO el mundo
           // (si sistema.obtenerPartidasDisponibles ya filtra las "en curso",
           //   desaparecerá del listado como quieres)
-          let lista = sistema.obtenerPartidasDisponibles(datos.juego);
+          let lista = sistema.obtenerPartidasDisponibles(juego);
           srv.enviarGlobal(io, "listaPartidas", lista);
         } else {
           // No se pudo continuar la partida (no es el propietario, código inválido, etc.)
@@ -599,6 +627,14 @@ function ServidorWS() {
         if (codigo !== -1 && estadosUNO[codigo]) {
           clearAllUnoDeadlines(io, codigo, estadosUNO[codigo]);
           delete estadosUNO[codigo];
+        }
+
+        if (codigo !== -1 && estados4raya[codigo]) {
+          delete estados4raya[codigo];
+        }
+
+        if (codigo !== -1 && rematchVotes4raya[codigo]) {
+          delete rematchVotes4raya[codigo];
         }
 
         srv.enviarAlRemitente(socket, "partidaEliminada", { codigo: codigo });
@@ -906,6 +942,161 @@ function ServidorWS() {
         await emitirEstadoUNO(io, codigo, datosUNO);
       });
 
+      // ==========================
+      //  4 EN RAYA MULTIJUGADOR (WS)
+      // ==========================
+
+      socket.on("4raya:suscribirse", function(datos) {
+        const codigo = datos && datos.codigo;
+        const email = datos && datos.email;
+        if (!codigo || !email) return;
+
+        const partida = sistema.partidas[codigo];
+        if (!partida) return;
+        if (partida.juego !== "4raya") return;
+
+        const playerId = normalizePlayerId(email);
+        if (!playerId) return;
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) {
+          console.warn("[4RAYA] suscripcion rechazada (no pertenece a la partida)", email, codigo);
+          return;
+        }
+
+        socketTo4RayaPlayerId[socket.id] = playerId;
+        socketTo4RayaCodigo[socket.id] = codigo;
+
+        if (!estados4raya[codigo]) {
+          const players = (partida.jugadores || []).slice(0, 2).map((j) => ({
+            id: normalizePlayerId(j.email),
+            name: j.nick || j.email,
+          }));
+          estados4raya[codigo] = {
+            engine: createConnect4InitialState({ players }),
+          };
+          console.log("[4RAYA] engine creado para partida", codigo);
+        } else {
+          // Si la partida aun no ha empezado (tablero vacio), sincronizamos nombres/ids.
+          const datos4Raya = estados4raya[codigo];
+          const engine = datos4Raya.engine;
+          if (engine && !engine.lastMove) {
+            const players = (partida.jugadores || []).slice(0, 2).map((j) => ({
+              id: normalizePlayerId(j.email),
+              name: j.nick || j.email,
+            }));
+            datos4Raya.engine = { ...engine, players: createConnect4InitialState({ players }).players };
+          }
+        }
+
+        socket.join(codigo);
+        emitirEstado4Raya(io, codigo, estados4raya[codigo]);
+      });
+
+      socket.on("4raya:accion", function(datos) {
+        const codigo = datos && datos.codigo;
+        const email = datos && datos.email;
+        const action = datos && datos.action;
+        if (!codigo || !email || !action) return;
+
+        const partida = sistema.partidas[codigo];
+        const datos4Raya = estados4raya[codigo];
+        if (!partida || !datos4Raya || !datos4Raya.engine) return;
+        if (partida.juego !== "4raya") return;
+
+        const playerId = normalizePlayerId(email);
+        const playerIndex = (datos4Raya.engine.players || []).findIndex(
+          (p) => normalizePlayerId(p?.id) === playerId,
+        );
+        if (playerIndex === -1) {
+          console.warn("[4RAYA] jugador no pertenece a la partida", email, codigo);
+          return;
+        }
+
+        datos4Raya.engine = applyConnect4Action(datos4Raya.engine, {
+          ...action,
+          playerIndex,
+        });
+
+        emitirEstado4Raya(io, codigo, datos4Raya);
+      });
+
+      socket.on("4raya:rematch_request", function(datos) {
+        const codigo = datos && datos.codigo;
+        const email = datos && datos.email;
+        if (!codigo || !email) return;
+
+        const partida = sistema.partidas[codigo];
+        const datos4Raya = estados4raya[codigo];
+        if (!partida || !datos4Raya || !datos4Raya.engine) return;
+        if (partida.juego !== "4raya") return;
+        if (datos4Raya.engine.status !== "finished") return;
+
+        const playerId = normalizePlayerId(email);
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) return;
+
+        if (!rematchVotes4raya[codigo]) rematchVotes4raya[codigo] = new Set();
+        rematchVotes4raya[codigo].add(playerId);
+
+        const players = (partida.jugadores || []).slice(0, 2);
+        const total = players.length;
+        const ready = rematchVotes4raya[codigo].size;
+
+        if (total >= 2 && ready >= 2) {
+          const hostEmail = normalizePlayerId(partida.propietarioEmail || players[0]?.email);
+          const otherEmail = normalizePlayerId(
+            players.find((j) => normalizePlayerId(j.email) && normalizePlayerId(j.email) !== hostEmail)
+              ?.email || players[1]?.email,
+          );
+
+          try {
+            if (!hostEmail || !otherEmail || hostEmail === otherEmail) {
+              throw new Error("no se pudieron resolver los emails de revancha");
+            }
+
+            const newCodigo = sistema.crearPartida(hostEmail, "4raya", 2);
+            if (newCodigo === -1) throw new Error("no se pudo crear partida revancha");
+
+            const joinRes = sistema.unirAPartida(otherEmail, newCodigo);
+            const joinedCodigo = joinRes && typeof joinRes === "object" ? joinRes.codigo : joinRes;
+            if (joinedCodigo === -1) throw new Error("no se pudo unir rival a la revancha");
+
+            const contRes = sistema.continuarPartida(hostEmail, newCodigo);
+            const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
+            if (contCodigo === -1) throw new Error("no se pudo iniciar la revancha");
+
+            try {
+              sistema.eliminarPartida(hostEmail, codigo);
+            } catch {
+              // best-effort
+            }
+            if (sistema.partidas && sistema.partidas[codigo]) {
+              delete sistema.partidas[codigo];
+            }
+
+            delete estados4raya[codigo];
+            delete rematchVotes4raya[codigo];
+
+            io.to(codigo).emit("4raya:rematch_ready", { codigo, newCodigo });
+
+            const lista = sistema.obtenerPartidasDisponibles("4raya");
+            srv.enviarGlobal(io, "listaPartidas", lista);
+          } catch (e) {
+            console.warn("[4RAYA] fallo creando revancha:", e?.message || e);
+            io.to(codigo).emit("4raya:rematch_ready", {
+              codigo,
+              newCodigo: null,
+              error: "No se pudo iniciar la revancha.",
+            });
+          }
+        }
+      });
+
       socket.on("disconnect", function() {
         // Evitar leaks de mapeo socket->playerId
         for (const [codigo, datosUNO] of Object.entries(estadosUNO)) {
@@ -913,6 +1104,24 @@ function ServidorWS() {
             delete datosUNO.socketToPlayerId[socket.id];
           }
         }
+
+        const code4 = socketTo4RayaCodigo[socket.id];
+        const pid4 = socketTo4RayaPlayerId[socket.id];
+        if (code4 && pid4 && rematchVotes4raya[code4]) {
+          rematchVotes4raya[code4].delete(pid4);
+          if (rematchVotes4raya[code4].size === 0) {
+            delete rematchVotes4raya[code4];
+          } else {
+            io.to(code4).emit("4raya:rematch_ready", {
+              codigo: code4,
+              newCodigo: null,
+              error: "El otro jugador se ha desconectado.",
+            });
+            delete rematchVotes4raya[code4];
+          }
+        }
+        delete socketTo4RayaCodigo[socket.id];
+        delete socketTo4RayaPlayerId[socket.id];
       });
 
     });

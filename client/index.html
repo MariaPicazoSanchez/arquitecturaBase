@@ -168,6 +168,13 @@
 
       // Botones del panel de partidas
       $('#btn-crear-partida').on('click', function() {
+        const juego = (window.cw && cw.juegoActual) || (window.ws && ws.gameType) || 'uno';
+        if (juego === '4raya') {
+          if (ws && ws.crearPartida) {
+            ws.crearPartida(2);
+          }
+          return;
+        }
         $('#modalCrearPartida').modal('show');
       });
 
@@ -289,16 +296,14 @@
           <button class="btn btn-outline-primary btn-juego" data-juego="uno">
             Última carta
           </button>
-          <button class="btn btn-outline-secondary btn-juego" data-juego="4raya" disabled>
+          <button class="btn btn-outline-primary btn-juego" data-juego="4raya">
             4 en raya
           </button>
           <button class="btn btn-outline-secondary btn-juego" data-juego="hundir" disabled>
             Hundir la flota
           </button>
         </div>
-        <small class="text-muted d-block mt-2">
-          (Por ahora solo está activo Última carta.)
-        </small>
+
       </div>
     </div>
   </div>

@@ -35,8 +35,11 @@ function ControlWeb() {
 
         $("#titulo-juego-actual").text("Juego: " + nombreBonito);
 
-        // URL del juego (por ahora solo UNO)
-        let url = "/uno";
+        // URL del juego (iframe)
+        let url =
+            this.juegoActual === "4raya" ? "/4raya" :
+            this.juegoActual === "uno"   ? "/uno" :
+            "/uno";
         if (codigo){
             url += "?codigo=" + encodeURIComponent(codigo);
         }
