@@ -513,6 +513,10 @@ function ControlWeb() {
                 juego === '4raya'  ? '4 en raya' :
                 juego === 'hundir' ? 'Hundir la flota' :
                 juego;
+            const statusClass =
+                status === 'STARTED' ? 'status-active' :
+                status === 'OPEN' ? 'status-pending' :
+                'status-finished';
             let acciones = '';
             if (esPropia){
                 acciones += `
@@ -534,7 +538,7 @@ function ControlWeb() {
                       <button class="btn btn-light btn-sm ml-1 btn-copiar-codigo" data-codigo="${p.codigo}" title="Copiar código">Copiar</button>
                     </div>
                     <small class="text-muted">
-                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto} · ${jugadores}/${maxPlayers} · ${status}
+                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto} · ${jugadores}/${maxPlayers} · <span class="badge-status ${statusClass}">${status}</span>
                     </small>
                   </div>
                   <div class="partida-acciones">${acciones}</div>

@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
   <!-- Tema Ignition -->
   <link rel="stylesheet" href="css/ignition.css">
+  <!-- Theme overrides (load after Bootstrap + ignition) -->
+  <link rel="stylesheet" href="assets/css/theme.css">
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
@@ -24,7 +26,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 
-  <div id="onetap-status" style="font:12px/1.2 sans-serif; color:#666; margin-top:8px;"></div>
+  <div id="onetap-status" style="font:12px/1.2 sans-serif; color:var(--muted); margin-top:8px;"></div>
 
 
   <!-- Socket.IO -->
@@ -36,7 +38,7 @@
   <script src="./controlWeb.js"></script>
 </head>
 <body>
-  <nav class="navbar navbar-expand-sm">
+  <nav class="navbar navbar-expand-sm navbar-light">
     <div class="container-fluid d-flex align-items-center justify-content-between" style="padding-top:0.25rem; padding-bottom:0.25rem;">
       <!-- Logo a la izquierda -->
       <a class="navbar-brand d-flex align-items-center" href="index.html" style="gap:10px; padding:0;">
@@ -282,38 +284,67 @@
 
   </script>
 
-  <div class="container" id="mainContent">
+  <div class="container py-4" id="mainContent">
     <div id="au"></div>
     <div id="registro"></div>
     <div id="msg"></div>
   </div>
   <!-- Selector de juegos (se muestra tras el login) -->
-  <div class="container mt-4" id="selector-juegos" style="display:none;">
+  <div class="container py-4" id="selector-juegos" style="display:none;">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h5 class="card-title">Elige un juego</h5>
-        <div class="btn-group" role="group" aria-label="Selector de juego">
-          <button class="btn btn-outline-primary btn-juego" data-juego="uno">
-            Última carta
-          </button>
-          <button class="btn btn-outline-primary btn-juego" data-juego="4raya">
-            4 en raya
-          </button>
-          <button class="btn btn-outline-secondary btn-juego" data-juego="hundir" disabled>
-            Hundir la flota
-          </button>
+        <div class="page-header">
+          <div>
+            <h5 class="card-title mb-1">Elige un juego</h5>
+            <p class="page-subtitle">Entra a un juego para ver y gestionar sus partidas.</p>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-12 col-md-4 mb-3">
+            <div class="card h-100">
+              <div class="card-body d-flex flex-column">
+                <h6 class="mb-2">Última carta</h6>
+                <p class="text-muted small mb-3">Partidas rápidas y perfectas para 2–8 jugadores.</p>
+                <button class="btn btn-outline-primary mt-auto btn-juego" data-juego="uno">Entrar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-md-4 mb-3">
+            <div class="card h-100">
+              <div class="card-body d-flex flex-column">
+                <h6 class="mb-2">4 en raya</h6>
+                <p class="text-muted small mb-3">Duelo directo: crea una partida y empieza al instante.</p>
+                <button class="btn btn-outline-primary mt-auto btn-juego" data-juego="4raya">Entrar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-md-4 mb-3">
+            <div class="card h-100">
+              <div class="card-body d-flex flex-column">
+                <h6 class="mb-2">Hundir la flota</h6>
+                <p class="text-muted small mb-3">Próximamente.</p>
+                <button class="btn btn-outline-secondary mt-auto btn-juego" data-juego="hundir" disabled>Próximamente</button>
+              </div>
+            </div>
+          </div>
         </div>
 
       </div>
     </div>
   </div>
   <!-- Panel de partidas -->
-  <div class="container mt-4" id="panel-partidas" style="display:none;">
+  <div class="container py-4" id="panel-partidas" style="display:none;">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h5 id="titulo-partidas-juego" class="card-title mb-3">
-          Partidas de Última carta
-        </h5>
+        <div class="page-header">
+          <div>
+            <h5 id="titulo-partidas-juego" class="card-title mb-1">Partidas</h5>
+            <p class="page-subtitle">Crea una nueva partida o únete con un código.</p>
+          </div>
+        </div>
 
         <!-- Botones crear / unirse -->
         <div class="d-flex flex-wrap align-items-center mb-3">
@@ -327,7 +358,7 @@
                    class="form-control mr-2"
                    placeholder="Introduce código">
             <button id="btn-unirse-partida"
-                    class="btn btn-outline-secondary">
+                    class="btn btn-outline-primary">
               Unirse
             </button>
           </div>
@@ -385,7 +416,7 @@
   </div>
 
   <!-- Zona donde se incrusta el juego seleccionado (UNO, etc.) -->
-  <div class="container-fluid mt-4" id="zona-juego" style="display:none;">
+  <div class="container-fluid py-4" id="zona-juego" style="display:none;">
     <div class="card shadow-sm">
       <div class="card-body">
 
