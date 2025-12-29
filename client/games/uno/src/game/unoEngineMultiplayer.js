@@ -6,10 +6,23 @@ export const COLORS = ['red', 'green', 'blue', 'yellow'];
 export const VALUES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 // Especiales con color
-const SPECIAL_COLOR_VALUES = ['skip', '+2', 'reverse'];
+const SPECIAL_COLOR_COUNTS = {
+  skip: 2,
+  '+2': 2,
+  reverse: 2,
+  double: 1,
+};
 
 // Especiales sin color (comodines)
-const COLORLESS_VALUES = ['wild', '+4']; // wild = cambio de color, +4 = roba cuatro
+const COLORLESS_COUNTS = {
+  wild: 4, // cambio de color
+  '+4': 4,
+  swap: 2,
+  discard_all: 2,
+  skip_all: 1,
+  '+6': 2,
+  '+8': 1,
+};
 
 export const ACTION_TYPES = {
   PLAY_CARD: 'PLAY_CARD',
@@ -38,18 +51,15 @@ function createDeck() {
       deck.push(createCard(color, v));
       if (v !== '0') deck.push(createCard(color, v));
     }
-    // especiales de color: 2 de cada
-    for (const sv of SPECIAL_COLOR_VALUES) {
-      deck.push(createCard(color, sv));
-      deck.push(createCard(color, sv));
+    // especiales de color (con distintas cantidades)
+    for (const [value, count] of Object.entries(SPECIAL_COLOR_COUNTS)) {
+      for (let i = 0; i < count; i++) deck.push(createCard(color, value));
     }
   }
 
-  // Comodines sin color: 4 wild y 4 +4
-  for (const cv of COLORLESS_VALUES) {
-    for (let i = 0; i < 4; i++) {
-      deck.push(createCard('wild', cv));
-    }
+  // Comodines sin color (con distintas cantidades)
+  for (const [value, count] of Object.entries(COLORLESS_COUNTS)) {
+    for (let i = 0; i < count; i++) deck.push(createCard('wild', value));
   }
 
   return shuffle(deck);
@@ -110,6 +120,7 @@ export function createInitialState({ numPlayers = 2, names = [] } = {}) {
     discardPile,
     currentPlayerIndex: 0,
     direction: 1,
+    doublePlay: null, // { playerIndex, remaining }
     status: 'playing', // 'playing' | 'finished'
     winnerIndex: null,
     lastAction: null,
@@ -128,6 +139,7 @@ function cloneState(state) {
     drawPile: [...state.drawPile],
     discardPile: [...state.discardPile],
     lastAction: state.lastAction ? { ...state.lastAction } : null,
+    doublePlay: state.doublePlay ? { ...state.doublePlay } : null,
   };
 }
 
@@ -203,7 +215,7 @@ function drawCardsIntoHand(s, playerIndex, count) {
 // --- PLAY_CARD ---
 
 function applyPlayCard(state, action) {
-  const { playerIndex, cardId, chosenColor } = action;
+  const { playerIndex, cardId, chosenColor, chosenTargetIndex, chosenTargetId } = action;
   if (playerIndex !== state.currentPlayerIndex) {
     return state;
   }
@@ -219,10 +231,21 @@ function applyPlayCard(state, action) {
 
   if (!canPlayCard(card, top)) return state;
 
-  const isWildType = card.color === 'wild'; // wild o +4
+  const isWildType = card.color === 'wild'; // wild, +4, swap, discard_all, skip_all, +6, +8
   if (isWildType && !chosenColor) {
     // si es comodín, necesitamos color elegido
     return state;
+  }
+
+  if (card.value === 'swap') {
+    const resolvedTargetIdx =
+      chosenTargetId != null
+        ? s.players.findIndex((p) => String(p.id) === String(chosenTargetId))
+        : Number.isInteger(chosenTargetIndex)
+          ? chosenTargetIndex
+          : -1;
+    if (resolvedTargetIdx < 0 || resolvedTargetIdx >= s.players.length) return state;
+    if (resolvedTargetIdx === playerIndex) return state;
   }
 
   // carta que va a la pila de descarte (comodines cambian el color visible)
@@ -245,17 +268,10 @@ function applyPlayCard(state, action) {
     card: cardForDiscard,
   };
 
-  // ¿ha ganado?
-  if (player.hand.length === 0) {
-    s.lastAction = baseLastAction;
-    s.status = 'finished';
-    s.winnerIndex = playerIndex;
-    return s;
-  }
-
   // Efectos especiales según valor
   let rebuiltDeck = false;
   let forcedDraw = null;
+  let swapTargetIndex = null;
 
   if (card.value === '+2') {
     const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
@@ -274,11 +290,87 @@ function applyPlayCard(state, action) {
     if (res.rebuiltDeck) rebuiltDeck = true;
     if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
     s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+  } else if (card.value === '+6') {
+    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
+    const res = drawCardsIntoHand(s, victimIndex, 6);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
+    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+  } else if (card.value === '+8') {
+    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
+    const res = drawCardsIntoHand(s, victimIndex, 8);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
+    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
   } else if (card.value === 'wild') {
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+  } else if (card.value === 'skip_all') {
+    s.currentPlayerIndex = playerIndex;
+  } else if (card.value === 'double') {
+    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
+    s.doublePlay = { playerIndex: victimIndex, remaining: 1 };
+    s.currentPlayerIndex = victimIndex;
+  } else if (card.value === 'discard_all') {
+    const toDiscard = player.hand.filter((c) => c.color === chosenColor);
+    player.hand = player.hand.filter((c) => c.color !== chosenColor);
+    s.discardPile.push(...toDiscard);
+    if (player.hand.length !== 1) player.hasCalledUno = false;
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+  } else if (card.value === 'swap') {
+    const resolvedTargetIdx =
+      chosenTargetId != null
+        ? s.players.findIndex((p) => String(p.id) === String(chosenTargetId))
+        : Number.isInteger(chosenTargetIndex)
+          ? chosenTargetIndex
+          : -1;
+    if (resolvedTargetIdx < 0 || resolvedTargetIdx >= s.players.length) return state;
+    if (resolvedTargetIdx === playerIndex) return state;
+
+    swapTargetIndex = resolvedTargetIdx;
+
+    const target = s.players[resolvedTargetIdx];
+    const tmp = player.hand;
+    player.hand = target.hand;
+    target.hand = tmp;
+
+    if (player.hand.length !== 1) player.hasCalledUno = false;
+    if (target.hand.length !== 1) target.hasCalledUno = false;
+
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else {
     // carta normal
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+  }
+
+  // Consumir jugada extra (la carta "double" concede la extra para la siguiente acción)
+  // doublePlay se resuelve más abajo.
+
+  // ¿ha ganado? (después de efectos como swap/discard_all)
+  if (swapTargetIndex != null && swapTargetIndex >= 0) {
+    const target = s.players[swapTargetIndex];
+    if (target?.hand?.length === 0) {
+      s.lastAction = baseLastAction;
+      s.status = 'finished';
+      s.winnerIndex = swapTargetIndex;
+      return s;
+    }
+  }
+
+  if (player.hand.length === 0) {
+    s.lastAction = baseLastAction;
+    s.status = 'finished';
+    s.winnerIndex = playerIndex;
+    return s;
+  }
+
+  // Doble jugada (solo afecta al jugador marcado)
+  if (s.doublePlay && s.doublePlay.playerIndex === playerIndex) {
+    if ((s.doublePlay.remaining ?? 0) > 0) {
+      s.doublePlay.remaining -= 1; // de 1 -> 0 (queda 1 jugada extra pendiente)
+      s.currentPlayerIndex = playerIndex;
+    } else {
+      s.doublePlay = null;
+    }
   }
 
   s.lastAction = {
@@ -344,6 +436,13 @@ function applyPassTurn(state, action) {
   }
 
   const s = cloneState(state);
+  const canPassExtra =
+    !!s.doublePlay &&
+    s.doublePlay.playerIndex === playerIndex &&
+    (s.doublePlay.remaining ?? null) === 0;
+  if (!canPassExtra) return state;
+
+  s.doublePlay = null;
   s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   s.lastAction = {
     type: ACTION_TYPES.PASS_TURN,
@@ -371,7 +470,7 @@ export function getTurnInfo(state) {
     playerIndex,
     player,
     playableCards,
-    canDraw: state.drawPile.length > 0,
+    canDraw: state.drawPile.length > 0 || state.discardPile.length > 1,
     mustCallUno: player.hand.length === 1 && !player.hasCalledUno,
   };
 }

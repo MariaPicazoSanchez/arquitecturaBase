@@ -42,6 +42,7 @@ export default function UnoGame() {
 
   const [pendingWild, setPendingWild] = useState(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showTargetPicker, setShowTargetPicker] = useState(false);
   const [isRebuildingDeck, setIsRebuildingDeck] = useState(false);
   const rebuildDeckTimerRef = useRef(null);
   const [isReloadingDeck, setIsReloadingDeck] = useState(false);
@@ -352,12 +353,24 @@ export default function UnoGame() {
         ? '+2'
         : card.value === '+4'
           ? '+4'
+          : card.value === '+6'
+            ? '+6'
+            : card.value === '+8'
+              ? '+8'
           : card.value === 'skip'
             ? 'SKIP'
             : card.value === 'reverse'
               ? 'REVERSE'
               : card.value === 'wild'
                 ? 'WILD'
+                : card.value === 'swap'
+                  ? 'SWAP'
+                  : card.value === 'discard_all'
+                    ? 'DISCARD_ALL'
+                    : card.value === 'skip_all'
+                      ? 'SKIP_ALL'
+                      : card.value === 'double'
+                        ? 'DOUBLE'
                 : null;
 
     if (!type) return;
@@ -729,6 +742,7 @@ export default function UnoGame() {
       onRematchStart: () => {
         setPendingWild(null);
         setShowColorPicker(false);
+        setShowTargetPicker(false);
         setUnoDeadlinesByPlayerId({});
         setLostPlayerIds([]);
         setUnoCallPending(false);
@@ -1070,7 +1084,7 @@ export default function UnoGame() {
     suppressNextSfxRef.current = 'play';
 
     // comodines necesitan elegir color
-    if (card.value === 'wild' || card.value === '+4') {
+    if (card.color === 'wild') {
       const playable = getPlayableCards(engine, 0);
       if (!playable.some((c) => c.id === card.id)) {
         setGame((prev) => ({
@@ -1080,7 +1094,15 @@ export default function UnoGame() {
         }));
         return;
       }
-      setPendingWild({ cardId: card.id });
+      setPendingWild({ cardId: card.id, value: card.value });
+
+      if (card.value === 'swap') {
+        setShowTargetPicker(true);
+        setShowColorPicker(false);
+        return;
+      }
+
+      setShowTargetPicker(false);
       setShowColorPicker(true);
       return;
     }
@@ -1154,10 +1176,11 @@ export default function UnoGame() {
 
   const handleChooseWildColor = (color) => {
     if (!pendingWild) return;
-    const { cardId } = pendingWild;
+    const { cardId, chosenTargetId } = pendingWild;
 
     setPendingWild(null);
     setShowColorPicker(false);
+    setShowTargetPicker(false);
 
     if (isLocallyEliminated) return;
     if (!isMultiplayer && lastCardRequiredForPlayerId === player?.id) {
@@ -1176,6 +1199,7 @@ export default function UnoGame() {
         type: ACTION_TYPES.PLAY_CARD,
         cardId,
         chosenColor: color,
+        ...(chosenTargetId != null ? { chosenTargetId } : {}),
       });
       return;
     }
@@ -1193,6 +1217,7 @@ export default function UnoGame() {
         playerIndex: 0,
         cardId,
         chosenColor: color,
+        ...(chosenTargetId != null ? { chosenTargetId } : {}),
       });
 
       let newUiStatus = prev.uiStatus;
@@ -1221,6 +1246,20 @@ export default function UnoGame() {
         message,
       };
     });
+  };
+
+  const handleCancelPendingWild = () => {
+    setPendingWild(null);
+    setShowColorPicker(false);
+    setShowTargetPicker(false);
+  };
+
+  const handleChooseSwapTarget = (targetId) => {
+    if (!pendingWild) return;
+    if (pendingWild.value !== 'swap') return;
+    setPendingWild((prev) => ({ ...(prev || {}), chosenTargetId: targetId }));
+    setShowTargetPicker(false);
+    setShowColorPicker(true);
   };
 
   const handleDrawCard = () => {
@@ -1288,6 +1327,49 @@ export default function UnoGame() {
     });
   };
 
+  const handlePassTurn = () => {
+    if (!engine || !player) return;
+    if (!isPlaying || !isHumanTurn) return;
+    if (isLocallyEliminated) return;
+    if (!isMultiplayer && lastCardRequiredForPlayerId === player.id) {
+      setGame((prev) => ({
+        ...prev,
+        message: 'Debes pulsar ÇsLTIMA CARTA antes de pasar.',
+      }));
+      return;
+    }
+
+    const hasExtra =
+      !!engine.doublePlay &&
+      engine.doublePlay.playerIndex === engine.currentPlayerIndex &&
+      (engine.doublePlay.remaining ?? null) === 0;
+    if (!hasExtra) return;
+
+    unlockSfx();
+
+    if (isMultiplayer) {
+      sendMultiplayerAction({ type: ACTION_TYPES.PASS_TURN });
+      return;
+    }
+
+    setGame((prev) => {
+      const { engine, uiStatus } = prev;
+      if (uiStatus !== 'playing') return prev;
+      if (engine.currentPlayerIndex !== 0) return prev;
+
+      const newEngine = applyAction(engine, {
+        type: ACTION_TYPES.PASS_TURN,
+        playerIndex: 0,
+      });
+
+      let message = '';
+      if (newEngine.currentPlayerIndex === 0) message = 'Te toca de nuevo.';
+      else message = 'Turno del bot...';
+
+      return { ...prev, engine: newEngine, message };
+    });
+  };
+
   const handleReloadDeck = () => {
     if (!isMultiplayer) return;
     if (!engine) return;
@@ -1321,6 +1403,7 @@ export default function UnoGame() {
 
     setPendingWild(null);
     setShowColorPicker(false);
+    setShowTargetPicker(false);
 
     setLastCardRequiredForPlayerId(null);
     setLastCardCalledByPlayerId(null);
@@ -1382,11 +1465,10 @@ export default function UnoGame() {
 
         if (playable.length > 0) {
           const cardToPlay = playable[0];
-
-          const wildExtra =
-            cardToPlay.value === 'wild' || cardToPlay.value === '+4'
-              ? { chosenColor: chooseBotColor(newEngine) }
-              : {};
+          const wildExtra = cardToPlay.color === 'wild' ? { chosenColor: chooseBotColor(newEngine) } : {};
+          if (cardToPlay.value === 'swap') {
+            wildExtra.chosenTargetIndex = 0;
+          }
 
           newEngine = applyAction(newEngine, {
             type: ACTION_TYPES.PLAY_CARD,
@@ -1395,8 +1477,16 @@ export default function UnoGame() {
             ...wildExtra,
           });
         } else {
-          const nextIndex = getNextPlayerIndex(newEngine, 1, 1);
-          newEngine = { ...newEngine, currentPlayerIndex: nextIndex };
+          const canPassExtra =
+            !!newEngine.doublePlay &&
+            newEngine.doublePlay.playerIndex === 1 &&
+            (newEngine.doublePlay.remaining ?? null) === 0;
+          if (canPassExtra) {
+            newEngine = applyAction(newEngine, { type: ACTION_TYPES.PASS_TURN, playerIndex: 1 });
+          } else {
+            const nextIndex = getNextPlayerIndex(newEngine, 1, 1);
+            newEngine = { ...newEngine, currentPlayerIndex: nextIndex };
+          }
           message = 'El bot no puede jugar. Tu turno.';
         }
 
@@ -1470,6 +1560,21 @@ export default function UnoGame() {
     isHumanTurn &&
     engine.drawPile.length === 0 &&
     (engine.discardPile?.length ?? 0) > 1;
+
+  const canPassExtra =
+    isPlaying &&
+    isHumanTurn &&
+    !!engine.doublePlay &&
+    engine.doublePlay.playerIndex === engine.currentPlayerIndex &&
+    (engine.doublePlay.remaining ?? null) === 0;
+
+  const doublePlayHint =
+    isPlaying &&
+    isHumanTurn &&
+    !!engine.doublePlay &&
+    engine.doublePlay.playerIndex === engine.currentPlayerIndex
+      ? 'Doble jugada: te queda 1 jugada extra.'
+      : null;
 
   const isUnoBlockingForMe =
     !isMultiplayer &&
@@ -1600,6 +1705,16 @@ export default function UnoGame() {
               {isReloadingDeck ? 'Recargando...' : 'Recargar mazo'}
             </button>
           )}
+          {canPassExtra && (
+            <button
+              type="button"
+              className="uno-reload-button"
+              onClick={handlePassTurn}
+              title="Pasar jugada extra"
+            >
+              Pasar
+            </button>
+          )}
         </div>
         <p className="uno-lastaction">{lastActionText}</p>
 
@@ -1616,6 +1731,8 @@ export default function UnoGame() {
             {activePublic ? `${activePublic.nick} (${activePublic.handCount})` : '—'}
           </span>
         </div>
+
+        {doublePlayHint && <p className="uno-lastaction">{doublePlayHint}</p>}
 
         {orderedByPlay.length > 1 && (
           <div className="uno-turn-order" aria-label="Orden de juego">
@@ -1776,6 +1893,41 @@ export default function UnoGame() {
         </h2>
 
         {/* Selector de color para comodín */}
+        {showTargetPicker && pendingWild?.value === 'swap' && isPlaying && (
+          <div className="uno-wild-picker">
+            <p>Elige rival para SWAP:</p>
+            <div className="uno-wild-picker-buttons">
+              {(engine.players || [])
+                .filter((_, idx) => idx !== 0)
+                .map((p) => {
+                  const handCount =
+                    typeof p?.handCount === 'number'
+                      ? p.handCount
+                      : Array.isArray(p?.hand)
+                        ? p.hand.length
+                        : 0;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="uno-reload-button"
+                      onClick={() => handleChooseSwapTarget(p.id)}
+                    >
+                      {(p?.name ?? 'Jugador') + ` (${handCount})`}
+                    </button>
+                  );
+                })}
+              <button
+                type="button"
+                className="uno-reload-button"
+                onClick={handleCancelPendingWild}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
         {showColorPicker && pendingWild && isPlaying && (
           <div className="uno-wild-picker">
             <p>Elige color para el comodín:</p>

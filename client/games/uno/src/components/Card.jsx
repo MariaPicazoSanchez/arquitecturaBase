@@ -15,12 +15,23 @@ export default function Card({
   isPlayable = false,
   isLastPlayed = false,
 }) {
-  const isWildType = card.value === 'wild' || card.value === '+4';
+  const isWildType =
+    card.value === 'wild' ||
+    card.value === '+4' ||
+    card.value === 'swap' ||
+    card.value === 'discard_all' ||
+    card.value === 'skip_all' ||
+    card.value === '+6' ||
+    card.value === '+8';
 
   let displayValue = card.value;
-  if (card.value === 'skip') displayValue = '⏭';
-  else if (card.value === 'reverse') displayValue = '↺';
+  if (card.value === 'skip') displayValue = '';
+  else if (card.value === 'reverse') displayValue = '↻';
   else if (card.value === 'wild') displayValue = '★';
+  else if (card.value === 'double') displayValue = '×2';
+  else if (card.value === 'swap') displayValue = '⇄';
+  else if (card.value === 'discard_all') displayValue = '✖';
+  else if (card.value === 'skip_all') displayValue = '⦸';
 
   const classes = [
     'uno-card',
@@ -33,20 +44,17 @@ export default function Card({
     .filter(Boolean)
     .join(' ');
 
-  // Caso 1: carta normal o comodín ya con color elegido
   const baseColor = COLOR_MAP[card.color];
 
   let innerStyle;
 
   if (isWildType) {
     if (card.color === 'wild') {
-      // Comodín en la mano (sin color decidido): multicolor
       innerStyle = {
         background:
           'conic-gradient(from 45deg, #ef4444, #facc15, #22c55e, #3b82f6, #ef4444)',
       };
     } else {
-      // Comodín ya jugado: usa el color elegido
       innerStyle = {
         background:
           `radial-gradient(circle at 30% 20%, rgba(248,250,252,0.55), transparent 55%),` +
@@ -55,7 +63,6 @@ export default function Card({
       };
     }
   } else {
-    // Carta normal de color
     innerStyle = {
       background:
         `radial-gradient(circle at 30% 20%, rgba(248,250,252,0.55), transparent 55%),` +
@@ -65,10 +72,7 @@ export default function Card({
   }
 
   return (
-    <div
-      className={classes}
-      onClick={disabled ? undefined : onClick}
-    >
+    <div className={classes} onClick={disabled ? undefined : onClick}>
       <div className="uno-card__inner" style={innerStyle}>
         <div className="uno-card__corner uno-card__corner--tl">
           {displayValue}
@@ -83,3 +87,4 @@ export default function Card({
     </div>
   );
 }
+

@@ -89,20 +89,39 @@ function ServidorWS() {
       if (playable.length > 0) {
         const card = playable[0];
         const needsColor = card.color === "wild";
+        const needsTarget = card.value === "swap";
+        const chosenTargetId = needsTarget
+          ? (() => {
+              const candidates = (updated.players || []).map((p, idx) => ({
+                idx,
+                id: p?.id ?? null,
+                handCount: p?.hand?.length ?? 0,
+              }));
+              const others = candidates.filter((c) => c.idx !== 1 && c.id != null);
+              if (others.length === 0) return null;
+              const best = others.reduce((acc, cur) => (cur.handCount < acc.handCount ? cur : acc));
+              return best.id;
+            })()
+          : null;
         updated = applyAction(updated, {
           type: ACTION_TYPES.PLAY_CARD,
           playerIndex: 1,
           cardId: card.id,
           ...(needsColor ? { chosenColor: chooseBotColor(updated, 1) } : {}),
+          ...(chosenTargetId != null ? { chosenTargetId } : {}),
         });
         continue;
       }
 
-      // Sin jugadas posibles y sin mazo: pasar turno manualmente.
-      updated = {
-        ...updated,
-        currentPlayerIndex: getNextPlayerIndex(updated, 1, 1),
-      };
+      // Sin jugadas posibles y sin mazo: pasar turno (y consumir doublePlay si toca).
+      if (updated.doublePlay && updated.doublePlay.playerIndex === 1 && updated.doublePlay.remaining === 0) {
+        updated = applyAction(updated, { type: ACTION_TYPES.PASS_TURN, playerIndex: 1 });
+      } else {
+        updated = {
+          ...updated,
+          currentPlayerIndex: getNextPlayerIndex(updated, 1, 1),
+        };
+      }
     }
 
     return updated;
@@ -112,9 +131,15 @@ function ServidorWS() {
     if (!card) return null;
     if (card.value === "+2") return { type: "+2", value: 2, byPlayerId };
     if (card.value === "+4") return { type: "+4", value: 4, color: card.color, byPlayerId };
+    if (card.value === "+6") return { type: "+6", value: 6, color: card.color, byPlayerId };
+    if (card.value === "+8") return { type: "+8", value: 8, color: card.color, byPlayerId };
     if (card.value === "skip") return { type: "SKIP", byPlayerId };
+    if (card.value === "skip_all") return { type: "SKIP_ALL", color: card.color, byPlayerId };
     if (card.value === "reverse") return { type: "REVERSE", byPlayerId };
     if (card.value === "wild") return { type: "WILD", color: card.color, byPlayerId };
+    if (card.value === "swap") return { type: "SWAP", color: card.color, byPlayerId };
+    if (card.value === "discard_all") return { type: "DISCARD_ALL", color: card.color, byPlayerId };
+    if (card.value === "double") return { type: "DOUBLE", byPlayerId };
     return null;
   };
 
@@ -146,11 +171,26 @@ function ServidorWS() {
       if (playable.length > 0) {
         const card = playable[0];
         const needsColor = card.color === "wild";
+        const needsTarget = card.value === "swap";
+        const chosenTargetId = needsTarget
+          ? (() => {
+              const candidates = (updated.players || []).map((p, idx) => ({
+                idx,
+                id: p?.id ?? null,
+                handCount: p?.hand?.length ?? 0,
+              }));
+              const others = candidates.filter((c) => c.idx !== 1 && c.id != null);
+              if (others.length === 0) return null;
+              const best = others.reduce((acc, cur) => (cur.handCount < acc.handCount ? cur : acc));
+              return best.id;
+            })()
+          : null;
         updated = applyAction(updated, {
           type: ACTION_TYPES.PLAY_CARD,
           playerIndex: 1,
           cardId: card.id,
           ...(needsColor ? { chosenColor: chooseBotColor(updated, 1) } : {}),
+          ...(chosenTargetId != null ? { chosenTargetId } : {}),
         });
         const byPlayerId = updated.players?.[1]?.id ?? 1;
         const effect = deriveActionEffectFromCard(updated.lastAction?.card, byPlayerId);
@@ -158,11 +198,15 @@ function ServidorWS() {
         continue;
       }
 
-      // Sin jugadas posibles y sin mazo: pasar turno manualmente.
-      updated = {
-        ...updated,
-        currentPlayerIndex: getNextPlayerIndex(updated, 1, 1),
-      };
+      // Sin jugadas posibles y sin mazo: pasar turno (y consumir doublePlay si toca).
+      if (updated.doublePlay && updated.doublePlay.playerIndex === 1 && updated.doublePlay.remaining === 0) {
+        updated = applyAction(updated, { type: ACTION_TYPES.PASS_TURN, playerIndex: 1 });
+      } else {
+        updated = {
+          ...updated,
+          currentPlayerIndex: getNextPlayerIndex(updated, 1, 1),
+        };
+      }
     }
 
     return { engine: updated, effects };
@@ -188,6 +232,9 @@ function ServidorWS() {
       winnerIndex: rotateIndex(engine.winnerIndex),
       lastAction: engine.lastAction
         ? { ...engine.lastAction, playerIndex: rotateIndex(engine.lastAction.playerIndex) }
+        : null,
+      doublePlay: engine.doublePlay
+        ? { ...engine.doublePlay, playerIndex: rotateIndex(engine.doublePlay.playerIndex) }
         : null,
     };
   };
@@ -1205,6 +1252,15 @@ function ServidorWS() {
             await emitirEstadoUNO(io, codigo, datosUNO);
           }
           return;
+        }
+
+        if (action.type === ACTION_TYPES.PASS_TURN) {
+          const doublePlay = datosUNO.engine?.doublePlay ?? null;
+          const allowed =
+            !!doublePlay &&
+            doublePlay.playerIndex === playerIndex &&
+            (doublePlay.remaining ?? null) === 0;
+          if (!allowed) return;
         }
 
         const fullAction = { ...action, playerIndex };
