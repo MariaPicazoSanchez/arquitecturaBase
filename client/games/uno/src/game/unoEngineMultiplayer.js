@@ -5,7 +5,6 @@ import { rebuildDeckIfNeeded, shuffle } from './deckUtils';
 export const COLORS = ['red', 'green', 'blue', 'yellow'];
 export const VALUES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
-// Especiales con color
 const SPECIAL_COLOR_COUNTS = {
   skip: 2,
   '+2': 2,
@@ -13,9 +12,8 @@ const SPECIAL_COLOR_COUNTS = {
   double: 1,
 };
 
-// Especiales sin color (comodines)
 const COLORLESS_COUNTS = {
-  wild: 4, // cambio de color
+  wild: 4,
   '+4': 4,
   swap: 2,
   discard_all: 2,
@@ -31,33 +29,30 @@ export const ACTION_TYPES = {
   PASS_TURN: 'PASS_TURN',
 };
 
-// ====== Utilidades de cartas/mazo ======
+const NEEDS_COLOR = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
 
 function createCard(color, value) {
   return {
     id: `${color}-${value}-${Math.random().toString(36).slice(2)}`,
-    color, // 'red' | 'green' | 'blue' | 'yellow' | 'wild'
-    value, // '0'-'9', 'skip', '+2', 'reverse', 'wild', '+4'
+    color,
+    value,
   };
 }
 
 function createDeck() {
   const deck = [];
 
-  // Cartas numéricas + especiales con color
   for (const color of COLORS) {
-    // números: 1x 0, 2x 1..9
     for (const v of VALUES) {
       deck.push(createCard(color, v));
       if (v !== '0') deck.push(createCard(color, v));
     }
-    // especiales de color (con distintas cantidades)
+
     for (const [value, count] of Object.entries(SPECIAL_COLOR_COUNTS)) {
       for (let i = 0; i < count; i++) deck.push(createCard(color, value));
     }
   }
 
-  // Comodines sin color (con distintas cantidades)
   for (const [value, count] of Object.entries(COLORLESS_COUNTS)) {
     for (let i = 0; i < count; i++) deck.push(createCard('wild', value));
   }
@@ -69,9 +64,7 @@ function createDeck() {
 
 export function canPlayCard(card, topCard) {
   if (!card || !topCard) return false;
-  // comodines (wild y +4) siempre se pueden jugar
   if (card.color === 'wild') return true;
-  // resto: coincide color o valor
   return card.color === topCard.color || card.value === topCard.value;
 }
 
@@ -82,7 +75,7 @@ export function createInitialState({ numPlayers = 2, names = [] } = {}) {
     throw new Error('UNO necesita al menos 2 jugadores.');
   }
 
-  let deck = createDeck();
+  const deck = createDeck();
 
   const players = [];
   const CARDS_PER_PLAYER = 7;
@@ -97,22 +90,17 @@ export function createInitialState({ numPlayers = 2, names = [] } = {}) {
     });
   }
 
-  let drawPile = deck.slice(numPlayers * CARDS_PER_PLAYER);
+  const drawPile = deck.slice(numPlayers * CARDS_PER_PLAYER);
 
-  // Primera carta en mesa: intentamos que no sea comodín
   let firstCard = drawPile.shift();
   let safety = 0;
-  while (
-    firstCard.color === 'wild' &&
-    drawPile.length > 0 &&
-    safety < 10
-  ) {
+  while (firstCard?.color === 'wild' && drawPile.length > 0 && safety < 10) {
     drawPile.push(firstCard);
     firstCard = drawPile.shift();
     safety++;
   }
 
-  const discardPile = [firstCard];
+  const discardPile = firstCard ? [firstCard] : [];
 
   return {
     players,
@@ -141,7 +129,7 @@ function cloneState(state) {
     discardPile: [...state.discardPile],
     lastAction: state.lastAction ? { ...state.lastAction } : null,
     doublePlay: state.doublePlay ? { ...state.doublePlay } : null,
-    penaltyDrawCount: state.penaltyDrawCount,
+    penaltyDrawCount: state.penaltyDrawCount ?? 0,
   };
 }
 
@@ -156,27 +144,6 @@ export function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, 
     idx = (idx + state.direction + n) % n;
   }
   return idx;
-}
-
-// ====== Acciones ======
-
-export function applyAction(state, action) {
-  if (state.status !== 'playing') {
-    return state;
-  }
-
-  switch (action.type) {
-    case ACTION_TYPES.PLAY_CARD:
-      return applyPlayCard(state, action);
-    case ACTION_TYPES.DRAW_CARD:
-      return applyDrawCard(state, action);
-    case ACTION_TYPES.CALL_UNO:
-      return applyCallUno(state, action);
-    case ACTION_TYPES.PASS_TURN:
-      return applyPassTurn(state, action);
-    default:
-      throw new Error(`Acción desconocida: ${action.type}`);
-  }
 }
 
 function drawOneFromPile(s) {
@@ -214,13 +181,37 @@ function drawCardsIntoHand(s, playerIndex, count) {
   return { drawnCount, rebuiltDeck };
 }
 
-// --- PLAY_CARD ---
+function applyForcedDraw(s, playerIndex, count) {
+  const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
+  const res = drawCardsIntoHand(s, victimIndex, count);
+  s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+  return { victimIndex, ...res };
+}
+
+// ====== Acciones ======
+
+export function applyAction(state, action) {
+  if (state.status !== 'playing') {
+    return state;
+  }
+
+  switch (action.type) {
+    case ACTION_TYPES.PLAY_CARD:
+      return applyPlayCard(state, action);
+    case ACTION_TYPES.DRAW_CARD:
+      return applyDrawCard(state, action);
+    case ACTION_TYPES.CALL_UNO:
+      return applyCallUno(state, action);
+    case ACTION_TYPES.PASS_TURN:
+      return applyPassTurn(state, action);
+    default:
+      throw new Error(`Acción desconocida: ${action.type}`);
+  }
+}
 
 function applyPlayCard(state, action) {
   const { playerIndex, cardId, chosenColor, chosenTargetIndex, chosenTargetId } = action;
-  if (playerIndex !== state.currentPlayerIndex) {
-    return state;
-  }
+  if (playerIndex !== state.currentPlayerIndex) return state;
 
   const s = cloneState(state);
   const player = s.players[playerIndex];
@@ -230,13 +221,14 @@ function applyPlayCard(state, action) {
   if (cardIdx === -1) return state;
 
   const card = player.hand[cardIdx];
-
   if (!canPlayCard(card, top)) return state;
 
-  const isWildType = card.color === 'wild'; // wild, +4, swap, discard_all, skip_all, +6, +8
-  if (isWildType && !chosenColor) {
-    // si es comodín, necesitamos color elegido
-    return state;
+  const needsColor = NEEDS_COLOR.has(card.value);
+  if (needsColor && !chosenColor) return state;
+
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.log('[UNO] played', { value: card.value, color: card.color, chosenColor });
   }
 
   if (card.value === 'swap') {
@@ -250,16 +242,11 @@ function applyPlayCard(state, action) {
     if (resolvedTargetIdx === playerIndex) return state;
   }
 
-  // carta que va a la pila de descarte (comodines cambian el color visible)
-  const cardForDiscard = isWildType
-    ? { ...card, color: chosenColor }
-    : card;
+  const cardForDiscard = needsColor ? { ...card, color: chosenColor } : card;
 
-  // quitar de la mano y descartar
   player.hand.splice(cardIdx, 1);
   s.discardPile.push(cardForDiscard);
 
-  // reset de UNO si ya no tiene 1 carta
   if (player.hand.length !== 1) {
     player.hasCalledUno = false;
   }
@@ -270,39 +257,39 @@ function applyPlayCard(state, action) {
     card: cardForDiscard,
   };
 
-  // Efectos especiales según valor
   let rebuiltDeck = false;
   let forcedDraw = null;
   let swapTargetIndex = null;
 
   if (card.value === '+2') {
-    s.penaltyDrawCount += 2;
-    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+    const res = applyForcedDraw(s, playerIndex, 2);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex: res.victimIndex, count: res.drawnCount };
   } else if (card.value === 'skip') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 2);
   } else if (card.value === 'reverse') {
     s.direction = -s.direction;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+4') {
-    s.penaltyDrawCount += 4;
-    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+    const res = applyForcedDraw(s, playerIndex, 4);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex: res.victimIndex, count: res.drawnCount };
   } else if (card.value === '+6') {
-    s.penaltyDrawCount += 6;
-    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+    const res = applyForcedDraw(s, playerIndex, 6);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex: res.victimIndex, count: res.drawnCount };
   } else if (card.value === '+8') {
-    s.penaltyDrawCount += 8;
-    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+    const res = applyForcedDraw(s, playerIndex, 8);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex: res.victimIndex, count: res.drawnCount };
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip_all') {
     s.currentPlayerIndex = playerIndex;
   } else if (card.value === 'double') {
-    if (s.penaltyDrawCount > 0) {
-      s.penaltyDrawCount *= 2;
-    } else {
-      s.penaltyDrawCount = 2;
-    }
-    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
+    s.doublePlay = { playerIndex: victimIndex, remaining: 1 };
+    s.currentPlayerIndex = victimIndex;
   } else if (card.value === 'discard_all') {
     const toDiscard = player.hand.filter((c) => c.color === chosenColor);
     player.hand = player.hand.filter((c) => c.color !== chosenColor);
@@ -320,7 +307,6 @@ function applyPlayCard(state, action) {
     if (resolvedTargetIdx === playerIndex) return state;
 
     swapTargetIndex = resolvedTargetIdx;
-
     const target = s.players[resolvedTargetIdx];
     const tmp = player.hand;
     player.hand = target.hand;
@@ -331,14 +317,9 @@ function applyPlayCard(state, action) {
 
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else {
-    // carta normal
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   }
 
-  // Consumir jugada extra (la carta "double" concede la extra para la siguiente acción)
-  // doublePlay se resuelve más abajo.
-
-  // ¿ha ganado? (después de efectos como swap/discard_all)
   if (swapTargetIndex != null && swapTargetIndex >= 0) {
     const target = s.players[swapTargetIndex];
     if (target?.hand?.length === 0) {
@@ -356,10 +337,9 @@ function applyPlayCard(state, action) {
     return s;
   }
 
-  // Doble jugada (solo afecta al jugador marcado)
   if (s.doublePlay && s.doublePlay.playerIndex === playerIndex) {
     if ((s.doublePlay.remaining ?? 0) > 0) {
-      s.doublePlay.remaining -= 1; // de 1 -> 0 (queda 1 jugada extra pendiente)
+      s.doublePlay.remaining -= 1;
       s.currentPlayerIndex = playerIndex;
     } else {
       s.doublePlay = null;
@@ -375,8 +355,6 @@ function applyPlayCard(state, action) {
   return s;
 }
 
-// --- DRAW_CARD ---
-
 function applyDrawCard(state, action) {
   const { playerIndex } = action;
   if (playerIndex !== state.currentPlayerIndex) {
@@ -391,25 +369,23 @@ function applyDrawCard(state, action) {
   let rebuiltDeck = false;
   for (let i = 0; i < drawCount; i++) {
     const res = drawOneFromPile(s);
-    if (res.card) {
-      player.hand.push(res.card);
-      drawnCards.push(res.card);
-    }
+    if (!res.card) break;
     if (res.rebuiltDeck) rebuiltDeck = true;
+    player.hand.push(res.card);
+    drawnCards.push(res.card);
   }
   s.penaltyDrawCount = 0;
 
   s.lastAction = {
     type: ACTION_TYPES.DRAW_CARD,
     playerIndex,
+    card: drawnCards[0] ?? null,
     cards: drawnCards,
     ...(rebuiltDeck ? { rebuiltDeck: true } : null),
   };
 
   return s;
 }
-
-// --- CALL_UNO ---
 
 function applyCallUno(state, action) {
   const { playerIndex } = action;
@@ -427,8 +403,6 @@ function applyCallUno(state, action) {
 
   return s;
 }
-
-// --- PASS_TURN ---
 
 function applyPassTurn(state, action) {
   const { playerIndex } = action;
@@ -459,15 +433,7 @@ export function getPlayableCards(state, playerIndex) {
   if (playerIndex !== state.currentPlayerIndex) return [];
   const player = state.players[playerIndex];
   const top = getTopCard(state);
-  const basePlayable = player.hand.filter((c) => canPlayCard(c, top));
-  // Si hay penalty, permitir double
-  if (state.penaltyDrawCount > 0) {
-    const doubleCard = player.hand.find((c) => c.value === 'double');
-    if (doubleCard && !basePlayable.some((c) => c.id === doubleCard.id)) {
-      basePlayable.push(doubleCard);
-    }
-  }
-  return basePlayable;
+  return player.hand.filter((c) => canPlayCard(c, top));
 }
 
 export function getTurnInfo(state) {

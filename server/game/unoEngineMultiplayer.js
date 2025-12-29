@@ -29,6 +29,8 @@ const ACTION_TYPES = {
   PASS_TURN: 'PASS_TURN',
 };
 
+const NEEDS_COLOR = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
+
 // ====== Utilidades de cartas/mazo ======
 
 function createCard(color, value) {
@@ -190,6 +192,22 @@ function drawOneCard(state) {
   return { card, refilled: refillRes.ok, movedCount: refillRes.movedCount };
 }
 
+function drawCardsIntoHand(state, playerIndex, count) {
+  const player = state.players[playerIndex];
+  let drawnCount = 0;
+  let refilled = false;
+
+  for (let i = 0; i < count; i++) {
+    const res = drawOneCard(state);
+    if (!res.card) break;
+    if (res.refilled) refilled = true;
+    player.hand.push(res.card);
+    drawnCount++;
+  }
+
+  return { drawnCount, refilled };
+}
+
 function getTopCard(state) {
   return state.discardPile[state.discardPile.length - 1] ?? null;
 }
@@ -201,6 +219,13 @@ function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, steps =
     idx = (idx + state.direction + n) % n;
   }
   return idx;
+}
+
+function applyForcedDraw(state, playerIndex, count) {
+  const victimIndex = getNextPlayerIndex(state, playerIndex, 1);
+  const res = drawCardsIntoHand(state, victimIndex, count);
+  state.currentPlayerIndex = getNextPlayerIndex(state, victimIndex, 1);
+  return { victimIndex, ...res };
 }
 
 function resolveTargetIndex(state, { chosenTargetId, chosenTargetIndex }) {
@@ -251,8 +276,12 @@ function applyPlayCard(state, action) {
   const card = player.hand[cardIdx];
   if (!canPlayCard(card, top)) return state;
 
-  const isWildType = card.color === 'wild';
-  if (isWildType && !chosenColor) return state;
+  const needsColor = NEEDS_COLOR.has(card.value);
+  if (needsColor && !chosenColor) return state;
+
+  if (process.env.UNO_DEBUG_PLAYED === '1') {
+    console.log('[UNO] played', { value: card.value, color: card.color, chosenColor });
+  }
 
   if (card.value === 'swap') {
     const targetIndex = resolveTargetIndex(s, action);
@@ -260,7 +289,7 @@ function applyPlayCard(state, action) {
     if (targetIndex === playerIndex) return state;
   }
 
-  const cardForDiscard = isWildType ? { ...card, color: chosenColor } : card;
+  const cardForDiscard = needsColor ? { ...card, color: chosenColor } : card;
 
   player.hand.splice(cardIdx, 1);
   s.discardPile.push(cardForDiscard);
@@ -278,8 +307,7 @@ function applyPlayCard(state, action) {
   let swapTargetIndex = null;
 
   if (card.value === '+2') {
-    s.penaltyDrawCount += 2;
-    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+    applyForcedDraw(s, playerIndex, 2);
   } else if (card.value === 'skip') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 2);
   } else if (card.value === 'reverse') {
@@ -287,20 +315,15 @@ function applyPlayCard(state, action) {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+4' || card.value === '+6' || card.value === '+8') {
     const drawCount = card.value === '+4' ? 4 : card.value === '+6' ? 6 : 8;
-    s.penaltyDrawCount += drawCount;
-    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+    applyForcedDraw(s, playerIndex, drawCount);
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip_all') {
     s.currentPlayerIndex = playerIndex;
   } else if (card.value === 'double') {
-    if (s.penaltyDrawCount > 0) {
-      s.penaltyDrawCount *= 2;
-    } else {
-      s.penaltyDrawCount += 2;
-    }
-    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
-  } else if (card.value === 'discard_all') {
+    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
+    s.doublePlay = { playerIndex: victimIndex, remaining: 1 };
+    s.currentPlayerIndex = victimIndex;
   } else if (card.value === 'discard_all') {
     const toDiscard = player.hand.filter((c) => c.color === chosenColor);
     player.hand = player.hand.filter((c) => c.color !== chosenColor);
@@ -385,7 +408,8 @@ function applyDrawCard(state, action) {
   s.lastAction = {
     type: ACTION_TYPES.DRAW_CARD,
     playerIndex,
-    cards: drawnCards, // cambiar a cards para múltiples
+    card: drawnCards[0] ?? null,
+    cards: drawnCards, // mantener compatibilidad (single + multiple)
   };
 
   return s;
