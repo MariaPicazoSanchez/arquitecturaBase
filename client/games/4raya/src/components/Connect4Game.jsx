@@ -1,6 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createConnect4Socket } from '../network/connect4Socket';
 import GameResultModal from './GameResultModal.jsx';
+import {
+  initSfxFromStorage,
+  unlockSfx,
+  isMuted as isSfxMuted,
+  setMuted as setSfxMuted,
+  sfxDrop,
+  sfxWin,
+  sfxLose,
+} from '../sfx';
 
 function normalizeId(value) {
   return String(value || '')
@@ -54,30 +63,26 @@ export default function Connect4Game() {
   const [rematch, setRematch] = useState(null);
   const apiRef = useRef(null);
 
-  const dropAudioRef = useRef(null);
   const lastMoveKeyRef = useRef(null);
+  const dropTimerRef = useRef(null);
+  const endSoundKeyRef = useRef(null);
+  const [isMuted, setIsMuted] = useState(() => {
+    initSfxFromStorage();
+    return isSfxMuted();
+  });
+  const [droppingMove, setDroppingMove] = useState(null);
+  const [isDropping, setIsDropping] = useState(false);
 
-  useEffect(() => {
-    const audio = new Audio(`${import.meta.env.BASE_URL}audio/discs_drop.mp3`);
-    audio.preload = 'auto';
-    audio.volume = 0.7;
-    dropAudioRef.current = audio;
-  }, []);
+  const handleUserGesture = () => {
+    void unlockSfx();
+  };
 
-  const unlockAudio = () => {
-    const audio = dropAudioRef.current;
-    if (!audio) return;
-    try {
-      const p = audio.play();
-      if (p && typeof p.then === 'function') {
-        p.then(() => {
-          audio.pause();
-          audio.currentTime = 0;
-        }).catch(() => {});
-      }
-    } catch {
-      // ignore
-    }
+  const handleToggleMute = (e) => {
+    e?.stopPropagation?.();
+    handleUserGesture();
+    const next = !isSfxMuted();
+    setSfxMuted(next);
+    setIsMuted(next);
   };
 
   const email = useMemo(() => resolveNickOrEmail(), []);
@@ -139,14 +144,16 @@ export default function Connect4Game() {
     if (!key || key === lastMoveKeyRef.current) return;
     lastMoveKeyRef.current = key;
 
-    const audio = dropAudioRef.current;
-    if (!audio) return;
-    try {
-      audio.currentTime = 0;
-      void audio.play();
-    } catch {
-      // ignore
-    }
+    setDroppingMove(move);
+    setIsDropping(true);
+    if (dropTimerRef.current) clearTimeout(dropTimerRef.current);
+    dropTimerRef.current = setTimeout(() => {
+      setIsDropping(false);
+      setDroppingMove(null);
+      dropTimerRef.current = null;
+    }, 420);
+
+    sfxDrop();
   }, [engine.lastMove]);
 
   useEffect(() => {
@@ -166,11 +173,27 @@ export default function Connect4Game() {
     setStatusText(isMyTurn ? 'Tu turno' : `Turno de ${turnName}`);
   }, [engine.status, engine.winnerIndex, engine.currentPlayerIndex, engine.players, myIndex, isMyTurn]);
 
+  useEffect(() => {
+    if (engine.status !== 'finished') {
+      endSoundKeyRef.current = null;
+      return;
+    }
+
+    const key = `${engine.status}-${engine.winnerIndex ?? 'tie'}-${myIndex ?? 'na'}`;
+    if (endSoundKeyRef.current === key) return;
+    endSoundKeyRef.current = key;
+
+    const didWin = myIndex != null && engine.winnerIndex != null && engine.winnerIndex === myIndex;
+    if (didWin) sfxWin();
+    else sfxLose(); // incluye empate
+  }, [engine.status, engine.winnerIndex, myIndex]);
+
   const handleColumnClick = (column) => {
-    unlockAudio();
+    handleUserGesture();
     const api = apiRef.current;
     if (!api || typeof api.sendAction !== 'function') return;
     if (!isMyTurn) return;
+    if (isDropping) return;
     api.sendAction({ type: 'PLACE_TOKEN', column });
   };
 
@@ -194,7 +217,7 @@ export default function Connect4Game() {
           : 'lost';
 
   return (
-    <div className="c4-game" onPointerDown={unlockAudio}>
+    <div className="c4-game" onPointerDown={handleUserGesture}>
       <div className="c4-status">
         <div className="c4-status-text">
           {statusText}
@@ -204,7 +227,18 @@ export default function Connect4Game() {
             </span>
           )}
         </div>
-        {codigoFromUrl && <div className="c4-status-code">Partida: {codigoFromUrl}</div>}
+        <div className="c4-status-right">
+          <button
+            type="button"
+            className={'c4-mute-toggle' + (isMuted ? ' c4-mute-toggle--muted' : '')}
+            onClick={handleToggleMute}
+            aria-label={isMuted ? 'Activar sonido' : 'Silenciar'}
+            title={isMuted ? 'Activar sonido' : 'Silenciar'}
+          >
+            {isMuted ? 'Unmute' : 'Mute'}
+          </button>
+          {codigoFromUrl && <div className="c4-status-code">Partida: {codigoFromUrl}</div>}
+        </div>
       </div>
 
       <div className="c4-board" role="grid" aria-label="Tablero 4 en raya">
@@ -215,7 +249,7 @@ export default function Connect4Game() {
               type="button"
               className="c4-colbtn"
               onClick={() => handleColumnClick(c)}
-              disabled={!isMyTurn || engine.status !== 'playing'}
+              disabled={!isMyTurn || engine.status !== 'playing' || isDropping}
               aria-label={`Soltar ficha en columna ${c + 1}`}
             >
               ▼
@@ -229,9 +263,17 @@ export default function Connect4Game() {
               {row.map((cell, c) => {
                 const cls =
                   cell === 0 ? 'c4-disc c4-disc--white' : cell === 1 ? 'c4-disc c4-disc--red' : 'c4-disc';
+                const isThisDropping =
+                  !!droppingMove &&
+                  droppingMove.row === r &&
+                  droppingMove.col === c &&
+                  droppingMove.playerIndex === cell;
                 return (
                   <div key={c} className="c4-cell" role="gridcell">
-                    <div className={cls} />
+                    <div
+                      className={cls + (isThisDropping ? ' c4-disc--dropping' : '')}
+                      style={isThisDropping ? { '--drop-rows': r + 1 } : undefined}
+                    />
                   </div>
                 );
               })}
