@@ -278,7 +278,7 @@ function applyPlayCard(state, action) {
   let swapTargetIndex = null;
 
   if (card.value === '+2') {
-    s.penaltyDrawCount = 2;
+    s.penaltyDrawCount += 2;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 2);
@@ -287,7 +287,7 @@ function applyPlayCard(state, action) {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+4' || card.value === '+6' || card.value === '+8') {
     const drawCount = card.value === '+4' ? 4 : card.value === '+6' ? 6 : 8;
-    s.penaltyDrawCount = drawCount;
+    s.penaltyDrawCount += drawCount;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
@@ -297,8 +297,7 @@ function applyPlayCard(state, action) {
     if (s.penaltyDrawCount > 0) {
       s.penaltyDrawCount *= 2;
     } else {
-      // Si no hay penalty, quizás no hace nada, o establece uno pequeño
-      s.penaltyDrawCount = 2; // o algo
+      s.penaltyDrawCount += 2;
     }
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'discard_all') {

@@ -276,24 +276,21 @@ function applyPlayCard(state, action) {
   let swapTargetIndex = null;
 
   if (card.value === '+2') {
-    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    const res = drawCardsIntoHand(s, victimIndex, 2);
-    if (res.rebuiltDeck) rebuiltDeck = true;
-    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
-    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+    s.penaltyDrawCount += 2;
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 2);
   } else if (card.value === 'reverse') {
     s.direction = -s.direction;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+4') {
-    s.penaltyDrawCount = 4;
+    s.penaltyDrawCount += 4;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+6') {
-    s.penaltyDrawCount = 6;
+    s.penaltyDrawCount += 6;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+8') {
-    s.penaltyDrawCount = 8;
+    s.penaltyDrawCount += 8;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
