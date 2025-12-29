@@ -95,6 +95,7 @@ function ServidorWS() {
         const next = applyAction(updated, {
           type: ACTION_TYPES.CALL_UNO,
           playerIndex: botIndex,
+          meta: { source: "BOT", reason: "autoUno" },
         });
         if (prevLastAction) next.lastAction = prevLastAction;
         updated = next;
@@ -159,6 +160,7 @@ function ServidorWS() {
         updated = applyAction(updated, {
           type: ACTION_TYPES.DRAW_CARD,
           playerIndex: 1,
+          meta: { source: "BOT", reason: "botLogic" },
         });
         if (io && codigo) {
           updated = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, updated);
@@ -189,6 +191,7 @@ function ServidorWS() {
           cardId: card.id,
           ...(needsColor ? { chosenColor: chooseBotColor(updated, 1) } : {}),
           ...(chosenTargetId != null ? { chosenTargetId } : {}),
+          meta: { source: "BOT", reason: "botLogic" },
         });
         if (io && codigo) {
           updated = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, updated);
@@ -201,7 +204,11 @@ function ServidorWS() {
 
       // Sin jugadas posibles y sin mazo: pasar turno (y consumir doublePlay si toca).
       if (updated.doublePlay && updated.doublePlay.playerIndex === 1 && updated.doublePlay.remaining === 0) {
-        updated = applyAction(updated, { type: ACTION_TYPES.PASS_TURN, playerIndex: 1 });
+        updated = applyAction(updated, {
+          type: ACTION_TYPES.PASS_TURN,
+          playerIndex: 1,
+          meta: { source: "BOT", reason: "botLogic" },
+        });
       } else {
         updated = {
           ...updated,
@@ -264,8 +271,9 @@ function ServidorWS() {
           return base;
         });
 
+        const { gameLog, logSeq, ...rest } = engineView || {};
         return {
-          ...engineView,
+          ...rest,
           players: safePlayers,
           drawPile: Array.from({ length: drawCount }),
         };
@@ -362,8 +370,9 @@ function ServidorWS() {
         handCount: p?.hand?.length ?? 0,
         hasCalledUno: !!p?.hasCalledUno,
       }));
+      const { gameLog, logSeq, ...engineRest } = datosUNO.engine || {};
       const engineSafe = {
-        ...datosUNO.engine,
+        ...engineRest,
         players: safePlayers,
         drawPile: Array.from({ length: drawCount }),
       };
@@ -916,8 +925,9 @@ function ServidorWS() {
             if (idx === 0) return { ...base, hand: p?.hand || [] };
             return base;
           });
+          const { gameLog, logSeq, ...engineRest } = engineView || {};
           const engineSafe = {
-            ...engineView,
+            ...engineRest,
             players: safePlayers,
             drawPile: Array.from({ length: drawCount }),
           };
@@ -978,6 +988,95 @@ function ServidorWS() {
           // Si falla, al menos forzar un broadcast normal.
           await emitirEstadoUNO(io, codigo, datosUNO);
         }
+      });
+
+      socket.on("uno_get_log", async function (datos) {
+        const codigo = (datos && (datos.codigo || datos.codigoPartida)) || null;
+        if (!codigo) return;
+
+        const partida = sistema.partidas[codigo];
+        if (!partida) return;
+        if (partida.juego !== "uno") return;
+
+        const datosUNO = estadosUNO[codigo];
+        if (!datosUNO || !datosUNO.engine) return;
+
+        const email = datos && datos.email;
+        const mappedPlayerId = datosUNO.socketToPlayerId?.[socket.id] || null;
+        const playerId = mappedPlayerId || normalizePlayerId(email);
+        if (!playerId) return;
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) return;
+
+        const humanIds = Array.isArray(datosUNO.humanIds) ? datosUNO.humanIds : [];
+        const canonicalIndexRaw = humanIds.indexOf(playerId);
+        const canonicalIndex = canonicalIndexRaw >= 0 ? canonicalIndexRaw : 0;
+
+        const engine = datosUNO.engine;
+        const n = Array.isArray(engine.players) ? engine.players.length : 0;
+        const shift = n > 0 ? ((canonicalIndex % n) + n) % n : 0;
+        const rotateIndex = (idx) => (idx == null || n <= 0 ? idx : (idx - shift + n) % n);
+        const rotateArray = (arr) =>
+          Array.isArray(arr) && shift > 0 ? arr.slice(shift).concat(arr.slice(0, shift)) : arr;
+
+        const rawEntries = Array.isArray(engine.gameLog) ? engine.gameLog : [];
+        const entries = rawEntries.map((e) => {
+          const actor = e?.actor ?? null;
+          const details = e?.details && typeof e.details === "object" ? e.details : {};
+          const privateDelta =
+            e?.privateByPlayerIndex && typeof e.privateByPlayerIndex === "object"
+              ? e.privateByPlayerIndex[canonicalIndex]
+              : null;
+
+          const before = details?.before && typeof details.before === "object" ? details.before : null;
+          const after = details?.after && typeof details.after === "object" ? details.after : null;
+
+          const safeDetails = {
+            ...details,
+            ...(typeof details?.victimIndex === "number"
+              ? { victimIndex: rotateIndex(details.victimIndex) }
+              : null),
+            ...(before
+              ? {
+                  before: {
+                    ...before,
+                    ...(Array.isArray(before.handsCounts)
+                      ? { handsCounts: rotateArray(before.handsCounts) }
+                      : null),
+                  },
+                }
+              : null),
+            ...(after
+              ? {
+                  after: {
+                    ...after,
+                    ...(Array.isArray(after.handsCounts)
+                      ? { handsCounts: rotateArray(after.handsCounts) }
+                      : null),
+                  },
+                }
+              : null),
+            ...(privateDelta?.myHandDelta ? { myHandDelta: privateDelta.myHandDelta } : null),
+          };
+
+          return {
+            t: e?.t,
+            seq: e?.seq,
+            actor: actor
+              ? {
+                  ...actor,
+                  playerIndex: rotateIndex(actor.playerIndex),
+                }
+              : { playerIndex: null, name: "System", isBot: false },
+            action: e?.action,
+            details: safeDetails,
+          };
+        });
+
+        socket.emit("uno_log", { codigo, entries });
       });
 
       // Cuando el juego UNO (en /uno) se conecta
@@ -1382,7 +1481,7 @@ function ServidorWS() {
           return;
         }
 
-        const res = refillDeckFromDiscard(datosUNO.engine);
+        const res = refillDeckFromDiscard(datosUNO.engine, { reason: "manual" });
         if (!res.ok) {
           const msg =
             res.reason === "not_empty"

@@ -30,6 +30,73 @@ const ACTION_TYPES = {
 };
 
 const WILD_VALUES = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
+const MAX_LOG_ENTRIES = 300;
+
+function snapshotState(state) {
+  return {
+    drawPile: Array.isArray(state?.drawPile) ? state.drawPile.length : 0,
+    discardPile: Array.isArray(state?.discardPile) ? state.discardPile.length : 0,
+    handsCounts: Array.isArray(state?.players)
+      ? state.players.map((p) => (Array.isArray(p?.hand) ? p.hand.length : 0))
+      : [],
+  };
+}
+
+function inferIsBot(state, playerIndex) {
+  if (!state?.hasBot) return false;
+  const n = Array.isArray(state?.players) ? state.players.length : 0;
+  const numHuman =
+    Number.isFinite(state?.numHumanPlayers) && state.numHumanPlayers > 0
+      ? state.numHumanPlayers
+      : Math.max(n - 1, 1);
+  return Number.isInteger(playerIndex) && playerIndex >= numHuman;
+}
+
+function buildActor(state, playerIndex) {
+  if (!Number.isInteger(playerIndex)) {
+    return { playerIndex: null, name: 'System', isBot: false };
+  }
+  const player = state?.players?.[playerIndex] ?? null;
+  return {
+    playerIndex,
+    name: player?.name ?? `Jugador ${playerIndex + 1}`,
+    isBot: inferIsBot(state, playerIndex),
+  };
+}
+
+function pushLog(state, entry) {
+  if (!state) return;
+  if (!Array.isArray(state.gameLog)) state.gameLog = [];
+  const prevSeq = Number.isFinite(state.logSeq) ? state.logSeq : 0;
+  const seq = prevSeq + 1;
+  state.logSeq = seq;
+
+  const actorIndex = entry?.actorIndex;
+  const base = {
+    t: new Date().toISOString(),
+    seq,
+    actor: buildActor(state, actorIndex),
+    action: entry?.action ?? 'UNKNOWN',
+    details: entry?.details && typeof entry.details === 'object' ? entry.details : {},
+  };
+
+  if (entry?.privateByPlayerIndex && typeof entry.privateByPlayerIndex === 'object') {
+    base.privateByPlayerIndex = entry.privateByPlayerIndex;
+  }
+
+  state.gameLog.push(base);
+  if (state.gameLog.length > MAX_LOG_ENTRIES) {
+    state.gameLog.splice(0, state.gameLog.length - MAX_LOG_ENTRIES);
+  }
+}
+
+function buildMyHandDelta(cards = [], removed = []) {
+  const normalize = (c) => (c ? { id: c.id, color: c.color, value: c.value } : null);
+  return {
+    added: cards.map(normalize).filter(Boolean),
+    removed: removed.map(normalize).filter(Boolean),
+  };
+}
 
 // ====== Utilidades de cartas/mazo ======
 
@@ -114,7 +181,7 @@ function createInitialState({ numPlayers = 2, names = [] } = {}) {
 
   const discardPile = firstCard ? [firstCard] : [];
 
-  return {
+  const state = {
     players,
     drawPile,
     discardPile,
@@ -127,7 +194,17 @@ function createInitialState({ numPlayers = 2, names = [] } = {}) {
     lastAction: null,
     reshuffleSeq: 0,
     lastReshuffle: null, // { seq, movedCount }
+    gameLog: [],
+    logSeq: 0,
   };
+
+  pushLog(state, {
+    actorIndex: null,
+    action: 'START',
+    details: { after: snapshotState(state) },
+  });
+
+  return state;
 }
 
 // ====== Utilidades de estado ======
@@ -144,10 +221,13 @@ function cloneState(state) {
     lastAction: state.lastAction ? { ...state.lastAction } : null,
     doublePlay: state.doublePlay ? { ...state.doublePlay } : null,
     penaltyDrawCount: state.penaltyDrawCount,
+    lastReshuffle: state.lastReshuffle ? { ...state.lastReshuffle } : null,
+    gameLog: Array.isArray(state.gameLog) ? [...state.gameLog] : [],
+    logSeq: Number.isFinite(state.logSeq) ? state.logSeq : 0,
   };
 }
 
-function refillDeckFromDiscard(state) {
+function refillDeckFromDiscard(state, { reason = 'deckEmpty' } = {}) {
   const draw = state?.drawPile ?? state?.deck ?? state?.mazo;
   const disc = state?.discardPile ?? state?.discard ?? state?.tiradas;
 
@@ -158,6 +238,7 @@ function refillDeckFromDiscard(state) {
   if (draw.length > 0) return { ok: false, reason: 'not_empty', movedCount: 0 };
   if (disc.length <= 1) return { ok: false, reason: 'not_enough_discard', movedCount: 0 };
 
+  const before = snapshotState(state);
   const top = disc[disc.length - 1];
   const recycle = disc.slice(0, disc.length - 1);
   const normalizedRecycle = recycle.map((c) => (WILD_VALUES.has(c.value) ? { ...c, color: 'wild' } : c));
@@ -180,6 +261,17 @@ function refillDeckFromDiscard(state) {
   state.reshuffleSeq = seq;
   state.lastReshuffle = { seq, movedCount: normalizedRecycle.length };
 
+  pushLog(state, {
+    actorIndex: null,
+    action: 'RESHUFFLE',
+    details: {
+      movedCount: normalizedRecycle.length,
+      reason,
+      before,
+      after: snapshotState(state),
+    },
+  });
+
   return { ok: true, reason: 'ok', movedCount: normalizedRecycle.length, top, seq };
 }
 
@@ -189,7 +281,7 @@ function drawOneCard(state) {
 
   let refillRes = { ok: false, movedCount: 0 };
   if (draw.length === 0) {
-    refillRes = refillDeckFromDiscard(state);
+    refillRes = refillDeckFromDiscard(state, { reason: 'deckEmpty' });
   }
 
   const drawAfter = state?.drawPile ?? state?.deck ?? state?.mazo;
@@ -201,16 +293,18 @@ function drawCardsIntoHand(state, playerIndex, count) {
   const player = state.players[playerIndex];
   let drawnCount = 0;
   let refilled = false;
+  const cards = [];
 
   for (let i = 0; i < count; i++) {
     const res = drawOneCard(state);
     if (!res.card) break;
     if (res.refilled) refilled = true;
     player.hand.push(res.card);
+    cards.push(res.card);
     drawnCount++;
   }
 
-  return { drawnCount, refilled };
+  return { drawnCount, refilled, cards };
 }
 
 function getTopCard(state) {
@@ -226,10 +320,27 @@ function getNextPlayerIndex(state, fromIndex = state.currentPlayerIndex, steps =
   return idx;
 }
 
-function applyForcedDraw(state, playerIndex, count) {
+function applyForcedDraw(state, playerIndex, count, { reason = null } = {}) {
   const victimIndex = getNextPlayerIndex(state, playerIndex, 1);
+  const before = snapshotState(state);
   const res = drawCardsIntoHand(state, victimIndex, count);
   state.currentPlayerIndex = getNextPlayerIndex(state, victimIndex, 1);
+
+  pushLog(state, {
+    actorIndex: playerIndex,
+    action: 'FORCED_DRAW',
+    details: {
+      victimIndex,
+      drawCount: res.drawnCount,
+      reason: reason ?? String(count),
+      before,
+      after: snapshotState(state),
+    },
+    privateByPlayerIndex: {
+      [victimIndex]: { myHandDelta: buildMyHandDelta(res.cards) },
+    },
+  });
+
   return { victimIndex, ...res };
 }
 
@@ -250,14 +361,50 @@ function applyAction(state, action) {
   }
 
   switch (action.type) {
-    case ACTION_TYPES.PLAY_CARD:
-      return applyPlayCard(state, action);
-    case ACTION_TYPES.DRAW_CARD:
-      return applyDrawCard(state, action);
-    case ACTION_TYPES.CALL_UNO:
-      return applyCallUno(state, action);
-    case ACTION_TYPES.PASS_TURN:
-      return applyPassTurn(state, action);
+    case ACTION_TYPES.PLAY_CARD: {
+      const next = applyPlayCard(state, action);
+      if (next !== state && action?.meta?.source === 'BOT') {
+        pushLog(next, {
+          actorIndex: action?.playerIndex,
+          action: 'BOT_MOVE',
+          details: { action: 'PLAY', reason: action?.meta?.reason ?? 'botLogic' },
+        });
+      }
+      return next;
+    }
+    case ACTION_TYPES.DRAW_CARD: {
+      const next = applyDrawCard(state, action);
+      if (next !== state && action?.meta?.source === 'BOT') {
+        pushLog(next, {
+          actorIndex: action?.playerIndex,
+          action: 'BOT_MOVE',
+          details: { action: 'DRAW', reason: action?.meta?.reason ?? 'botLogic' },
+        });
+      }
+      return next;
+    }
+    case ACTION_TYPES.CALL_UNO: {
+      const next = applyCallUno(state, action);
+      if (next !== state && action?.meta?.source === 'BOT') {
+        pushLog(next, {
+          actorIndex: action?.playerIndex,
+          action: 'BOT_MOVE',
+          details: { action: 'CALL_LAST_CARD', reason: action?.meta?.reason ?? 'botLogic' },
+        });
+      }
+      return next;
+    }
+    case ACTION_TYPES.PASS_TURN: {
+      const next = applyPassTurn(state, action);
+      if (next !== state && action?.meta?.source === 'BOT') {
+        pushLog(next, {
+          actorIndex: action?.playerIndex,
+          action: 'BOT_MOVE',
+          details: { action: 'PASS', reason: action?.meta?.reason ?? 'botLogic' },
+        });
+      }
+      return next;
+    }
     default:
       throw new Error(`Acción desconocida: ${action.type}`);
   }
@@ -310,9 +457,10 @@ function applyPlayCard(state, action) {
   };
 
   let swapTargetIndex = null;
+  const before = snapshotState(state);
 
   if (card.value === '+2') {
-    applyForcedDraw(s, playerIndex, 2);
+    applyForcedDraw(s, playerIndex, 2, { reason: '+2' });
   } else if (card.value === 'skip') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 2);
   } else if (card.value === 'reverse') {
@@ -320,7 +468,7 @@ function applyPlayCard(state, action) {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+4' || card.value === '+6' || card.value === '+8') {
     const drawCount = card.value === '+4' ? 4 : card.value === '+6' ? 6 : 8;
-    applyForcedDraw(s, playerIndex, drawCount);
+    applyForcedDraw(s, playerIndex, drawCount, { reason: card.value });
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip_all') {
@@ -328,8 +476,23 @@ function applyPlayCard(state, action) {
   } else if (card.value === 'double') {
     const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
     const n = s.players[victimIndex].hand.length;
-    drawCardsIntoHand(s, victimIndex, n);
+    const beforeDouble = snapshotState(s);
+    const res = drawCardsIntoHand(s, victimIndex, n);
     s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+    pushLog(s, {
+      actorIndex: playerIndex,
+      action: 'FORCED_DRAW',
+      details: {
+        victimIndex,
+        drawCount: res.drawnCount,
+        reason: 'double',
+        before: beforeDouble,
+        after: snapshotState(s),
+      },
+      privateByPlayerIndex: {
+        [victimIndex]: { myHandDelta: buildMyHandDelta(res.cards) },
+      },
+    });
   } else if (card.value === 'discard_all') {
     const toDiscard = player.hand.filter((c) => c.color === chosenColor);
     player.hand = player.hand.filter((c) => c.color !== chosenColor);
@@ -384,6 +547,16 @@ function applyPlayCard(state, action) {
   }
 
   s.lastAction = baseLastAction;
+  pushLog(s, {
+    actorIndex: playerIndex,
+    action: 'PLAY',
+    details: {
+      cardPlayed: { color: cardForDiscard.color, value: cardForDiscard.value },
+      ...(isWildType && chosenColor ? { chosenColor } : null),
+      before,
+      after: snapshotState(s),
+    },
+  });
   return s;
 }
 
@@ -398,25 +571,32 @@ function applyDrawCard(state, action) {
   const s = cloneState(state);
   const player = s.players[playerIndex];
 
+  const before = snapshotState(state);
   const drawCount = s.penaltyDrawCount > 0 ? s.penaltyDrawCount : 1;
-  const drawnCards = [];
-  for (let i = 0; i < drawCount; i++) {
-    const res = drawOneCard(s);
-    if (res.card) {
-      player.hand.push(res.card);
-      drawnCards.push(res.card);
-    } else {
-      break;
-    }
-  }
+  const reason = s.penaltyDrawCount > 0 ? 'penalty' : 'manual';
+  const res = drawCardsIntoHand(s, playerIndex, drawCount);
   s.penaltyDrawCount = 0; // reset after drawing
 
   s.lastAction = {
     type: ACTION_TYPES.DRAW_CARD,
     playerIndex,
-    card: drawnCards[0] ?? null,
-    cards: drawnCards, // mantener compatibilidad (single + multiple)
+    card: res.cards?.[0] ?? null,
+    cards: res.cards || [], // mantener compatibilidad (single + multiple)
   };
+
+  pushLog(s, {
+    actorIndex: playerIndex,
+    action: 'DRAW',
+    details: {
+      drawCount: res.drawnCount,
+      reason,
+      before,
+      after: snapshotState(s),
+    },
+    privateByPlayerIndex: {
+      [playerIndex]: { myHandDelta: buildMyHandDelta(res.cards) },
+    },
+  });
 
   return s;
 }
@@ -428,6 +608,7 @@ function applyCallUno(state, action) {
   const s = cloneState(state);
   const player = s.players[playerIndex];
 
+  const before = snapshotState(state);
   if (player.hand.length === 1) {
     player.hasCalledUno = true;
   }
@@ -436,6 +617,12 @@ function applyCallUno(state, action) {
     type: ACTION_TYPES.CALL_UNO,
     playerIndex,
   };
+
+  pushLog(s, {
+    actorIndex: playerIndex,
+    action: 'CALL_LAST_CARD',
+    details: { before, after: snapshotState(s) },
+  });
 
   return s;
 }
@@ -449,6 +636,7 @@ function applyPassTurn(state, action) {
   }
 
   const s = cloneState(state);
+  const before = snapshotState(state);
   const canPassExtra =
     !!s.doublePlay &&
     s.doublePlay.playerIndex === playerIndex &&
@@ -462,6 +650,12 @@ function applyPassTurn(state, action) {
     type: ACTION_TYPES.PASS_TURN,
     playerIndex,
   };
+
+  pushLog(s, {
+    actorIndex: playerIndex,
+    action: 'PASS',
+    details: { before, after: snapshotState(s) },
+  });
 
   return s;
 }

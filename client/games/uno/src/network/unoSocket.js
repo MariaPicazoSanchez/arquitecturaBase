@@ -13,6 +13,7 @@ export function createUnoSocket({
   codigo,
   email,
   onState,
+  onLog,
   onError,
   onUnoRequired,
   onUnoCleared,
@@ -40,6 +41,10 @@ export function createUnoSocket({
   socket.on("uno_state", (estado) => {
     console.log("[UNO] estado recibido:", estado);
     if (typeof onState === "function") onState(estado);
+  });
+
+  socket.on("uno_log", (payload) => {
+    if (typeof onLog === "function") onLog(payload);
   });
 
   socket.on("uno:uno_required", (payload) => {
@@ -93,6 +98,10 @@ export function createUnoSocket({
     socket.emit("uno:uno_call", { codigo, email });
   }
 
+  function getLog() {
+    socket.emit("uno_get_log", { codigo, codigoPartida: codigo, email });
+  }
+
   function rematchReady() {
     socket.emit("uno:rematch_ready", { codigo, email });
   }
@@ -101,5 +110,5 @@ export function createUnoSocket({
     socket.disconnect();
   }
 
-  return { socket, sendAction, reloadDeck, callUno, rematchReady, disconnect };
+  return { socket, sendAction, reloadDeck, callUno, getLog, rematchReady, disconnect };
 }

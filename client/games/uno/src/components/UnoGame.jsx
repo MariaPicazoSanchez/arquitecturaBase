@@ -89,6 +89,10 @@ export default function UnoGame() {
     });
   }, []);
 
+  const [isLogOpen, setIsLogOpen] = useState(false);
+  const [gameLogEntries, setGameLogEntries] = useState([]);
+  const [isLogLoading, setIsLogLoading] = useState(false);
+
   const suppressNextSfxRef = useRef(null);
 
   const latestEngineRef = useRef(null);
@@ -631,6 +635,11 @@ export default function UnoGame() {
 
           return { ...prev, engine: newEngine, uiStatus: newUiStatus, message };
         });
+      },
+      onLog: (payload) => {
+        const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+        setGameLogEntries(entries);
+        setIsLogLoading(false);
       },
       onUnoRequired: (payload) => {
         const playerId = payload?.playerId;
@@ -1675,6 +1684,63 @@ export default function UnoGame() {
                 ? 'Fuera de tiempo'
                 : '';
 
+  const handleRequestLog = () => {
+    if (!isMultiplayer) return;
+    const api = unoNetRef.current;
+    if (!api || typeof api.getLog !== 'function') return;
+    setIsLogLoading(true);
+    api.getLog();
+  };
+
+  const handleToggleLog = (e) => {
+    if (e) e.stopPropagation();
+    if (!isMultiplayer) return;
+    setIsLogOpen((prev) => {
+      const next = !prev;
+      if (next) handleRequestLog();
+      return next;
+    });
+  };
+
+  const formatLogLine = (entry) => {
+    if (!entry) return '';
+    const t = entry.t ? new Date(entry.t) : null;
+    const time = t && !Number.isNaN(t.getTime()) ? t.toLocaleTimeString() : '';
+    const actorIdx = entry.actor?.playerIndex;
+    const actorName =
+      actorIdx === 0 ? 'Tú' : entry.actor?.name ?? (actorIdx != null ? `Jugador ${actorIdx + 1}` : 'System');
+
+    const victimIdx = entry.details?.victimIndex;
+    const victimName =
+      typeof victimIdx === 'number'
+        ? victimIdx === 0
+          ? 'tú'
+          : engine?.players?.[victimIdx]?.name ?? `Jugador ${victimIdx + 1}`
+        : null;
+
+    const card = entry.details?.cardPlayed;
+    const cardText = card ? `${card.value}${card.color ? ` (${card.color})` : ''}` : null;
+
+    if (entry.action === 'START') return `[${entry.seq}] ${time} Inicio de partida.`;
+    if (entry.action === 'RESHUFFLE')
+      return `[${entry.seq}] ${time} Rebuild mazo: ${entry.details?.movedCount ?? 0} cartas recicladas.`;
+    if (entry.action === 'PLAY') {
+      const chosen = entry.details?.chosenColor ? ` (elige ${entry.details.chosenColor})` : '';
+      return `[${entry.seq}] ${time} ${actorName} jugó ${cardText ?? 'una carta'}.${chosen}`;
+    }
+    if (entry.action === 'DRAW')
+      return `[${entry.seq}] ${time} ${actorName} robó ${entry.details?.drawCount ?? 0}.`;
+    if (entry.action === 'FORCED_DRAW')
+      return `[${entry.seq}] ${time} ${actorName} → ${victimName ?? 'el siguiente'} roba ${entry.details?.drawCount ?? 0} (${entry.details?.reason ?? 'forzado'}).`;
+    if (entry.action === 'CALL_LAST_CARD')
+      return `[${entry.seq}] ${time} ${actorName} cantó Última carta.`;
+    if (entry.action === 'PASS')
+      return `[${entry.seq}] ${time} ${actorName} pasó.`;
+    if (entry.action === 'BOT_MOVE')
+      return `[${entry.seq}] ${time} ${actorName} (bot) ejecutó: ${entry.details?.action ?? 'MOVE'}.`;
+
+    return `[${entry.seq}] ${time} ${entry.action ?? 'UNKNOWN'}`;
+  };
 
   return (
     <div className="uno-game" onPointerDown={handleUserGesture}>
@@ -1711,6 +1777,16 @@ export default function UnoGame() {
               {isReloadingDeck ? 'Recargando...' : 'Recargar mazo'}
             </button>
           )}
+          {isMultiplayer && (
+            <button
+              type="button"
+              className="uno-reload-button"
+              onClick={handleToggleLog}
+              title="Ver registro de movimientos"
+            >
+              {isLogOpen ? 'Cerrar registro' : 'Registro'}
+            </button>
+          )}
           {canPassExtra && (
             <button
               type="button"
@@ -1723,6 +1799,37 @@ export default function UnoGame() {
           )}
         </div>
         <p className="uno-lastaction">{lastActionText}</p>
+
+        {isMultiplayer && isLogOpen && (
+          <div className="uno-events" aria-label="Registro de movimientos">
+            <div className="uno-events-title">Registro</div>
+            <div className="uno-deck-row">
+              <button
+                type="button"
+                className="uno-reload-button"
+                onClick={handleRequestLog}
+                disabled={isLogLoading}
+                title="Actualizar registro"
+              >
+                {isLogLoading ? 'Cargando...' : 'Actualizar'}
+              </button>
+            </div>
+            <ul className="uno-events-list">
+              {(gameLogEntries || []).slice(-80).map((e) => (
+                <li key={e.seq} className="uno-events-item">
+                  {formatLogLine(e)}
+                  {e?.details?.myHandDelta?.added?.length > 0 &&
+                    ` (tus cartas: ${e.details.myHandDelta.added
+                      .map((c) => `${c.value}${c.color && c.color !== 'wild' ? `:${c.color}` : ''}`)
+                      .join(', ')})`}
+                </li>
+              ))}
+              {(gameLogEntries || []).length === 0 && (
+                <li className="uno-events-item">No hay entradas todavía.</li>
+              )}
+            </ul>
+          </div>
+        )}
 
         <div className="uno-turn">
           <span>Turno:</span>
