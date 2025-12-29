@@ -121,6 +121,7 @@ export function createInitialState({ numPlayers = 2, names = [] } = {}) {
     currentPlayerIndex: 0,
     direction: 1,
     doublePlay: null, // { playerIndex, remaining }
+    penaltyDrawCount: 0,
     status: 'playing', // 'playing' | 'finished'
     winnerIndex: null,
     lastAction: null,
@@ -140,6 +141,7 @@ function cloneState(state) {
     discardPile: [...state.discardPile],
     lastAction: state.lastAction ? { ...state.lastAction } : null,
     doublePlay: state.doublePlay ? { ...state.doublePlay } : null,
+    penaltyDrawCount: state.penaltyDrawCount,
   };
 }
 
@@ -285,31 +287,25 @@ function applyPlayCard(state, action) {
     s.direction = -s.direction;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+4') {
-    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    const res = drawCardsIntoHand(s, victimIndex, 4);
-    if (res.rebuiltDeck) rebuiltDeck = true;
-    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
-    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+    s.penaltyDrawCount = 4;
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+6') {
-    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    const res = drawCardsIntoHand(s, victimIndex, 6);
-    if (res.rebuiltDeck) rebuiltDeck = true;
-    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
-    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+    s.penaltyDrawCount = 6;
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+8') {
-    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    const res = drawCardsIntoHand(s, victimIndex, 8);
-    if (res.rebuiltDeck) rebuiltDeck = true;
-    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
-    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+    s.penaltyDrawCount = 8;
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip_all') {
     s.currentPlayerIndex = playerIndex;
   } else if (card.value === 'double') {
-    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    s.doublePlay = { playerIndex: victimIndex, remaining: 1 };
-    s.currentPlayerIndex = victimIndex;
+    if (s.penaltyDrawCount > 0) {
+      s.penaltyDrawCount *= 2;
+    } else {
+      s.penaltyDrawCount = 2;
+    }
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'discard_all') {
     const toDiscard = player.hand.filter((c) => c.color === chosenColor);
     player.hand = player.hand.filter((c) => c.color !== chosenColor);
@@ -393,16 +389,24 @@ function applyDrawCard(state, action) {
   const s = cloneState(state);
   const player = s.players[playerIndex];
 
-  const res = drawOneFromPile(s);
-  if (res.card) {
-    player.hand.push(res.card);
+  const drawCount = s.penaltyDrawCount > 0 ? s.penaltyDrawCount : 1;
+  const drawnCards = [];
+  let rebuiltDeck = false;
+  for (let i = 0; i < drawCount; i++) {
+    const res = drawOneFromPile(s);
+    if (res.card) {
+      player.hand.push(res.card);
+      drawnCards.push(res.card);
+    }
+    if (res.rebuiltDeck) rebuiltDeck = true;
   }
+  s.penaltyDrawCount = 0;
 
   s.lastAction = {
     type: ACTION_TYPES.DRAW_CARD,
     playerIndex,
-    card: res.card,
-    ...(res.rebuiltDeck ? { rebuiltDeck: true } : null),
+    cards: drawnCards,
+    ...(rebuiltDeck ? { rebuiltDeck: true } : null),
   };
 
   return s;
@@ -458,7 +462,15 @@ export function getPlayableCards(state, playerIndex) {
   if (playerIndex !== state.currentPlayerIndex) return [];
   const player = state.players[playerIndex];
   const top = getTopCard(state);
-  return player.hand.filter((c) => canPlayCard(c, top));
+  const basePlayable = player.hand.filter((c) => canPlayCard(c, top));
+  // Si hay penalty, permitir double
+  if (state.penaltyDrawCount > 0) {
+    const doubleCard = player.hand.find((c) => c.value === 'double');
+    if (doubleCard && !basePlayable.some((c) => c.id === doubleCard.id)) {
+      basePlayable.push(doubleCard);
+    }
+  }
+  return basePlayable;
 }
 
 export function getTurnInfo(state) {

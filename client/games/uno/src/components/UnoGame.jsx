@@ -1311,7 +1311,7 @@ export default function UnoGame() {
         playerIndex: 0,
       });
 
-      if (!newEngine.lastAction?.card) {
+      if (!newEngine.lastAction?.cards || newEngine.lastAction.cards.length === 0) {
         return {
           ...prev,
           engine: newEngine,
@@ -1319,10 +1319,16 @@ export default function UnoGame() {
         };
       }
 
+      const drawnCount = newEngine.lastAction.cards.length;
+      const isPenalty = engine.penaltyDrawCount > 0;
+      const message = isPenalty
+        ? `Has sacado ${drawnCount} carta${drawnCount > 1 ? 's' : ''} por penalty.`
+        : 'Has robado una carta. Si puedes, juega una.';
+
       return {
         ...prev,
         engine: newEngine,
-        message: 'Has robado una carta. Si puedes, juega una.',
+        message,
       };
     });
   };

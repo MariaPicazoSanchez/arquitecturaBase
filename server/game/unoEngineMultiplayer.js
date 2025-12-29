@@ -119,6 +119,7 @@ function createInitialState({ numPlayers = 2, names = [] } = {}) {
     currentPlayerIndex: 0,
     direction: 1,
     doublePlay: null, // { playerIndex, remaining }
+    penaltyDrawCount: 0,
     status: 'playing', // 'playing' | 'finished'
     winnerIndex: null,
     lastAction: null,
@@ -140,6 +141,7 @@ function cloneState(state) {
     discardPile: [...state.discardPile],
     lastAction: state.lastAction ? { ...state.lastAction } : null,
     doublePlay: state.doublePlay ? { ...state.doublePlay } : null,
+    penaltyDrawCount: state.penaltyDrawCount,
   };
 }
 
@@ -276,14 +278,8 @@ function applyPlayCard(state, action) {
   let swapTargetIndex = null;
 
   if (card.value === '+2') {
-    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    const victim = s.players[victimIndex];
-    for (let i = 0; i < 2; i++) {
-      const res = drawOneCard(s);
-      if (!res.card) break;
-      victim.hand.push(res.card);
-    }
-    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+    s.penaltyDrawCount = 2;
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 2);
   } else if (card.value === 'reverse') {
@@ -291,22 +287,21 @@ function applyPlayCard(state, action) {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === '+4' || card.value === '+6' || card.value === '+8') {
     const drawCount = card.value === '+4' ? 4 : card.value === '+6' ? 6 : 8;
-    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    const victim = s.players[victimIndex];
-    for (let i = 0; i < drawCount; i++) {
-      const res = drawOneCard(s);
-      if (!res.card) break;
-      victim.hand.push(res.card);
-    }
-    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
+    s.penaltyDrawCount = drawCount;
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip_all') {
     s.currentPlayerIndex = playerIndex;
   } else if (card.value === 'double') {
-    const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    s.doublePlay = { playerIndex: victimIndex, remaining: 1 };
-    s.currentPlayerIndex = victimIndex;
+    if (s.penaltyDrawCount > 0) {
+      s.penaltyDrawCount *= 2;
+    } else {
+      // Si no hay penalty, quizás no hace nada, o establece uno pequeño
+      s.penaltyDrawCount = 2; // o algo
+    }
+    s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
+  } else if (card.value === 'discard_all') {
   } else if (card.value === 'discard_all') {
     const toDiscard = player.hand.filter((c) => c.color === chosenColor);
     player.hand = player.hand.filter((c) => c.color !== chosenColor);
@@ -375,15 +370,23 @@ function applyDrawCard(state, action) {
   const s = cloneState(state);
   const player = s.players[playerIndex];
 
-  const res = drawOneCard(s);
-  if (res.card) {
-    player.hand.push(res.card);
+  const drawCount = s.penaltyDrawCount > 0 ? s.penaltyDrawCount : 1;
+  const drawnCards = [];
+  for (let i = 0; i < drawCount; i++) {
+    const res = drawOneCard(s);
+    if (res.card) {
+      player.hand.push(res.card);
+      drawnCards.push(res.card);
+    } else {
+      break;
+    }
   }
+  s.penaltyDrawCount = 0; // reset after drawing
 
   s.lastAction = {
     type: ACTION_TYPES.DRAW_CARD,
     playerIndex,
-    card: res.card,
+    cards: drawnCards, // cambiar a cards para múltiples
   };
 
   return s;
@@ -440,7 +443,15 @@ function getPlayableCards(state, playerIndex) {
   if (playerIndex !== state.currentPlayerIndex) return [];
   const player = state.players[playerIndex];
   const top = getTopCard(state);
-  return player.hand.filter((c) => canPlayCard(c, top));
+  const basePlayable = player.hand.filter((c) => canPlayCard(c, top));
+  // Si hay penalty, permitir double
+  if (state.penaltyDrawCount > 0) {
+    const doubleCard = player.hand.find((c) => c.value === 'double');
+    if (doubleCard && !basePlayable.some((c) => c.id === doubleCard.id)) {
+      basePlayable.push(doubleCard);
+    }
+  }
+  return basePlayable;
 }
 
 function getTurnInfo(state) {
