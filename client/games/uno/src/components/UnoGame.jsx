@@ -37,7 +37,7 @@ export default function UnoGame() {
     engine: createInitialState({ numPlayers: 2, names: ['Tú', 'Bot'] }),
     uiStatus: 'playing',
     message:
-      'Tu turno. Juega una carta que coincida en color, número o símbolo.',
+      '',
   }));
 
   const [pendingWild, setPendingWild] = useState(null);
@@ -761,7 +761,7 @@ export default function UnoGame() {
         setGame((prev) => ({
           ...prev,
           uiStatus: 'waiting',
-          message: 'Reiniciando partida...',
+          message: 'Esperando a que todos los jugadores estén listos...',
         }));
       },
       onError: (err) => {
@@ -1046,33 +1046,33 @@ export default function UnoGame() {
 
   // ---------- última jugada (texto) ----------
 
-  const renderLastAction = (lastAction) => {
-    if (!lastAction) return 'Última jugada: —';
+  // const renderLastAction = (lastAction) => {
+  //   if (!lastAction) return 'Última jugada: —';
 
-    const actor =
-      engine.players?.[lastAction.playerIndex]?.name ??
-      `Jugador ${lastAction.playerIndex + 1}`;
+  //   const actor =
+  //     engine.players?.[lastAction.playerIndex]?.name ??
+  //     `Jugador ${lastAction.playerIndex + 1}`;
 
-    if (lastAction.type === ACTION_TYPES.PLAY_CARD && lastAction.card) {
-      const { color, value } = lastAction.card;
-      let valueText = value;
-      if (value === 'skip') valueText = '⏭';
-      else if (value === 'reverse') valueText = '↺';
-      else if (value === 'wild') valueText = '★';
+  //   if (lastAction.type === ACTION_TYPES.PLAY_CARD && lastAction.card) {
+  //     const { color, value } = lastAction.card;
+  //     let valueText = value;
+  //     if (value === 'skip') valueText = '⏭';
+  //     else if (value === 'reverse') valueText = '↺';
+  //     else if (value === 'wild') valueText = '★';
 
-      return `Última jugada: ${actor} jugó ${valueText} ${color}`;
-    }
+  //     return `Última jugada: ${actor} jugó ${valueText} ${color}`;
+  //   }
 
-    if (lastAction.type === ACTION_TYPES.DRAW_CARD) {
-      return `Última jugada: ${actor} robó carta`;
-    }
+  //   if (lastAction.type === ACTION_TYPES.DRAW_CARD) {
+  //     return `Última jugada: ${actor} robó carta`;
+  //   }
 
-    if (lastAction.type === ACTION_TYPES.CALL_UNO) {
-      return `Última jugada: ${actor} declaró UNO`;
-    }
+  //   if (lastAction.type === ACTION_TYPES.CALL_UNO) {
+  //     return `Última jugada: ${actor} declaró UNO`;
+  //   }
 
-    return 'Última jugada: —';
-  };
+  //   return 'Última jugada: —';
+  // };
 
   // ---------- Turno jugador humano ----------
 
@@ -1431,7 +1431,7 @@ export default function UnoGame() {
       engine: createInitialState({ numPlayers: 2, names: ['Tú', 'Bot'] }),
       uiStatus: 'playing',
       message:
-        'Tu turno. Juega una carta que coincida en color, número o símbolo.',
+        '',
     });
   };
 

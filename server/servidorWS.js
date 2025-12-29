@@ -19,6 +19,11 @@ const UNO_CALL_WINDOW_MS = (() => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5000;
 })();
 
+const BOT_THINK_MS = (() => {
+  const parsed = Number.parseInt(process.env.BOT_THINK_MS, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 900;
+})();
+
 function ServidorWS() {
   let srv = this;
   const estadosUNO = {};
@@ -26,6 +31,9 @@ function ServidorWS() {
   const rematchVotes4raya = {};
   const socketTo4RayaPlayerId = {};
   const socketTo4RayaCodigo = {};
+  const botRunningByCodigo = {};
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const thinkMs = () => BOT_THINK_MS + Math.floor(Math.random() * 300);
 
   const normalizePlayerId = (value) =>
     (value || "").toString().trim().toLowerCase();
@@ -61,6 +69,8 @@ function ServidorWS() {
     }
     return bestColor;
   };
+
+  const BOT_WILD_VALUES = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
 
   const getBotIndexes = (engine, datosUNO) => {
     if (!engine || !engine.hasBot) return [];
@@ -139,38 +149,77 @@ function ServidorWS() {
     return null;
   };
 
-  const runBotTurnsIfNeededWithEffects = (engine, { io = null, codigo = null, datosUNO = null } = {}) => {
-    if (!engine || !engine.hasBot) return { engine, effects: [] };
+  const emitReshuffleIfNeeded = (io, codigo, prevReshuffleSeq, engine) => {
+    const prev = Number.isFinite(prevReshuffleSeq) ? prevReshuffleSeq : 0;
+    const next = Number.isFinite(engine?.reshuffleSeq) ? engine.reshuffleSeq : 0;
+    if (next <= prev) return next;
+    const movedCount =
+      typeof engine?.lastReshuffle?.movedCount === "number" ? engine.lastReshuffle.movedCount : null;
+    const top =
+      engine?.discardPile?.[(engine?.discardPile?.length ?? 1) - 1] ?? null;
+    io.to(codigo).emit("uno_deck_reshuffle", {
+      codigo,
+      movedCount: movedCount ?? 0,
+      remainingDiscardTop: top,
+      timestamp: Date.now(),
+      seq: next,
+    });
+    return next;
+  };
 
-    let updated = engine;
-    const effects = [];
-    let safety = 0;
-    while (
-      updated.status === "playing" &&
-      updated.currentPlayerIndex === 1 &&
-      safety < 25
-    ) {
-      safety++;
+  const runBotTurnLoop = async (io, codigo, datosUNO) => {
+    if (!io || !codigo || !datosUNO?.engine?.hasBot) return;
+    if (botRunningByCodigo[codigo]) return;
+    botRunningByCodigo[codigo] = true;
 
-      let playable = getPlayableCards(updated, 1);
+    try {
+      let safety = 0;
+      let prevReshuffleSeq = Number.isFinite(datosUNO.engine?.reshuffleSeq)
+        ? datosUNO.engine.reshuffleSeq
+        : 0;
+
       while (
-        playable.length === 0 &&
-        (updated.drawPile.length > 0 || updated.discardPile.length > 1)
+        datosUNO.engine?.status === "playing" &&
+        datosUNO.engine?.currentPlayerIndex === 1 &&
+        safety < 25
       ) {
-        updated = applyAction(updated, {
-          type: ACTION_TYPES.DRAW_CARD,
-          playerIndex: 1,
-          meta: { source: "BOT", reason: "botLogic" },
-        });
-        if (io && codigo) {
-          updated = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, updated);
-        }
-        playable = getPlayableCards(updated, 1);
-      }
+        safety++;
+        await sleep(thinkMs());
 
-      if (playable.length > 0) {
+        let updated = datosUNO.engine;
+        const canDraw = updated.drawPile.length > 0 || updated.discardPile.length > 1;
+        const playable = getPlayableCards(updated, 1);
+
+        if (playable.length === 0) {
+          if (!canDraw) {
+            // Sin jugadas posibles y sin mazo: pasar turno (y consumir doublePlay si toca).
+            if (updated.doublePlay && updated.doublePlay.playerIndex === 1 && updated.doublePlay.remaining === 0) {
+              updated = applyAction(updated, {
+                type: ACTION_TYPES.PASS_TURN,
+                playerIndex: 1,
+                meta: { source: "BOT", reason: "botLogic" },
+              });
+            } else {
+              updated = { ...updated, currentPlayerIndex: getNextPlayerIndex(updated, 1, 1) };
+            }
+          } else {
+            updated = applyAction(updated, {
+              type: ACTION_TYPES.DRAW_CARD,
+              playerIndex: 1,
+              meta: { source: "BOT", reason: "botLogic" },
+            });
+          }
+
+          updated = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, updated);
+          datosUNO.engine = updated;
+          prevReshuffleSeq = emitReshuffleIfNeeded(io, codigo, prevReshuffleSeq, updated);
+          syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
+          await emitirEstadoUNO(io, codigo, datosUNO);
+          continue;
+        }
+
         const card = playable[0];
-        const needsColor = card.color === "wild";
+        const needsColor = BOT_WILD_VALUES.has(card.value);
         const needsTarget = card.value === "swap";
         const chosenTargetId = needsTarget
           ? (() => {
@@ -185,6 +234,7 @@ function ServidorWS() {
               return best.id;
             })()
           : null;
+
         updated = applyAction(updated, {
           type: ACTION_TYPES.PLAY_CARD,
           playerIndex: 1,
@@ -193,31 +243,23 @@ function ServidorWS() {
           ...(chosenTargetId != null ? { chosenTargetId } : {}),
           meta: { source: "BOT", reason: "botLogic" },
         });
-        if (io && codigo) {
-          updated = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, updated);
-        }
+        updated = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, updated);
+
+        datosUNO.engine = updated;
+        prevReshuffleSeq = emitReshuffleIfNeeded(io, codigo, prevReshuffleSeq, updated);
+
         const byPlayerId = updated.players?.[1]?.id ?? 1;
         const effect = deriveActionEffectFromCard(updated.lastAction?.card, byPlayerId);
-        if (effect) effects.push(effect);
-        continue;
-      }
+        if (effect) io.to(codigo).emit("uno:action_effect", { codigo, ...effect });
 
-      // Sin jugadas posibles y sin mazo: pasar turno (y consumir doublePlay si toca).
-      if (updated.doublePlay && updated.doublePlay.playerIndex === 1 && updated.doublePlay.remaining === 0) {
-        updated = applyAction(updated, {
-          type: ACTION_TYPES.PASS_TURN,
-          playerIndex: 1,
-          meta: { source: "BOT", reason: "botLogic" },
-        });
-      } else {
-        updated = {
-          ...updated,
-          currentPlayerIndex: getNextPlayerIndex(updated, 1, 1),
-        };
+        syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
+        await emitirEstadoUNO(io, codigo, datosUNO);
       }
+    } catch (e) {
+      console.warn("[UNO] error en bot loop", codigo, e?.message || e);
+    } finally {
+      botRunningByCodigo[codigo] = false;
     }
-
-    return { engine: updated, effects };
   };
 
   const rotateEngineForViewer = (engine, viewerIndex) => {
@@ -805,6 +847,7 @@ function ServidorWS() {
         if (codigo !== -1 && estadosUNO[codigo]) {
           clearAllUnoDeadlines(io, codigo, estadosUNO[codigo]);
           delete estadosUNO[codigo];
+          delete botRunningByCodigo[codigo];
         }
 
         if (codigo !== -1 && estados4raya[codigo]) {
@@ -1370,45 +1413,21 @@ function ServidorWS() {
         let engineAfterHuman = applyAction(datosUNO.engine, fullAction);
         engineAfterHuman = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, engineAfterHuman);
 
-        const actionEffects = [];
+        datosUNO.engine = engineAfterHuman;
+        emitReshuffleIfNeeded(io, codigo, prevReshuffleSeq, datosUNO.engine);
         if (fullAction.type === ACTION_TYPES.PLAY_CARD) {
-          const byPlayerId = engineAfterHuman.players?.[playerIndex]?.id ?? playerIndex;
-          const effect = deriveActionEffectFromCard(engineAfterHuman.lastAction?.card, byPlayerId);
-          if (effect) actionEffects.push(effect);
-        }
-
-        const botResult = runBotTurnsIfNeededWithEffects(engineAfterHuman, { io, codigo, datosUNO });
-        datosUNO.engine = botResult.engine;
-        actionEffects.push(...(botResult.effects || []));
-
-        const nextReshuffleSeq = Number.isFinite(datosUNO.engine?.reshuffleSeq)
-          ? datosUNO.engine.reshuffleSeq
-          : 0;
-        if (nextReshuffleSeq > prevReshuffleSeq) {
-          const movedCount =
-            typeof datosUNO.engine?.lastReshuffle?.movedCount === "number"
-              ? datosUNO.engine.lastReshuffle.movedCount
-              : null;
-          const top =
-            datosUNO.engine?.discardPile?.[
-              (datosUNO.engine?.discardPile?.length ?? 1) - 1
-            ] ?? null;
-
-          io.to(codigo).emit("uno_deck_reshuffle", {
-            codigo,
-            movedCount: movedCount ?? 0,
-            remainingDiscardTop: top,
-            timestamp: Date.now(),
-            seq: nextReshuffleSeq,
-          });
-        }
-
-        for (const effect of actionEffects) {
-          io.to(codigo).emit("uno:action_effect", { codigo, ...effect });
+          const byPlayerId = datosUNO.engine.players?.[playerIndex]?.id ?? playerIndex;
+          const effect = deriveActionEffectFromCard(datosUNO.engine.lastAction?.card, byPlayerId);
+          if (effect) io.to(codigo).emit("uno:action_effect", { codigo, ...effect });
         }
 
         syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
         await emitirEstadoUNO(io, codigo, datosUNO);
+
+        // Orquestar turno del bot (con delay visible) sin bloquear el handler.
+        if (datosUNO.engine?.hasBot && datosUNO.engine?.currentPlayerIndex === 1) {
+          runBotTurnLoop(io, codigo, datosUNO);
+        }
       });
 
       socket.on("uno_reload_deck", async function (datos) {

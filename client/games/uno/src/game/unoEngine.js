@@ -82,6 +82,6 @@ export function createInitialGame() {
     ],
     currentPlayerIndex: 0, // 0 = tú, 1 = bot
     status: 'playing',     // 'playing' | 'won' | 'lost'
-    message: 'Tu turno. Juega una carta que coincida en color, número o símbolo.',
+    message: '',
   };
 }
