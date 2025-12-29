@@ -404,12 +404,10 @@ function ControlWeb() {
         const name = user.nombre || user.displayName || "";
         const nick = user.nick || "";
         const email = user.email || "";
-        const createdAt = user.createdAt || "";
 
         $("#account-nombre").text(name || "—");
         $("#account-nick").text(nick || "—");
         $("#account-email").text(email || "—");
-        $("#account-createdAt").text(createdAt ? createdAt : "—");
 
         $("#input-nombre").val(name);
         $("#input-nick").val(nick);
