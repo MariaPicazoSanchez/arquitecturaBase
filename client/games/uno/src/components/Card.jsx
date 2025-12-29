@@ -25,7 +25,7 @@ export default function Card({
     card.value === '+8';
 
   let displayValue = card.value;
-  if (card.value === 'skip') displayValue = '';
+  if (card.value === 'skip') displayValue = '⏭';
   else if (card.value === 'reverse') displayValue = '↻';
   else if (card.value === 'wild') displayValue = '★';
   else if (card.value === 'double') displayValue = '×2';

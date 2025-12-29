@@ -14,7 +14,7 @@ function effectText(effect) {
   if (effect.type === 'SWAP') return 'SWAP';
   if (effect.type === 'DISCARD_ALL') return 'DISCARD';
   if (effect.type === 'DOUBLE') return 'x2';
-  if (effect.type === 'UNO') return '!Įsltima Carta!';
+  if (effect.type === 'UNO') return '!Última Carta!';
   return String(effect.type || '');
 }
 
