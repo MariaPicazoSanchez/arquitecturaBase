@@ -592,6 +592,7 @@ function Sistema() {
       return;
     }
     const body = payload && typeof payload === "object" ? payload : {};
+    console.log("[modelo.actualizarUsuarioSeguro] email:", e, "body:", body);
 
     let displayNameCheck = { ok: true, value: undefined };
     if (Object.prototype.hasOwnProperty.call(body, "displayName")) {
@@ -636,6 +637,7 @@ function Sistema() {
 
       const applyUpdate = function(){
         modelo.cad.actualizarUsuarioPorEmail(e, patch, function(updated){
+          console.log("[modelo.actualizarUsuarioSeguro] updated from cad:", updated);
           if (!updated) {
             callback({ ok: false, status: 500, message: "No se pudo actualizar el perfil." });
             return;

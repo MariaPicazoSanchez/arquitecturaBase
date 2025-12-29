@@ -522,12 +522,20 @@ app.put('/api/user/me', haIniciado, function(req, res) {
   const email = getAuthEmail(req);
   if (!email) return res.status(401).json({ error: "No autenticado" });
   sistema.actualizarUsuarioSeguro(email, req.body, function(result) {
+    console.log("[/api/user/me] result:", result);
     if (!result || result.ok === false) {
       const status = result && result.status ? result.status : 500;
       const message = result && result.message ? result.message : "Error actualizando perfil";
+      console.log("[/api/user/me] sending error status:", status, "message:", message);
       return res.status(status).json({ error: message });
     }
-    return res.status(200).json(result.user);
+    console.log("[/api/user/me] sending success, user:", result.user);
+    try {
+      return res.status(200).json(result.user);
+    } catch (err) {
+      console.error("[/api/user/me] error sending json:", err);
+      return res.status(500).json({ error: "Error serializando respuesta" });
+    }
   });
 });
 

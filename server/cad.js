@@ -108,6 +108,7 @@ function CAD() {
       return;
     }
     const safePatch = patch && typeof patch === "object" ? patch : {};
+    console.log("[cad.actualizarUsuarioPorEmail] updating email:", e, "patch:", safePatch);
     this.usuarios.findOneAndUpdate(
       { email: e },
       { $set: safePatch },
@@ -115,10 +116,12 @@ function CAD() {
         upsert: false,
         returnDocument: "after",
         projection: { _id: 1, email: 1, nick: 1, displayName: 1, createdAt: 1, confirmada: 1, password: 1 },
-        maxTimeMS: 5000,
+        maxTimeMS: 10000,
       }
     ).then((result) => {
-      callback(result && result.value ? result.value : undefined);
+      console.log("[cad.actualizarUsuarioPorEmail] result:", result);
+      console.log("[cad.actualizarUsuarioPorEmail] update result:", result ? "success" : "no result");
+      callback(result || undefined);
     }).catch((err) => {
       console.error("[cad.actualizarUsuarioPorEmail] error:", err && err.message ? err.message : err);
       callback(undefined);
