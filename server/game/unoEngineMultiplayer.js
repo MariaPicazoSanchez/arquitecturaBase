@@ -119,6 +119,8 @@ function createInitialState({ numPlayers = 2, names = [] } = {}) {
     status: 'playing', // 'playing' | 'finished'
     winnerIndex: null,
     lastAction: null,
+    reshuffleSeq: 0,
+    lastReshuffle: null, // { seq, movedCount }
   };
 }
 
@@ -135,6 +137,51 @@ function cloneState(state) {
     discardPile: [...state.discardPile],
     lastAction: state.lastAction ? { ...state.lastAction } : null,
   };
+}
+
+function refillDeckFromDiscard(state) {
+  const draw = state?.drawPile ?? state?.deck ?? state?.mazo;
+  const disc = state?.discardPile ?? state?.discard ?? state?.tiradas;
+
+  if (!Array.isArray(draw) || !Array.isArray(disc)) {
+    return { ok: false, reason: 'missing_piles', movedCount: 0 };
+  }
+
+  if (draw.length > 0) return { ok: false, reason: 'not_empty', movedCount: 0 };
+  if (disc.length <= 1) return { ok: false, reason: 'not_enough_discard', movedCount: 0 };
+
+  const top = disc[disc.length - 1];
+  const recycle = disc.slice(0, disc.length - 1);
+  const shuffled = shuffle(recycle);
+
+  if (Array.isArray(state.drawPile)) state.drawPile = shuffled;
+  else if (Array.isArray(state.deck)) state.deck = shuffled;
+  else state.mazo = shuffled;
+
+  if (Array.isArray(state.discardPile)) state.discardPile = [top];
+  else if (Array.isArray(state.discard)) state.discard = [top];
+  else state.tiradas = [top];
+
+  const prevSeq = Number.isFinite(state.reshuffleSeq) ? state.reshuffleSeq : 0;
+  const seq = prevSeq + 1;
+  state.reshuffleSeq = seq;
+  state.lastReshuffle = { seq, movedCount: recycle.length };
+
+  return { ok: true, reason: 'ok', movedCount: recycle.length, top, seq };
+}
+
+function drawOneCard(state) {
+  const draw = state?.drawPile ?? state?.deck ?? state?.mazo;
+  if (!Array.isArray(draw)) return { card: null, refilled: false, movedCount: 0 };
+
+  let refillRes = { ok: false, movedCount: 0 };
+  if (draw.length === 0) {
+    refillRes = refillDeckFromDiscard(state);
+  }
+
+  const drawAfter = state?.drawPile ?? state?.deck ?? state?.mazo;
+  const card = Array.isArray(drawAfter) ? (drawAfter.shift() ?? null) : null;
+  return { card, refilled: refillRes.ok, movedCount: refillRes.movedCount };
 }
 
 function getTopCard(state) {
@@ -177,7 +224,7 @@ function applyPlayCard(state, action) {
     return state;
   }
 
-  const s = cloneState(state);
+  let s = cloneState(state);
   const player = s.players[playerIndex];
   const top = getTopCard(s);
 
@@ -225,8 +272,10 @@ function applyPlayCard(state, action) {
   if (card.value === '+2') {
     const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
     const victim = s.players[victimIndex];
-    for (let i = 0; i < 2 && s.drawPile.length > 0; i++) {
-      victim.hand.push(s.drawPile.shift());
+    for (let i = 0; i < 2; i++) {
+      const res = drawOneCard(s);
+      if (!res.card) break;
+      victim.hand.push(res.card);
     }
     s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
   } else if (card.value === 'skip') {
@@ -237,8 +286,10 @@ function applyPlayCard(state, action) {
   } else if (card.value === '+4') {
     const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
     const victim = s.players[victimIndex];
-    for (let i = 0; i < 4 && s.drawPile.length > 0; i++) {
-      victim.hand.push(s.drawPile.shift());
+    for (let i = 0; i < 4; i++) {
+      const res = drawOneCard(s);
+      if (!res.card) break;
+      victim.hand.push(res.card);
     }
     s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
   } else if (card.value === 'wild') {
@@ -262,22 +313,15 @@ function applyDrawCard(state, action) {
   const s = cloneState(state);
   const player = s.players[playerIndex];
 
-  if (s.drawPile.length === 0) {
-    s.lastAction = {
-      type: ACTION_TYPES.DRAW_CARD,
-      playerIndex,
-      card: null,
-    };
-    return s;
+  const res = drawOneCard(s);
+  if (res.card) {
+    player.hand.push(res.card);
   }
-
-  const card = s.drawPile.shift();
-  player.hand.push(card);
 
   s.lastAction = {
     type: ACTION_TYPES.DRAW_CARD,
     playerIndex,
-    card,
+    card: res.card,
   };
 
   return s;
@@ -320,7 +364,7 @@ function getTurnInfo(state) {
     playerIndex,
     player,
     playableCards,
-    canDraw: state.drawPile.length > 0,
+    canDraw: state.drawPile.length > 0 || state.discardPile.length > 1,
     mustCallUno: player.hand.length === 1 && !player.hasCalledUno,
   };
 }
@@ -331,6 +375,7 @@ module.exports = {
   ACTION_TYPES,
   canPlayCard,
   createInitialState,
+  refillDeckFromDiscard,
   getTopCard,
   getNextPlayerIndex,
   applyAction,

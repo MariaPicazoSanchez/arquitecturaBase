@@ -5,6 +5,7 @@ const {
   COLORS,
   getPlayableCards,
   getNextPlayerIndex,
+  refillDeckFromDiscard,
 } = require("./game/unoEngineMultiplayer");
 
 const {
@@ -73,7 +74,10 @@ function ServidorWS() {
       safety++;
 
       let playable = getPlayableCards(updated, 1);
-      while (playable.length === 0 && updated.drawPile.length > 0) {
+      while (
+        playable.length === 0 &&
+        (updated.drawPile.length > 0 || updated.discardPile.length > 1)
+      ) {
         updated = applyAction(updated, {
           type: ACTION_TYPES.DRAW_CARD,
           playerIndex: 1,
@@ -127,7 +131,10 @@ function ServidorWS() {
       safety++;
 
       let playable = getPlayableCards(updated, 1);
-      while (playable.length === 0 && updated.drawPile.length > 0) {
+      while (
+        playable.length === 0 &&
+        (updated.drawPile.length > 0 || updated.discardPile.length > 1)
+      ) {
         updated = applyAction(updated, {
           type: ACTION_TYPES.DRAW_CARD,
           playerIndex: 1,
@@ -1161,6 +1168,9 @@ function ServidorWS() {
         }
 
         const fullAction = { ...action, playerIndex };
+        const prevReshuffleSeq = Number.isFinite(datosUNO.engine?.reshuffleSeq)
+          ? datosUNO.engine.reshuffleSeq
+          : 0;
         const engineAfterHuman = applyAction(datosUNO.engine, fullAction);
 
         const actionEffects = [];
@@ -1174,9 +1184,124 @@ function ServidorWS() {
         datosUNO.engine = botResult.engine;
         actionEffects.push(...(botResult.effects || []));
 
+        const nextReshuffleSeq = Number.isFinite(datosUNO.engine?.reshuffleSeq)
+          ? datosUNO.engine.reshuffleSeq
+          : 0;
+        if (nextReshuffleSeq > prevReshuffleSeq) {
+          const movedCount =
+            typeof datosUNO.engine?.lastReshuffle?.movedCount === "number"
+              ? datosUNO.engine.lastReshuffle.movedCount
+              : null;
+          const top =
+            datosUNO.engine?.discardPile?.[
+              (datosUNO.engine?.discardPile?.length ?? 1) - 1
+            ] ?? null;
+
+          io.to(codigo).emit("uno_deck_reshuffle", {
+            codigo,
+            movedCount: movedCount ?? 0,
+            remainingDiscardTop: top,
+            timestamp: Date.now(),
+            seq: nextReshuffleSeq,
+          });
+        }
+
         for (const effect of actionEffects) {
           io.to(codigo).emit("uno:action_effect", { codigo, ...effect });
         }
+
+        syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
+        await emitirEstadoUNO(io, codigo, datosUNO);
+      });
+
+      socket.on("uno_reload_deck", async function (datos) {
+        const codigo = (datos && (datos.codigo || datos.codigoPartida)) || null;
+        const email = datos && datos.email;
+        if (!codigo) return;
+
+        const partida = sistema.partidas[codigo];
+        const datosUNO = estadosUNO[codigo];
+        if (!partida || !datosUNO || !datosUNO.engine) {
+          socket.emit("uno_error", {
+            codigo,
+            reason: "missing_game",
+            message: "No se pudo recargar el mazo: partida no encontrada.",
+          });
+          return;
+        }
+        if (partida.juego !== "uno") return;
+
+        const playerId =
+          datosUNO.socketToPlayerId?.[socket.id] || normalizePlayerId(email);
+        if (!playerId) {
+          socket.emit("uno_error", {
+            codigo,
+            reason: "unauthorized",
+            message: "No se pudo recargar el mazo: no autorizado.",
+          });
+          return;
+        }
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) {
+          socket.emit("uno_error", {
+            codigo,
+            reason: "not_in_game",
+            message: "No perteneces a esta partida.",
+          });
+          return;
+        }
+
+        const playerIndex = Array.isArray(datosUNO.humanIds)
+          ? datosUNO.humanIds.indexOf(playerId)
+          : -1;
+        if (playerIndex === -1) {
+          socket.emit("uno_error", {
+            codigo,
+            reason: "not_in_state",
+            message: "No se pudo recargar el mazo: jugador no registrado en el estado.",
+          });
+          return;
+        }
+
+        if (datosUNO.engine.status !== "playing") {
+          socket.emit("uno_error", {
+            codigo,
+            reason: "not_playing",
+            message: "La partida no est\u00e1 en curso.",
+          });
+          return;
+        }
+
+        if (datosUNO.engine.currentPlayerIndex !== playerIndex) {
+          socket.emit("uno_error", {
+            codigo,
+            reason: "not_your_turn",
+            message: "Solo puedes recargar el mazo en tu turno.",
+          });
+          return;
+        }
+
+        const res = refillDeckFromDiscard(datosUNO.engine);
+        if (!res.ok) {
+          const msg =
+            res.reason === "not_empty"
+              ? "El mazo todav\u00eda tiene cartas."
+              : res.reason === "not_enough_discard"
+                ? "No hay suficientes cartas en el descarte para recargar."
+                : "No se pudo recargar el mazo.";
+          socket.emit("uno_error", { codigo, reason: res.reason, message: msg });
+          return;
+        }
+
+        io.to(codigo).emit("uno_deck_reloaded", {
+          codigo,
+          movedCount: res.movedCount,
+          timestamp: Date.now(),
+          seq: res.seq ?? null,
+        });
 
         syncUnoDeadlinesFromEngine(io, codigo, datosUNO);
         await emitirEstadoUNO(io, codigo, datosUNO);

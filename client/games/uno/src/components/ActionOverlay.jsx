@@ -8,7 +8,7 @@ function effectText(effect) {
   if (effect.type === 'SKIP') return 'SKIP';
   if (effect.type === 'REVERSE') return 'REVERSE';
   if (effect.type === 'WILD') return 'WILD';
-  if (effect.type === 'UNO') return 'UNO!';
+  if (effect.type === 'UNO') return '!Última Carta!';
   return String(effect.type || '');
 }
 

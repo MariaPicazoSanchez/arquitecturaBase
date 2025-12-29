@@ -44,6 +44,12 @@ export default function UnoGame() {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [isRebuildingDeck, setIsRebuildingDeck] = useState(false);
   const rebuildDeckTimerRef = useRef(null);
+  const [isReloadingDeck, setIsReloadingDeck] = useState(false);
+  const reshuffleOverlayRef = useRef(null);
+  const discardStackRef = useRef(null);
+  const drawStackRef = useRef(null);
+  const reshuffleTimerRef = useRef(null);
+  const reshuffleRunIdRef = useRef(0);
   const [isMuted, setIsMuted] = useState(() => {
     initSfxFromStorage();
     return isSfxMuted();
@@ -91,6 +97,73 @@ export default function UnoGame() {
   const player = engine?.players?.[0] ?? null;
   const isHumanTurn = engine?.currentPlayerIndex === 0;
   const isPlaying = uiStatus === 'playing' && !isLocallyEliminated;
+
+  const triggerDeckReshuffleFx = useCallback((movedCount) => {
+    const overlay = reshuffleOverlayRef.current;
+    const discardEl = discardStackRef.current;
+    const drawEl = drawStackRef.current;
+
+    if (!overlay || !discardEl || !drawEl) return;
+
+    const countRaw = typeof movedCount === 'number' ? movedCount : 0;
+    const cardCount = Math.min(Math.max(countRaw, 0), 12);
+    if (cardCount <= 0) return;
+
+    reshuffleRunIdRef.current += 1;
+    const runId = reshuffleRunIdRef.current;
+
+    if (reshuffleTimerRef.current) {
+      clearTimeout(reshuffleTimerRef.current);
+      reshuffleTimerRef.current = null;
+    }
+
+    overlay.replaceChildren();
+    overlay.classList.add('uno-reshuffle-overlay--active');
+
+    const overlayRect = overlay.getBoundingClientRect();
+    const fromRect = discardEl.getBoundingClientRect();
+    const toRect = drawEl.getBoundingClientRect();
+
+    const fromX = fromRect.left + fromRect.width / 2 - overlayRect.left;
+    const fromY = fromRect.top + fromRect.height / 2 - overlayRect.top;
+    const toX = toRect.left + toRect.width / 2 - overlayRect.left;
+    const toY = toRect.top + toRect.height / 2 - overlayRect.top;
+
+    for (let i = 0; i < cardCount; i++) {
+      const el = document.createElement('div');
+      el.className = 'uno-card-back uno-reshuffle-card';
+
+      const jitterX = (Math.random() - 0.5) * 16;
+      const jitterY = (Math.random() - 0.5) * 16;
+      const rotStart = (Math.random() - 0.5) * 18;
+      const rotEnd = (Math.random() - 0.5) * 10;
+      const landingJitterX = (Math.random() - 0.5) * 10;
+      const landingJitterY = (Math.random() - 0.5) * 10;
+
+      el.style.setProperty('--from-x', `${fromX + jitterX}px`);
+      el.style.setProperty('--from-y', `${fromY + jitterY}px`);
+      el.style.setProperty('--to-x', `${toX + landingJitterX}px`);
+      el.style.setProperty('--to-y', `${toY + landingJitterY}px`);
+      el.style.setProperty('--rot-start', `${rotStart}deg`);
+      el.style.setProperty('--rot-end', `${rotEnd}deg`);
+      el.style.animationDelay = `${i * 22}ms`;
+
+      overlay.appendChild(el);
+    }
+
+    drawEl.classList.add('uno-draw-stack--mixing');
+    setTimeout(() => {
+      if (reshuffleRunIdRef.current !== runId) return;
+      drawEl.classList.remove('uno-draw-stack--mixing');
+    }, 520);
+
+    reshuffleTimerRef.current = setTimeout(() => {
+      if (reshuffleRunIdRef.current !== runId) return;
+      overlay.classList.remove('uno-reshuffle-overlay--active');
+      overlay.replaceChildren();
+      reshuffleTimerRef.current = null;
+    }, 980);
+  }, []);
 
   useEffect(() => {
     if (!isMultiplayer) return;
@@ -176,6 +249,11 @@ export default function UnoGame() {
     requestAnimationFrame(() => {
       setIsRebuildingDeck(true);
     });
+
+    if (!isMultiplayer && prev && typeof prevDiscard === 'number' && prevDiscard > 1) {
+      triggerDeckReshuffleFx(prevDiscard - 1);
+    }
+
     if (rebuildDeckTimerRef.current) {
       clearTimeout(rebuildDeckTimerRef.current);
     }
@@ -183,13 +261,17 @@ export default function UnoGame() {
       setIsRebuildingDeck(false);
       rebuildDeckTimerRef.current = null;
     }, 650);
-  }, [engine]);
+  }, [engine, isMultiplayer, triggerDeckReshuffleFx]);
 
   useEffect(
     () => () => {
       if (rebuildDeckTimerRef.current) {
         clearTimeout(rebuildDeckTimerRef.current);
         rebuildDeckTimerRef.current = null;
+      }
+      if (reshuffleTimerRef.current) {
+        clearTimeout(reshuffleTimerRef.current);
+        reshuffleTimerRef.current = null;
       }
     },
     [],
@@ -618,6 +700,19 @@ export default function UnoGame() {
         const effect = payload && payload.type ? payload : null;
         if (!effect) return;
         showActionEffect(effect);
+      },
+      onDeckReshuffle: (payload) => {
+        triggerDeckReshuffleFx(payload?.movedCount ?? 0);
+      },
+      onDeckReloaded: (payload) => {
+        setIsReloadingDeck(false);
+        triggerDeckReshuffleFx(payload?.movedCount ?? 0);
+        pushEvent(`Mazo recargado (${payload?.movedCount ?? 0} cartas).`);
+      },
+      onUnoError: (payload) => {
+        setIsReloadingDeck(false);
+        const msg = payload?.message || payload?.reason || 'Error.';
+        pushEvent(`Error: ${msg}`);
       },
       onRematchStatus: (payload) => {
         const totalCount =
@@ -1196,6 +1291,26 @@ export default function UnoGame() {
     });
   };
 
+  const handleReloadDeck = () => {
+    if (!isMultiplayer) return;
+    if (!engine) return;
+    if (!isPlaying || !isHumanTurn) return;
+    if (isReloadingDeck) return;
+
+    const canReloadNow = engine.drawPile.length === 0 && engine.discardPile.length > 1;
+    if (!canReloadNow) return;
+
+    const api = unoNetRef.current;
+    if (!api || typeof api.reloadDeck !== 'function') return;
+
+    setIsReloadingDeck(true);
+    api.reloadDeck();
+
+    setTimeout(() => {
+      setIsReloadingDeck(false);
+    }, 2500);
+  };
+
   const handleRestart = () => {
     if (isMultiplayer) {
       const api = unoNetRef.current;
@@ -1352,6 +1467,12 @@ export default function UnoGame() {
   const lastActionText = renderLastAction(engine.lastAction);
   const canDraw =
     engine.drawPile.length > 0 || (engine.discardPile?.length ?? 0) > 1;
+  const canReloadDeck =
+    isMultiplayer &&
+    isPlaying &&
+    isHumanTurn &&
+    engine.drawPile.length === 0 &&
+    (engine.discardPile?.length ?? 0) > 1;
 
   const isUnoBlockingForMe =
     !isMultiplayer &&
@@ -1421,7 +1542,24 @@ export default function UnoGame() {
           {isMuted ? 'Unmute' : 'Mute'}
         </button>
         <p>{game.message}</p>
-        <p>Mazo: {engine.drawPile.length} cartas</p>
+        <div className="uno-deck-row">
+          <p>Mazo: {engine.drawPile.length} cartas</p>
+          {isMultiplayer && (
+            <button
+              type="button"
+              className="uno-reload-button"
+              onClick={handleReloadDeck}
+              disabled={!canReloadDeck || isReloadingDeck}
+              title={
+                canReloadDeck
+                  ? 'Recargar mazo'
+                  : 'Disponible cuando el mazo est\u00e1 a 0 y hay descartes para reciclar.'
+              }
+            >
+              {isReloadingDeck ? 'Recargando...' : 'Recargar mazo'}
+            </button>
+          )}
+        </div>
         <p className="uno-lastaction">{lastActionText}</p>
 
         <div className="uno-turn">
@@ -1469,10 +1607,16 @@ export default function UnoGame() {
         <ActionOverlay effect={actionEffect} key={actionEffect?._id ?? 'x'} />
 
         <div className="uno-table-main">
+          <div
+            ref={reshuffleOverlayRef}
+            className="uno-reshuffle-overlay"
+            aria-hidden="true"
+          />
           <div className="centerPiles">
             <div className="uno-discard">
               <h3>Carta en mesa</h3>
               <div
+                ref={discardStackRef}
                 className={
                   'uno-discard-stack' +
                   (isRebuildingDeck ? ' uno-discard-stack--rebuilding' : '')
@@ -1516,6 +1660,7 @@ export default function UnoGame() {
             >
               <div className="uno-draw-area">
                 <div
+                  ref={drawStackRef}
                   className={
                     'uno-draw-stack' +
                     (isRebuildingDeck ? ' uno-draw-stack--rebuilding' : '')

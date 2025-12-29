@@ -20,6 +20,9 @@ export function createUnoSocket({
   onPlayerLost,
   onGameOver,
   onActionEffect,
+  onDeckReshuffle,
+  onDeckReloaded,
+  onUnoError,
   onRematchStatus,
   onRematchStart,
 } = {}) {
@@ -57,6 +60,15 @@ export function createUnoSocket({
   socket.on("uno:action_effect", (payload) => {
     if (typeof onActionEffect === "function") onActionEffect(payload);
   });
+  socket.on("uno_deck_reshuffle", (payload) => {
+    if (typeof onDeckReshuffle === "function") onDeckReshuffle(payload);
+  });
+  socket.on("uno_deck_reloaded", (payload) => {
+    if (typeof onDeckReloaded === "function") onDeckReloaded(payload);
+  });
+  socket.on("uno_error", (payload) => {
+    if (typeof onUnoError === "function") onUnoError(payload);
+  });
   socket.on("uno:rematch_status", (payload) => {
     if (typeof onRematchStatus === "function") onRematchStatus(payload);
   });
@@ -73,6 +85,10 @@ export function createUnoSocket({
     socket.emit("uno:accion", { codigo, email, action });
   }
 
+  function reloadDeck() {
+    socket.emit("uno_reload_deck", { codigo, codigoPartida: codigo, email });
+  }
+
   function callUno() {
     socket.emit("uno:uno_call", { codigo, email });
   }
@@ -85,5 +101,5 @@ export function createUnoSocket({
     socket.disconnect();
   }
 
-  return { socket, sendAction, callUno, rematchReady, disconnect };
+  return { socket, sendAction, reloadDeck, callUno, rematchReady, disconnect };
 }
