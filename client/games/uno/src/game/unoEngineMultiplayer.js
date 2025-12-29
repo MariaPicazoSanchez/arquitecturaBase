@@ -29,7 +29,7 @@ export const ACTION_TYPES = {
   PASS_TURN: 'PASS_TURN',
 };
 
-const NEEDS_COLOR = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
+const WILD_VALUES = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
 
 function createCard(color, value) {
   return {
@@ -64,7 +64,7 @@ function createDeck() {
 
 export function canPlayCard(card, topCard) {
   if (!card || !topCard) return false;
-  if (card.color === 'wild') return true;
+  if (WILD_VALUES.has(card.value)) return true;
   return card.color === topCard.color || card.value === topCard.value;
 }
 
@@ -94,7 +94,7 @@ export function createInitialState({ numPlayers = 2, names = [] } = {}) {
 
   let firstCard = drawPile.shift();
   let safety = 0;
-  while (firstCard?.color === 'wild' && drawPile.length > 0 && safety < 10) {
+  while (WILD_VALUES.has(firstCard?.value) && drawPile.length > 0 && safety < 10) {
     drawPile.push(firstCard);
     firstCard = drawPile.shift();
     safety++;
@@ -223,12 +223,12 @@ function applyPlayCard(state, action) {
   const card = player.hand[cardIdx];
   if (!canPlayCard(card, top)) return state;
 
-  const needsColor = NEEDS_COLOR.has(card.value);
-  if (needsColor && !chosenColor) return state;
+  const isWildType = WILD_VALUES.has(card.value);
+  if (isWildType && !chosenColor) return state;
 
   if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV) {
     // eslint-disable-next-line no-console
-    console.log('[UNO] played', { value: card.value, color: card.color, chosenColor });
+    console.log('[UNO] play', { value: card.value, color: card.color, chosenColor });
   }
 
   if (card.value === 'swap') {
@@ -242,7 +242,7 @@ function applyPlayCard(state, action) {
     if (resolvedTargetIdx === playerIndex) return state;
   }
 
-  const cardForDiscard = needsColor ? { ...card, color: chosenColor } : card;
+  const cardForDiscard = isWildType ? { ...card, color: chosenColor } : card;
 
   player.hand.splice(cardIdx, 1);
   s.discardPile.push(cardForDiscard);
@@ -288,8 +288,11 @@ function applyPlayCard(state, action) {
     s.currentPlayerIndex = playerIndex;
   } else if (card.value === 'double') {
     const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    s.doublePlay = { playerIndex: victimIndex, remaining: 1 };
-    s.currentPlayerIndex = victimIndex;
+    const n = s.players[victimIndex].hand.length;
+    const res = drawCardsIntoHand(s, victimIndex, n);
+    if (res.rebuiltDeck) rebuiltDeck = true;
+    if (res.drawnCount > 0) forcedDraw = { victimIndex, count: res.drawnCount };
+    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
   } else if (card.value === 'discard_all') {
     const toDiscard = player.hand.filter((c) => c.color === chosenColor);
     player.hand = player.hand.filter((c) => c.color !== chosenColor);

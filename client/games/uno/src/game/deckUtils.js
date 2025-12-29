@@ -9,6 +9,8 @@ export function shuffle(array) {
   return a;
 }
 
+const WILD_VALUES = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
+
 // Regla: si el mazo queda vacío, mantener la última carta del descarte en mesa
 // y barajar el resto para crear un nuevo mazo.
 export function rebuildDeckIfNeeded({ deck, discard }) {
@@ -24,11 +26,18 @@ export function rebuildDeckIfNeeded({ deck, discard }) {
     return { deck: [...safeDeck], discard: [...safeDiscard], rebuilt: false };
   }
 
-  const topCard = safeDiscard[safeDiscard.length - 1];
-  const toRecycle = safeDiscard.slice(0, -1);
-  const newDeck = shuffle(toRecycle);
-  const newDiscard = [topCard];
+  const top = safeDiscard[safeDiscard.length - 1];
+  const recycle = safeDiscard.slice(0, -1);
 
-  return { deck: newDeck, discard: newDiscard, rebuilt: true };
+  const normalizedRecycle = recycle.map((c) => (WILD_VALUES.has(c.value) ? { ...c, color: 'wild' } : c));
+
+  // eslint-disable-next-line no-console
+  console.log('[UNO] rebuild deck', { recycle: normalizedRecycle.length, top: top?.value, topColor: top?.color });
+
+  return {
+    rebuilt: true,
+    deck: shuffle(normalizedRecycle),
+    discard: [top],
+  };
 }
 

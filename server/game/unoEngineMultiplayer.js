@@ -29,7 +29,7 @@ const ACTION_TYPES = {
   PASS_TURN: 'PASS_TURN',
 };
 
-const NEEDS_COLOR = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
+const WILD_VALUES = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
 
 // ====== Utilidades de cartas/mazo ======
 
@@ -75,7 +75,7 @@ function createDeck() {
 
 function canPlayCard(card, topCard) {
   if (!card || !topCard) return false;
-  if (card.color === 'wild') return true;
+  if (WILD_VALUES.has(card.value)) return true;
   return card.color === topCard.color || card.value === topCard.value;
 }
 
@@ -106,7 +106,7 @@ function createInitialState({ numPlayers = 2, names = [] } = {}) {
   // Primera carta en mesa: intentamos que no sea comodín.
   let firstCard = drawPile.shift();
   let safety = 0;
-  while (firstCard?.color === 'wild' && drawPile.length > 0 && safety < 10) {
+  while (WILD_VALUES.has(firstCard?.value) && drawPile.length > 0 && safety < 10) {
     drawPile.push(firstCard);
     firstCard = drawPile.shift();
     safety++;
@@ -160,7 +160,12 @@ function refillDeckFromDiscard(state) {
 
   const top = disc[disc.length - 1];
   const recycle = disc.slice(0, disc.length - 1);
-  const shuffled = shuffle(recycle);
+  const normalizedRecycle = recycle.map((c) => (WILD_VALUES.has(c.value) ? { ...c, color: 'wild' } : c));
+  const shuffled = shuffle(normalizedRecycle);
+
+  if (process.env.UNO_DEBUG_REBUILD === '1') {
+    console.log('[UNO] rebuild deck', { recycle: normalizedRecycle.length, top: top?.value, topColor: top?.color });
+  }
 
   if (Array.isArray(state.drawPile)) state.drawPile = shuffled;
   else if (Array.isArray(state.deck)) state.deck = shuffled;
@@ -173,9 +178,9 @@ function refillDeckFromDiscard(state) {
   const prevSeq = Number.isFinite(state.reshuffleSeq) ? state.reshuffleSeq : 0;
   const seq = prevSeq + 1;
   state.reshuffleSeq = seq;
-  state.lastReshuffle = { seq, movedCount: recycle.length };
+  state.lastReshuffle = { seq, movedCount: normalizedRecycle.length };
 
-  return { ok: true, reason: 'ok', movedCount: recycle.length, top, seq };
+  return { ok: true, reason: 'ok', movedCount: normalizedRecycle.length, top, seq };
 }
 
 function drawOneCard(state) {
@@ -276,11 +281,11 @@ function applyPlayCard(state, action) {
   const card = player.hand[cardIdx];
   if (!canPlayCard(card, top)) return state;
 
-  const needsColor = NEEDS_COLOR.has(card.value);
-  if (needsColor && !chosenColor) return state;
+  const isWildType = WILD_VALUES.has(card.value);
+  if (isWildType && !chosenColor) return state;
 
   if (process.env.UNO_DEBUG_PLAYED === '1') {
-    console.log('[UNO] played', { value: card.value, color: card.color, chosenColor });
+    console.log('[UNO] play', { value: card.value, color: card.color, chosenColor });
   }
 
   if (card.value === 'swap') {
@@ -289,7 +294,7 @@ function applyPlayCard(state, action) {
     if (targetIndex === playerIndex) return state;
   }
 
-  const cardForDiscard = needsColor ? { ...card, color: chosenColor } : card;
+  const cardForDiscard = isWildType ? { ...card, color: chosenColor } : card;
 
   player.hand.splice(cardIdx, 1);
   s.discardPile.push(cardForDiscard);
@@ -322,8 +327,9 @@ function applyPlayCard(state, action) {
     s.currentPlayerIndex = playerIndex;
   } else if (card.value === 'double') {
     const victimIndex = getNextPlayerIndex(s, playerIndex, 1);
-    s.doublePlay = { playerIndex: victimIndex, remaining: 1 };
-    s.currentPlayerIndex = victimIndex;
+    const n = s.players[victimIndex].hand.length;
+    drawCardsIntoHand(s, victimIndex, n);
+    s.currentPlayerIndex = getNextPlayerIndex(s, victimIndex, 1);
   } else if (card.value === 'discard_all') {
     const toDiscard = player.hand.filter((c) => c.color === chosenColor);
     player.hand = player.hand.filter((c) => c.color !== chosenColor);
