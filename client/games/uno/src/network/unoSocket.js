@@ -31,9 +31,10 @@ export function createUnoSocket({
   socket.on("connect", () => {
     console.log("[UNO] conectado al WS", socket.id);
     socket.emit("uno:suscribirse", { codigo, email });
+    socket.emit("uno_get_state", { codigo, email });
   });
 
-  socket.on("uno:estado", (estado) => {
+  socket.on("uno_state", (estado) => {
     console.log("[UNO] estado recibido:", estado);
     if (typeof onState === "function") onState(estado);
   });

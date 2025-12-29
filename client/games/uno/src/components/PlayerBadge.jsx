@@ -25,6 +25,11 @@ export default function PlayerBadge({
 
   const youLabel = `T\u00da`;
   const cardIcon = '\u{1F0CF}';
+  const saidUno = !!(player?.hasSaidUno || player?.hasCalledUno);
+  const showUno = saidUno && Number(cardCount) === 1;
+  const isBot = !!player?.isBot;
+  const isConnected = player?.isConnected;
+  const displayCount = isConnected === false ? '—' : cardCount;
 
   return (
     <div className={classes}>
@@ -39,11 +44,18 @@ export default function PlayerBadge({
             {isLocal && <span className="playerBadgeYou">{youLabel}</span>}
           </div>
           <div className="playerBadgeCount">
-            {cardIcon} {cardCount}
+            {cardIcon} {displayCount}
           </div>
         </div>
 
         <div className="playerBadgeChips">
+          {isBot && <span className="playerBadgeChip">BOT</span>}
+          {isConnected === false && (
+            <span className="playerBadgeChip" title="Sin conexi\u00f3n">
+              OFF
+            </span>
+          )}
+          {showUno && <span className="playerBadgeChip">UNO</span>}
           {isTurn && <span className="playerBadgeChip playerBadgeChip--turn">TURNO</span>}
           {!isTurn && isNext && (
             <span className="playerBadgeChip playerBadgeChip--next">SIGUIENTE</span>
@@ -53,4 +65,3 @@ export default function PlayerBadge({
     </div>
   );
 }
-

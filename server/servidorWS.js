@@ -188,6 +188,11 @@ function ServidorWS() {
     if (!datosUNO || !datosUNO.engine) return;
     try {
       const sockets = await io.in(codigo).fetchSockets();
+      const connectedHumanIds = new Set();
+      for (const s of sockets) {
+        const humanId = datosUNO.socketToPlayerId?.[s.id];
+        if (humanId) connectedHumanIds.add(humanId);
+      }
 
       const sanitizeEngineForViewer = (engineView) => {
         const drawCount = engineView?.drawPile?.length ?? 0;
@@ -210,6 +215,54 @@ function ServidorWS() {
         };
       };
 
+      const buildPayloadForEngineSafe = (engineSafe) => {
+        const playersPublic = (engineSafe.players || []).map((p) => {
+          const rawId = p?.id;
+          const humanIdForPlayer =
+            typeof rawId === "number" && Array.isArray(datosUNO.humanIds)
+              ? datosUNO.humanIds[rawId]
+              : null;
+          const isBot =
+            !!engineSafe.hasBot &&
+            (humanIdForPlayer == null || humanIdForPlayer === undefined);
+          const isConnected = isBot
+            ? true
+            : !!(humanIdForPlayer && connectedHumanIds.has(humanIdForPlayer));
+
+          return {
+            playerId: rawId == null ? "" : String(rawId),
+            nick: p?.name ?? "Jugador",
+            handCount:
+              typeof p?.handCount === "number"
+                ? p.handCount
+                : Array.isArray(p?.hand)
+                  ? p.hand.length
+                  : 0,
+            isBot,
+            hasSaidUno: !!p?.hasCalledUno,
+            isConnected,
+          };
+        });
+
+        const players = playersPublic.map(({ playerId, nick, handCount }) => ({
+          id: playerId,
+          name: nick,
+          handCount,
+        }));
+
+        return {
+          codigo,
+          meId: engineSafe.players?.[0]?.id == null ? "" : String(engineSafe.players[0].id),
+          myPlayerId: engineSafe.players?.[0]?.id ?? null,
+          players,
+          playersPublic,
+          myHand: engineSafe.players?.[0]?.hand || [],
+          turnIndex: engineSafe.currentPlayerIndex,
+          direction: engineSafe.direction,
+          engine: engineSafe,
+        };
+      };
+
       for (const s of sockets) {
         const playerId = datosUNO.socketToPlayerId?.[s.id];
         const canonicalIndex = playerId
@@ -220,21 +273,10 @@ function ServidorWS() {
             ? rotateEngineForViewer(datosUNO.engine, canonicalIndex)
             : datosUNO.engine;
         const engineSafe = sanitizeEngineForViewer(engineView);
-        const players = (engineSafe.players || []).map(({ id, name, handCount }) => ({
-          id,
-          name,
-          handCount,
-        }));
-        const payload = {
-          codigo,
-          myPlayerId: engineSafe.players?.[0]?.id ?? null,
-          players,
-          turnIndex: engineSafe.currentPlayerIndex,
-          direction: engineSafe.direction,
-          engine: engineSafe,
-        };
+        const payload = buildPayloadForEngineSafe(engineSafe);
 
         s.emit("uno:estado", payload);
+        s.emit("uno_state", payload);
       }
     } catch (e) {
       const drawCount = datosUNO.engine?.drawPile?.length ?? 0;
@@ -250,14 +292,34 @@ function ServidorWS() {
         drawPile: Array.from({ length: drawCount }),
       };
 
-      io.to(codigo).emit("uno:estado", {
+      const playersPublic = safePlayers.map((p) => ({
+        playerId: p?.id == null ? "" : String(p.id),
+        nick: p?.name ?? "Jugador",
+        handCount:
+          typeof p?.handCount === "number"
+            ? p.handCount
+            : Array.isArray(p?.hand)
+              ? p.hand.length
+              : 0,
+        isBot: !!engineSafe.hasBot && p?.id === 1,
+        hasSaidUno: !!p?.hasCalledUno,
+        isConnected: null,
+      }));
+
+      const payload = {
         codigo,
+        meId: "",
         myPlayerId: null,
         players: safePlayers.map(({ id, name, handCount }) => ({ id, name, handCount })),
+        playersPublic,
+        myHand: [],
         turnIndex: engineSafe.currentPlayerIndex,
         direction: engineSafe.direction,
         engine: engineSafe,
-      });
+      };
+
+      io.to(codigo).emit("uno:estado", payload);
+      io.to(codigo).emit("uno_state", payload);
     }
   };
 
@@ -667,6 +729,162 @@ function ServidorWS() {
       // ==========================
       //  UNO MULTIJUGADOR (WS)
       // ==========================
+
+      socket.on("uno_get_state", async function (datos) {
+        const codigo = (datos && (datos.codigo || datos.codigoPartida)) || null;
+        const email = datos && datos.email;
+        if (!codigo) return;
+
+        const partida = sistema.partidas[codigo];
+        if (!partida) return;
+        if (partida.juego !== "uno") return;
+
+        const playerId = normalizePlayerId(email);
+        if (!playerId) return;
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) return;
+
+        if (!estadosUNO[codigo]) {
+          estadosUNO[codigo] = {
+            engine: null,
+            humanIds: [],
+            humanNames: [],
+            socketToPlayerId: {},
+          };
+        }
+
+        const datosUNO = estadosUNO[codigo];
+        datosUNO.socketToPlayerId[socket.id] = playerId;
+
+        const partidaHumanIds = [];
+        const partidaHumanNames = [];
+        for (const j of partida.jugadores || []) {
+          const id = normalizePlayerId(j.email);
+          if (!id || partidaHumanIds.includes(id)) continue;
+          partidaHumanIds.push(id);
+          partidaHumanNames.push(j.nick || j.email);
+        }
+        datosUNO.humanIds = partidaHumanIds;
+        datosUNO.humanNames = partidaHumanNames;
+
+        const numHumanPlayers = datosUNO.humanIds.length;
+        const shouldHaveBot = numHumanPlayers < 2;
+        const desiredNames = shouldHaveBot
+          ? [datosUNO.humanNames[0] || email, "Bot"]
+          : [...datosUNO.humanNames];
+        const desiredNumPlayers = shouldHaveBot ? 2 : numHumanPlayers;
+
+        const existingNames = datosUNO.engine?.players?.map((p) => p.name) || null;
+        const needsRecreate =
+          !datosUNO.engine ||
+          !!datosUNO.engine.hasBot !== shouldHaveBot ||
+          (datosUNO.engine.players?.length || 0) !== desiredNumPlayers ||
+          !arraysEqual(existingNames, desiredNames);
+
+        if (needsRecreate) {
+          clearAllUnoDeadlines(io, codigo, datosUNO);
+          const rematch = ensureRematchState(datosUNO);
+          rematch.readyByPlayerId = {};
+          rematch.inProgress = false;
+          const engine = createInitialState({
+            numPlayers: desiredNumPlayers,
+            names: desiredNames,
+          });
+          engine.numHumanPlayers = numHumanPlayers;
+          engine.hasBot = shouldHaveBot;
+          datosUNO.engine = engine;
+        } else {
+          datosUNO.engine.numHumanPlayers = numHumanPlayers;
+          datosUNO.engine.hasBot = shouldHaveBot;
+        }
+
+        socket.join(codigo);
+
+        // Emitir estado actual solo a este socket (emitirEstadoUNO ya emite a todos).
+        try {
+          const sockets = await io.in(codigo).fetchSockets();
+          const connectedHumanIds = new Set();
+          for (const s of sockets) {
+            const human = datosUNO.socketToPlayerId?.[s.id];
+            if (human) connectedHumanIds.add(human);
+          }
+
+          const canonicalIndex = datosUNO.humanIds.indexOf(playerId);
+          const engineView =
+            canonicalIndex > 0
+              ? rotateEngineForViewer(datosUNO.engine, canonicalIndex)
+              : datosUNO.engine;
+
+          const drawCount = engineView?.drawPile?.length ?? 0;
+          const safePlayers = (engineView?.players || []).map((p, idx) => {
+            const handCount = p?.hand?.length ?? 0;
+            const base = {
+              id: p?.id,
+              name: p?.name,
+              handCount,
+              hasCalledUno: !!p?.hasCalledUno,
+            };
+            if (idx === 0) return { ...base, hand: p?.hand || [] };
+            return base;
+          });
+          const engineSafe = {
+            ...engineView,
+            players: safePlayers,
+            drawPile: Array.from({ length: drawCount }),
+          };
+
+          const playersPublic = (engineSafe.players || []).map((p) => {
+            const rawId = p?.id;
+            const humanIdForPlayer =
+              typeof rawId === "number" && Array.isArray(datosUNO.humanIds)
+                ? datosUNO.humanIds[rawId]
+                : null;
+            const isBot =
+              !!engineSafe.hasBot &&
+              (humanIdForPlayer == null || humanIdForPlayer === undefined);
+            const isConnected = isBot
+              ? true
+              : !!(humanIdForPlayer && connectedHumanIds.has(humanIdForPlayer));
+            return {
+              playerId: rawId == null ? "" : String(rawId),
+              nick: p?.name ?? "Jugador",
+              handCount:
+                typeof p?.handCount === "number"
+                  ? p.handCount
+                  : Array.isArray(p?.hand)
+                    ? p.hand.length
+                    : 0,
+              isBot,
+              hasSaidUno: !!p?.hasCalledUno,
+              isConnected,
+            };
+          });
+
+          const payload = {
+            codigo,
+            meId: engineSafe.players?.[0]?.id == null ? "" : String(engineSafe.players[0].id),
+            myPlayerId: engineSafe.players?.[0]?.id ?? null,
+            players: playersPublic.map(({ playerId, nick, handCount }) => ({
+              id: playerId,
+              name: nick,
+              handCount,
+            })),
+            playersPublic,
+            myHand: engineSafe.players?.[0]?.hand || [],
+            turnIndex: engineSafe.currentPlayerIndex,
+            direction: engineSafe.direction,
+            engine: engineSafe,
+          };
+
+          socket.emit("uno_state", payload);
+        } catch (e) {
+          // Si falla, al menos forzar un broadcast normal.
+          await emitirEstadoUNO(io, codigo, datosUNO);
+        }
+      });
 
       // Cuando el juego UNO (en /uno) se conecta
       socket.on("uno:suscribirse", async function(datos) {

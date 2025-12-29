@@ -468,9 +468,24 @@ export default function UnoGame() {
         const newEngine = estado && estado.engine;
         if (!newEngine) return;
 
+        const meId = String(
+          estado?.meId ?? estado?.myPlayerId ?? estado?.playerId ?? ''
+        );
+        const publicPlayers = estado?.playersPublic ?? estado?.players ?? [];
+
         setTableState({
           players:
-            estado?.players ??
+            (Array.isArray(publicPlayers)
+              ? publicPlayers.map((p) => ({
+                  id: String(p.playerId ?? p.id ?? ''),
+                  name: p.nick ?? p.name ?? 'Jugador',
+                  handCount: p.handCount ?? 0,
+                  isBot: !!p.isBot,
+                  isConnected: p.isConnected,
+                  hasSaidUno: !!(p.hasSaidUno ?? p.hasCalledUno),
+                  hasCalledUno: !!(p.hasSaidUno ?? p.hasCalledUno),
+                }))
+              : []) ??
             (newEngine.players ?? []).map((p) => ({
               id: p.id,
               name: p.name,
@@ -481,7 +496,7 @@ export default function UnoGame() {
               ? estado.turnIndex
               : newEngine.currentPlayerIndex ?? 0,
           direction: estado?.direction === -1 ? -1 : 1,
-          myPlayerId: estado?.myPlayerId ?? newEngine.players?.[0]?.id ?? null,
+          myPlayerId: meId || (estado?.myPlayerId ?? newEngine.players?.[0]?.id ?? null),
         });
 
         const localHasCalled = !!newEngine.players?.[0]?.hasCalledUno;

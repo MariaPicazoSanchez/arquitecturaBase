@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "build": "npm --prefix client/games/uno ci && npm --prefix client/games/uno run build",
+    "build": "npm --prefix client/games/uno ci && npm --prefix client/games/uno run build && npm --prefix client/games/4raya ci && npm --prefix client/games/4raya run build",
     "test": "npx jasmine-node server",
     "dev": "node --env-file .env index.js"
   },
