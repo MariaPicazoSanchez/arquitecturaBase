@@ -30,7 +30,7 @@ export default function GameResultModal({
         <h2>{title}</h2>
         <p>{subtitle}</p>
         <button onClick={onRestart} disabled={isMultiplayer && isReady}>
-          {isMultiplayer && isReady ? 'Listo ✅' : 'Jugar otra vez'}
+          {isMultiplayer && isReady ? 'Listo' : 'Jugar otra vez'}
         </button>
         {isMultiplayer && Number.isFinite(totalCount) && totalCount > 0 && (
           <p style={{ marginTop: '0.75rem', opacity: 0.9 }}>

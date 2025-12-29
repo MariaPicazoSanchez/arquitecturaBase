@@ -747,6 +747,48 @@ button:disabled {
   border: 1px solid rgba(59, 130, 246, 0.6);
 }
 
+.uno-turn-order {
+  margin-top: 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+
+.uno-turn-order-chips {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.turnChip {
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  font-weight: 700;
+  background: rgba(2, 6, 23, 0.25);
+  color: #e5e7eb;
+}
+
+.turnChip.active {
+  border-color: #f08a24;
+  box-shadow: 0 0 0 3px rgba(240, 138, 36, 0.25);
+}
+
+.turnChip.inactive {
+  color: #9ca3af;
+}
+
+.turnArrow {
+  color: #6b7280;
+  opacity: 0.85;
+}
+
 /* Cartas jugables con brillo */
 .uno-card--playable {
   box-shadow:
@@ -914,10 +956,10 @@ button:disabled {
 }
 
 .uno-seat--active {
-  border-color: rgba(34, 197, 94, 0.75);
+  border-color: rgba(249, 115, 22, 0.8);
   box-shadow:
-    0 0 0 2px rgba(34, 197, 94, 0.28),
-    0 18px 40px rgba(16, 185, 129, 0.2);
+    0 0 0 3px rgba(249, 115, 22, 0.25),
+    0 18px 40px rgba(249, 115, 22, 0.18);
   animation: uno-seat-glow 0.95s ease-in-out infinite alternate;
 }
 
@@ -1132,6 +1174,27 @@ button:disabled {
   gap: 0.4rem;
 }
 
+.playerBadgeCountInline {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #e5e7eb;
+  opacity: 0.9;
+}
+
+.playerBadge.inactive .playerBadgeName {
+  color: #9ca3af;
+}
+
+.playerBadge.inactive .playerBadgeCountInline {
+  color: #9ca3af;
+  opacity: 0.9;
+}
+
+.playerBadge.inactive .playerBadgeAvatar {
+  filter: saturate(0.75) brightness(0.95);
+  opacity: 0.9;
+}
+
 .playerBadgeYou {
   padding: 0.08rem 0.4rem;
   border-radius: 9999px;
@@ -1141,13 +1204,6 @@ button:disabled {
   background: rgba(59, 130, 246, 0.14);
   border: 1px solid rgba(59, 130, 246, 0.5);
   color: #bfdbfe;
-}
-
-.playerBadgeCount {
-  font-size: 0.8rem;
-  font-weight: 800;
-  color: #e5e7eb;
-  opacity: 0.95;
 }
 
 .playerBadgeChips {

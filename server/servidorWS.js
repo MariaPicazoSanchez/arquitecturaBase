@@ -35,7 +35,8 @@ function ServidorWS() {
     const found = partida.jugadores.find(
       (j) => normalizePlayerId(j.email) === playerId
     );
-    return (found && (found.nick || found.email)) || fallback;
+    const nick = (found && typeof found.nick === "string" ? found.nick.trim() : "") || "";
+    return nick || fallback;
   };
 
   const arraysEqual = (a, b) =>
@@ -251,24 +252,44 @@ function ServidorWS() {
           };
         });
 
-        const players = playersPublic.map(({ playerId, nick, handCount }) => ({
-          id: playerId,
-          name: nick,
-          handCount,
-        }));
+          const players = playersPublic.map(({ playerId, nick, handCount }) => ({
+            id: playerId,
+            name: nick,
+            handCount,
+          }));
 
-        return {
-          codigo,
-          meId: engineSafe.players?.[0]?.id == null ? "" : String(engineSafe.players[0].id),
-          myPlayerId: engineSafe.players?.[0]?.id ?? null,
-          players,
-          playersPublic,
-          myHand: engineSafe.players?.[0]?.hand || [],
-          turnIndex: engineSafe.currentPlayerIndex,
-          direction: engineSafe.direction,
-          engine: engineSafe,
+          const turnPlayerIdRaw =
+            engineSafe.players?.[engineSafe.currentPlayerIndex]?.id ?? null;
+          const turnPlayerId = turnPlayerIdRaw == null ? "" : String(turnPlayerIdRaw);
+          const playerOrder = (engineSafe.players || []).map((p) =>
+            p?.id == null ? "" : String(p.id),
+          );
+
+          if (process.env.UNO_DEBUG_PUBLIC === "1") {
+            console.log(
+              "[UNO] payload public",
+              playersPublic.map((p) => `${p.nick}:${p.handCount}`),
+              "turn",
+              turnPlayerId,
+              "dir",
+              engineSafe.direction,
+            );
+          }
+
+          return {
+            codigo,
+            meId: engineSafe.players?.[0]?.id == null ? "" : String(engineSafe.players[0].id),
+            myPlayerId: engineSafe.players?.[0]?.id ?? null,
+            players,
+            playersPublic,
+            myHand: engineSafe.players?.[0]?.hand || [],
+            turnIndex: engineSafe.currentPlayerIndex,
+            turnPlayerId,
+            playerOrder,
+            direction: engineSafe.direction,
+            engine: engineSafe,
+          };
         };
-      };
 
       for (const s of sockets) {
         const playerId = datosUNO.socketToPlayerId?.[s.id];
@@ -313,6 +334,12 @@ function ServidorWS() {
         isConnected: null,
       }));
 
+      const turnPlayerIdRaw =
+        engineSafe.players?.[engineSafe.currentPlayerIndex]?.id ?? null;
+      const playerOrder = (engineSafe.players || []).map((p) =>
+        p?.id == null ? "" : String(p.id),
+      );
+
       const payload = {
         codigo,
         meId: "",
@@ -321,6 +348,8 @@ function ServidorWS() {
         playersPublic,
         myHand: [],
         turnIndex: engineSafe.currentPlayerIndex,
+        turnPlayerId: turnPlayerIdRaw == null ? "" : String(turnPlayerIdRaw),
+        playerOrder,
         direction: engineSafe.direction,
         engine: engineSafe,
       };
@@ -626,7 +655,8 @@ function ServidorWS() {
               const id = normalizePlayerId(j.email);
               if (!id || partidaHumanIds.includes(id)) continue;
               partidaHumanIds.push(id);
-              partidaHumanNames.push(j.nick || j.email);
+              const fallback = `Jugador ${partidaHumanNames.length + 1}`;
+              partidaHumanNames.push(pickDisplayName(partida, id, fallback));
             }
 
             datosUNO.humanIds = partidaHumanIds;
@@ -772,7 +802,8 @@ function ServidorWS() {
           const id = normalizePlayerId(j.email);
           if (!id || partidaHumanIds.includes(id)) continue;
           partidaHumanIds.push(id);
-          partidaHumanNames.push(j.nick || j.email);
+          const fallback = `Jugador ${partidaHumanNames.length + 1}`;
+          partidaHumanNames.push(pickDisplayName(partida, id, fallback));
         }
         datosUNO.humanIds = partidaHumanIds;
         datosUNO.humanNames = partidaHumanNames;
@@ -780,7 +811,7 @@ function ServidorWS() {
         const numHumanPlayers = datosUNO.humanIds.length;
         const shouldHaveBot = numHumanPlayers < 2;
         const desiredNames = shouldHaveBot
-          ? [datosUNO.humanNames[0] || email, "Bot"]
+          ? [datosUNO.humanNames[0] || "Jugador 1", "Bot"]
           : [...datosUNO.humanNames];
         const desiredNumPlayers = shouldHaveBot ? 2 : numHumanPlayers;
 
@@ -870,6 +901,12 @@ function ServidorWS() {
             };
           });
 
+          const turnPlayerIdRaw =
+            engineSafe.players?.[engineSafe.currentPlayerIndex]?.id ?? null;
+          const playerOrder = (engineSafe.players || []).map((p) =>
+            p?.id == null ? "" : String(p.id),
+          );
+
           const payload = {
             codigo,
             meId: engineSafe.players?.[0]?.id == null ? "" : String(engineSafe.players[0].id),
@@ -882,6 +919,8 @@ function ServidorWS() {
             playersPublic,
             myHand: engineSafe.players?.[0]?.hand || [],
             turnIndex: engineSafe.currentPlayerIndex,
+            turnPlayerId: turnPlayerIdRaw == null ? "" : String(turnPlayerIdRaw),
+            playerOrder,
             direction: engineSafe.direction,
             engine: engineSafe,
           };
@@ -946,7 +985,8 @@ function ServidorWS() {
           const id = normalizePlayerId(j.email);
           if (!id || partidaHumanIds.includes(id)) continue;
           partidaHumanIds.push(id);
-          partidaHumanNames.push(j.nick || j.email);
+          const fallback = `Jugador ${partidaHumanNames.length + 1}`;
+          partidaHumanNames.push(pickDisplayName(partida, id, fallback));
         }
         datosUNO.humanIds = partidaHumanIds;
         datosUNO.humanNames = partidaHumanNames;
@@ -954,7 +994,7 @@ function ServidorWS() {
         const numHumanPlayers = datosUNO.humanIds.length;
         const shouldHaveBot = numHumanPlayers < 2;
         const desiredNames = shouldHaveBot
-          ? [datosUNO.humanNames[0] || email, "Bot"]
+          ? [datosUNO.humanNames[0] || "Jugador 1", "Bot"]
           : [...datosUNO.humanNames];
         const desiredNumPlayers = shouldHaveBot ? 2 : numHumanPlayers;
 

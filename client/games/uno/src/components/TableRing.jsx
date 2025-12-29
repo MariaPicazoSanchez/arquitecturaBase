@@ -16,14 +16,23 @@ export function buildSeats(players, myPlayerId) {
 export default function TableRing({ gameState, children }) {
   const players = gameState?.players ?? [];
   const myPlayerId = gameState?.myPlayerId ?? null;
-  const turnIndex = typeof gameState?.turnIndex === 'number' ? gameState.turnIndex : 0;
+  const turnPlayerId = gameState?.turnPlayerId ?? null;
+  const turnIndexRaw = typeof gameState?.turnIndex === 'number' ? gameState.turnIndex : 0;
   const direction = gameState?.direction === -1 ? -1 : 1;
 
   const seats = useMemo(() => {
+    const resolvedTurnIndex = (() => {
+      if (turnPlayerId == null || turnPlayerId === '') return turnIndexRaw;
+      const idx = players.findIndex(
+        (p) => String(p?.id ?? '') === String(turnPlayerId),
+      );
+      return idx >= 0 ? idx : turnIndexRaw;
+    })();
+
     const ordered = buildSeats(players, myPlayerId);
     const n = Math.max(1, ordered.length);
     const step = n > 0 ? -TWO_PI / n : 0;
-    const nextIndex = n > 0 ? (turnIndex + direction + n) % n : 0;
+    const nextIndex = n > 0 ? (resolvedTurnIndex + direction + n) % n : 0;
 
     return ordered.map(({ player, originalIndex }, seatIndex) => {
       const angle = BASE_ANGLE + seatIndex * step;
@@ -37,12 +46,12 @@ export default function TableRing({ gameState, children }) {
         style: { left: `${left}%`, top: `${top}%` },
         player,
         cardCount: player?.handCount ?? player?.hand?.length ?? 0,
-        isTurn: originalIndex === turnIndex,
+        isTurn: originalIndex === resolvedTurnIndex,
         isNext: originalIndex === nextIndex,
         isLocal: myPlayerId != null && player?.id === myPlayerId,
       };
     });
-  }, [players, myPlayerId, turnIndex, direction]);
+  }, [players, myPlayerId, turnPlayerId, turnIndexRaw, direction]);
 
   return (
     <div className="uno-table-area table">

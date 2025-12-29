@@ -514,7 +514,7 @@ export default function UnoGame() {
         ...prev,
         engine: null,
         uiStatus: 'waiting',
-        message: 'Conectando a la partida...',
+
       }));
     }, 0);
 
@@ -554,25 +554,27 @@ export default function UnoGame() {
           estado?.meId ?? estado?.myPlayerId ?? estado?.playerId ?? ''
         );
         const publicPlayers = estado?.playersPublic ?? estado?.players ?? [];
+        const playersPublic = Array.isArray(publicPlayers)
+          ? publicPlayers.map((p) => ({
+              playerId: String(p?.playerId ?? p?.id ?? ''),
+              nick: p?.nick ?? p?.name ?? 'Jugador',
+              handCount: typeof p?.handCount === 'number' ? p.handCount : 0,
+              isBot: !!p?.isBot,
+              isConnected: p?.isConnected,
+              hasSaidUno: !!(p?.hasSaidUno ?? p?.hasCalledUno),
+            }))
+          : [];
+        const turnPlayerId = String(
+          estado?.turnPlayerId ?? newEngine.players?.[newEngine.currentPlayerIndex]?.id ?? ''
+        );
+        const playerOrder = Array.isArray(estado?.playerOrder)
+          ? estado.playerOrder.map((id) => String(id ?? '')).filter(Boolean)
+          : playersPublic.map((p) => p.playerId).filter(Boolean);
 
         setTableState({
-          players:
-            (Array.isArray(publicPlayers)
-              ? publicPlayers.map((p) => ({
-                  id: String(p.playerId ?? p.id ?? ''),
-                  name: p.nick ?? p.name ?? 'Jugador',
-                  handCount: p.handCount ?? 0,
-                  isBot: !!p.isBot,
-                  isConnected: p.isConnected,
-                  hasSaidUno: !!(p.hasSaidUno ?? p.hasCalledUno),
-                  hasCalledUno: !!(p.hasSaidUno ?? p.hasCalledUno),
-                }))
-              : []) ??
-            (newEngine.players ?? []).map((p) => ({
-              id: p.id,
-              name: p.name,
-              handCount: p.handCount ?? p.hand?.length ?? 0,
-            })),
+          playersPublic,
+          playerOrder,
+          turnPlayerId,
           turnIndex:
             typeof estado?.turnIndex === 'number'
               ? estado.turnIndex
@@ -611,12 +613,7 @@ export default function UnoGame() {
                 : `${winnerName} se ha quedado sin cartas. Has perdido.`;
           } else {
             newUiStatus = 'playing';
-            const turnName =
-              newEngine.players?.[newEngine.currentPlayerIndex]?.name ?? '—';
-            message =
-              newEngine.currentPlayerIndex === 0
-                ? 'Tu turno.'
-                : `Turno de ${turnName}...`;
+            
           }
 
           return { ...prev, engine: newEngine, uiStatus: newUiStatus, message };
@@ -1481,6 +1478,55 @@ export default function UnoGame() {
     uiStatus === 'playing' &&
     !isLocallyEliminated;
 
+  const publicPlayers = (() => {
+    if (isMultiplayer && Array.isArray(tableState?.playersPublic)) {
+      return tableState.playersPublic;
+    }
+    return (engine.players ?? []).map((p) => ({
+      playerId: String(p?.id ?? ''),
+      nick: p?.name ?? 'Jugador',
+      handCount: Array.isArray(p?.hand) ? p.hand.length : (p?.handCount ?? 0),
+      isBot: false,
+      isConnected: true,
+    }));
+  })();
+
+  const turnPlayerId = String(
+    (isMultiplayer ? tableState?.turnPlayerId : '') ??
+      engine.players?.[engine.currentPlayerIndex]?.id ??
+      '',
+  );
+  const playerOrder = (() => {
+    if (isMultiplayer && Array.isArray(tableState?.playerOrder) && tableState.playerOrder.length > 0) {
+      return tableState.playerOrder.map((id) => String(id ?? '')).filter(Boolean);
+    }
+    return publicPlayers.map((p) => String(p.playerId ?? '')).filter(Boolean);
+  })();
+  const direction = isMultiplayer
+    ? (tableState?.direction === -1 ? -1 : 1)
+    : (engine.direction === -1 ? -1 : 1);
+
+  const activePublic = publicPlayers.find(
+    (p) => String(p.playerId) === String(turnPlayerId),
+  );
+
+  const orderedByPlay = (() => {
+    const ids = playerOrder.filter(Boolean);
+    const n = ids.length;
+    if (n <= 1) return [];
+    const step = direction === -1 ? -1 : 1;
+    const start = ids.findIndex((id) => String(id) === String(turnPlayerId));
+    if (start < 0) return ids.map((id) => ({ playerId: id, nick: 'Jugador', handCount: 0 }));
+
+    const orderedIds = Array.from({ length: n }, (_, k) => {
+      const idx = (start + k * step + n * 10) % n;
+      return ids[idx];
+    });
+    return orderedIds
+      .map((id) => publicPlayers.find((p) => String(p.playerId) === String(id)))
+      .filter(Boolean);
+  })();
+
   const myUnoDeadlineTs = isMultiplayer
     ? unoDeadlinesByPlayerId?.[player.id] ?? unoDeadlinesByPlayerId?.[String(player.id)] ?? null
     : lastCardRequiredForPlayerId === player.id
@@ -1518,11 +1564,6 @@ export default function UnoGame() {
                 ? 'Fuera de tiempo'
                 : '';
 
-  const tableUnoDeadlines = isMultiplayer
-    ? unoDeadlinesByPlayerId
-    : lastCardRequiredForPlayerId && lastCardDeadlineTs
-      ? { [lastCardRequiredForPlayerId]: lastCardDeadlineTs }
-      : {};
 
   return (
     <div className="uno-game" onPointerDown={handleUserGesture}>
@@ -1572,36 +1613,69 @@ export default function UnoGame() {
                 : 'uno-turn-badge--bot')
             }
           >
-            {engine.players?.[engine.currentPlayerIndex]?.name ?? '—'}
+            {activePublic ? `${activePublic.nick} (${activePublic.handCount})` : '—'}
           </span>
         </div>
 
-        {events.length > 0 && (
-          <div className="uno-events">
-            <div className="uno-events-title">Eventos</div>
-            <ul className="uno-events-list">
-              {events.map((e) => (
-                <li key={e.id} className="uno-events-item">
-                  {e.text}
-                </li>
+        {orderedByPlay.length > 1 && (
+          <div className="uno-turn-order" aria-label="Orden de juego">
+            <span className="uno-turn-order-label">Orden:</span>
+            <div className="uno-turn-order-chips">
+              {orderedByPlay.map((p, i) => (
+                <React.Fragment key={p.playerId}>
+                  <span
+                    className={
+                      'turnChip ' +
+                      (String(p.playerId) === String(turnPlayerId) ? 'active' : 'inactive')
+                    }
+                  >
+                    {p.nick} ({p.handCount})
+                  </span>
+                  {i < orderedByPlay.length - 1 && (
+                    <span className="turnArrow" aria-hidden="true">
+                      →
+                    </span>
+                  )}
+                </React.Fragment>
               ))}
-            </ul>
+            </div>
           </div>
         )}
+
+
       </div>
 
       <TableRing
         gameState={
-          tableState ?? {
-            players: (engine.players ?? []).map((p) => ({
-              id: p.id,
-              name: p.name,
-              handCount: p.handCount ?? p.hand?.length ?? 0,
-            })),
-            turnIndex: engine.currentPlayerIndex ?? 0,
-            direction: engine.direction === -1 ? -1 : 1,
-            myPlayerId: player.id,
-          }
+          tableState
+            ? {
+                players: (tableState.playersPublic ?? []).map((p) => ({
+                  id: String(p?.playerId ?? ''),
+                  name: p?.nick ?? 'Jugador',
+                  handCount: typeof p?.handCount === 'number' ? p.handCount : 0,
+                  isBot: !!p?.isBot,
+                  isConnected: p?.isConnected,
+                  hasSaidUno: !!p?.hasSaidUno,
+                })),
+                turnIndex:
+                  typeof tableState.turnIndex === 'number'
+                    ? tableState.turnIndex
+                    : engine.currentPlayerIndex ?? 0,
+                turnPlayerId: String(tableState.turnPlayerId ?? ''),
+                direction: tableState.direction === -1 ? -1 : 1,
+                myPlayerId: tableState.myPlayerId ?? null,
+              }
+            : {
+                players: (engine.players ?? []).map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  handCount: p.handCount ?? p.hand?.length ?? 0,
+                })),
+                turnIndex: engine.currentPlayerIndex ?? 0,
+                turnPlayerId: String(engine.players?.[engine.currentPlayerIndex]?.id ?? ''),
+                direction: engine.direction === -1 ? -1 : 1,
+                myPlayerId: player.id,
+              }
         }
       >
         <ActionOverlay effect={actionEffect} key={actionEffect?._id ?? 'x'} />

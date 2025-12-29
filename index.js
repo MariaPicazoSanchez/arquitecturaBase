@@ -9,6 +9,7 @@ const { Server } = require("socket.io");
 
 require('dotenv').config();
 const PORT = Number.parseInt(process.env.PORT, 10) || 3000;
+const IN_PROD = process.env.NODE_ENV === 'production';
 const passport=require("passport");
 const session = require('express-session');
 
@@ -35,8 +36,45 @@ try {
 // Socket.io server
 const moduloWS = require("./server/servidorWS.js");
 
+function buildSocketAllowedOrigins() {
+  const origins = new Set();
+
+  const addOrigin = (value) => {
+    const raw = (value || "").toString().trim();
+    if (!raw) return;
+    try {
+      origins.add(new URL(raw).origin);
+    } catch {
+      // ignore invalid URL
+    }
+  };
+
+  addOrigin(process.env.APP_URL);
+  addOrigin(process.env.SERVER_URL);
+
+  // Local dev defaults
+  origins.add("http://localhost:3000");
+  origins.add("http://127.0.0.1:3000");
+  origins.add("http://localhost:5173");
+  origins.add("http://127.0.0.1:5173");
+
+  return origins;
+}
+
+const socketAllowedOrigins = buildSocketAllowedOrigins();
+
 // Enlazamos Socket.IO al httpServer
-let io = new Server(httpServer);
+let io = new Server(httpServer, {
+  path: "/socket.io",
+  cors: {
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (!IN_PROD) return cb(null, true);
+      return cb(null, socketAllowedOrigins.has(origin));
+    },
+    credentials: true,
+  },
+});
 let ws = new moduloWS.ServidorWS();
 
 // --------------------
@@ -73,7 +111,6 @@ app.use(express.static(path.join(__dirname, 'client')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const IN_PROD = process.env.NODE_ENV === 'production';
 if (IN_PROD){
   app.set('trust proxy', 1);
 }

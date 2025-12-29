@@ -16,6 +16,7 @@ export default function PlayerBadge({
   const classes = [
     'playerBadge',
     'uno-seat',
+    isTurn ? 'active' : 'inactive',
     isTurn && 'turn',
     isTurn && 'uno-seat--active',
     isLocal && 'uno-seat--local',
@@ -24,7 +25,6 @@ export default function PlayerBadge({
     .join(' ');
 
   const youLabel = `T\u00da`;
-  const cardIcon = '\u{1F0CF}';
   const saidUno = !!(player?.hasSaidUno || player?.hasCalledUno);
   const showUno = saidUno && Number(cardCount) === 1;
   const isBot = !!player?.isBot;
@@ -41,10 +41,8 @@ export default function PlayerBadge({
         <div className="playerBadgeMeta">
           <div className="playerBadgeName">
             {player?.name ?? 'Jugador'}
+            {!isLocal && <span className="playerBadgeCountInline"> ({displayCount})</span>}
             {isLocal && <span className="playerBadgeYou">{youLabel}</span>}
-          </div>
-          <div className="playerBadgeCount">
-            {cardIcon} {displayCount}
           </div>
         </div>
 

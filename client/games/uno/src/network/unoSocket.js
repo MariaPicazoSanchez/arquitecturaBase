@@ -6,7 +6,7 @@ function resolveServerUrl() {
   if (import.meta.env.PROD && typeof window !== "undefined") {
     return window.location.origin;
   }
-  return "http://localhost:3001";
+  return "http://localhost:3000";
 }
 
 export function createUnoSocket({
