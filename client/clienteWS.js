@@ -21,7 +21,8 @@ function ClienteWS() {
 
     this.ini = function () {
         let ws = this;
-        this.socket = io();
+        const serverUrl = (window.APP_CONFIG && window.APP_CONFIG.SERVER_URL) ? window.APP_CONFIG.SERVER_URL : undefined;
+        this.socket = io(serverUrl);
 
         this.lanzarServidorWS();
 

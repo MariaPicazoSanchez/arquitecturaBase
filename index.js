@@ -443,7 +443,8 @@ app.get('/config.js', (req, res) => {
   // Soporta varios nombres de variable en .env para compatibilidad
   const CLIENT_ID = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '';
   const LOGIN_URI = process.env.LOGIN_URI || process.env.ONE_TAP_CALLBACK_URL || process.env.ONE_TAP_LOGIN_URI || process.env.GOOGLE_CALLBACK_URL || '';
-  const cfg = { CLIENT_ID, LOGIN_URI };
+  const SERVER_URL = process.env.SERVER_URL || '';
+  const cfg = { CLIENT_ID, LOGIN_URI, SERVER_URL };
   console.log('[config.js] sirviendo configuración al cliente:', cfg);
   res.type('application/javascript');
   res.send(`window.APP_CONFIG = ${JSON.stringify(cfg)};`);
