@@ -62,64 +62,59 @@ function ServidorWS() {
     return bestColor;
   };
 
-  const runBotTurnsIfNeeded = (engine) => {
-    if (!engine || !engine.hasBot) return engine;
+  const getBotIndexes = (engine, datosUNO) => {
+    if (!engine || !engine.hasBot) return [];
+    const n = Array.isArray(engine.players) ? engine.players.length : 0;
+    if (n === 0) return [];
+
+    const numHuman =
+      Number.isFinite(engine.numHumanPlayers) && engine.numHumanPlayers > 0
+        ? engine.numHumanPlayers
+        : Array.isArray(datosUNO?.humanIds) && datosUNO.humanIds.length > 0
+          ? datosUNO.humanIds.length
+          : Math.max(n - 1, 1);
+
+    const out = [];
+    for (let i = numHuman; i < n; i++) out.push(i);
+    return out;
+  };
+
+  const ensureLastCardAnnouncementForBots = (io, codigo, datosUNO, engine) => {
+    if (!engine || engine.status !== "playing") return engine;
 
     let updated = engine;
-    let safety = 0;
-    while (
-      updated.status === "playing" &&
-      updated.currentPlayerIndex === 1 &&
-      safety < 25
-    ) {
-      safety++;
+    for (const botIndex of getBotIndexes(updated, datosUNO)) {
+      const bot = updated.players?.[botIndex];
+      if (!bot) continue;
+      const handLen = Array.isArray(bot.hand) ? bot.hand.length : 0;
 
-      let playable = getPlayableCards(updated, 1);
-      while (
-        playable.length === 0 &&
-        (updated.drawPile.length > 0 || updated.discardPile.length > 1)
-      ) {
-        updated = applyAction(updated, {
-          type: ACTION_TYPES.DRAW_CARD,
-          playerIndex: 1,
+      if (handLen === 1) {
+        if (bot.hasCalledUno) continue;
+
+        const prevLastAction = updated.lastAction ? { ...updated.lastAction } : null;
+        const next = applyAction(updated, {
+          type: ACTION_TYPES.CALL_UNO,
+          playerIndex: botIndex,
         });
-        playable = getPlayableCards(updated, 1);
-      }
+        if (prevLastAction) next.lastAction = prevLastAction;
+        updated = next;
 
-      if (playable.length > 0) {
-        const card = playable[0];
-        const needsColor = card.color === "wild";
-        const needsTarget = card.value === "swap";
-        const chosenTargetId = needsTarget
-          ? (() => {
-              const candidates = (updated.players || []).map((p, idx) => ({
-                idx,
-                id: p?.id ?? null,
-                handCount: p?.hand?.length ?? 0,
-              }));
-              const others = candidates.filter((c) => c.idx !== 1 && c.id != null);
-              if (others.length === 0) return null;
-              const best = others.reduce((acc, cur) => (cur.handCount < acc.handCount ? cur : acc));
-              return best.id;
-            })()
-          : null;
-        updated = applyAction(updated, {
-          type: ACTION_TYPES.PLAY_CARD,
-          playerIndex: 1,
-          cardId: card.id,
-          ...(needsColor ? { chosenColor: chooseBotColor(updated, 1) } : {}),
-          ...(chosenTargetId != null ? { chosenTargetId } : {}),
+        clearUnoDeadline(io, codigo, datosUNO, bot.id, { emit: false });
+        io.to(codigo).emit("uno:uno_called", {
+          codigo,
+          playerId: bot.id,
+          atTs: Date.now(),
+          auto: true,
         });
         continue;
       }
 
-      // Sin jugadas posibles y sin mazo: pasar turno (y consumir doublePlay si toca).
-      if (updated.doublePlay && updated.doublePlay.playerIndex === 1 && updated.doublePlay.remaining === 0) {
-        updated = applyAction(updated, { type: ACTION_TYPES.PASS_TURN, playerIndex: 1 });
-      } else {
+      if (handLen !== 1 && bot.hasCalledUno) {
         updated = {
           ...updated,
-          currentPlayerIndex: getNextPlayerIndex(updated, 1, 1),
+          players: (updated.players || []).map((p, idx) =>
+            idx === botIndex ? { ...p, hasCalledUno: false } : p,
+          ),
         };
       }
     }
@@ -143,7 +138,7 @@ function ServidorWS() {
     return null;
   };
 
-  const runBotTurnsIfNeededWithEffects = (engine) => {
+  const runBotTurnsIfNeededWithEffects = (engine, { io = null, codigo = null, datosUNO = null } = {}) => {
     if (!engine || !engine.hasBot) return { engine, effects: [] };
 
     let updated = engine;
@@ -165,6 +160,9 @@ function ServidorWS() {
           type: ACTION_TYPES.DRAW_CARD,
           playerIndex: 1,
         });
+        if (io && codigo) {
+          updated = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, updated);
+        }
         playable = getPlayableCards(updated, 1);
       }
 
@@ -192,6 +190,9 @@ function ServidorWS() {
           ...(needsColor ? { chosenColor: chooseBotColor(updated, 1) } : {}),
           ...(chosenTargetId != null ? { chosenTargetId } : {}),
         });
+        if (io && codigo) {
+          updated = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, updated);
+        }
         const byPlayerId = updated.players?.[1]?.id ?? 1;
         const effect = deriveActionEffectFromCard(updated.lastAction?.card, byPlayerId);
         if (effect) effects.push(effect);
@@ -1267,7 +1268,8 @@ function ServidorWS() {
         const prevReshuffleSeq = Number.isFinite(datosUNO.engine?.reshuffleSeq)
           ? datosUNO.engine.reshuffleSeq
           : 0;
-        const engineAfterHuman = applyAction(datosUNO.engine, fullAction);
+        let engineAfterHuman = applyAction(datosUNO.engine, fullAction);
+        engineAfterHuman = ensureLastCardAnnouncementForBots(io, codigo, datosUNO, engineAfterHuman);
 
         const actionEffects = [];
         if (fullAction.type === ACTION_TYPES.PLAY_CARD) {
@@ -1276,7 +1278,7 @@ function ServidorWS() {
           if (effect) actionEffects.push(effect);
         }
 
-        const botResult = runBotTurnsIfNeededWithEffects(engineAfterHuman);
+        const botResult = runBotTurnsIfNeededWithEffects(engineAfterHuman, { io, codigo, datosUNO });
         datosUNO.engine = botResult.engine;
         actionEffects.push(...(botResult.effects || []));
 
