@@ -1,4 +1,24 @@
 (function(global){
+  function getApiBaseUrl(){
+    try {
+      const cfg = global.APP_CONFIG || {};
+      return (cfg.SERVER_URL || cfg.API_URL || "").toString().trim();
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function apiUrl(path){
+    const p = (path || "").toString();
+    const base = getApiBaseUrl();
+    if (!base) return p;
+    try {
+      return new URL(p, base).toString();
+    } catch (e) {
+      return base.replace(/\/$/, "") + p;
+    }
+  }
+
   function parseError(xhr, fallback){
     let msg = fallback || "Error";
     try {
@@ -21,7 +41,7 @@
   }
 
   function getMe(){
-    const req = ajax({ url: '/api/user/me', method: 'GET', dataType: 'json' });
+    const req = ajax({ url: apiUrl('/api/user/me'), method: 'GET', dataType: 'json' });
     req.fail(function(xhr){
       if (xhr && xhr.status === 401) handle401();
     });
@@ -30,7 +50,7 @@
 
   function updateMe(data){
     const req = ajax({
-      url: '/api/user/me',
+      url: apiUrl('/api/user/me'),
       method: 'PUT',
       contentType: 'application/json',
       dataType: 'json',
@@ -44,7 +64,7 @@
 
   function requestPasswordChange(){
     const req = ajax({
-      url: '/api/user/password-change/request',
+      url: apiUrl('/api/auth/password-reset/request'),
       method: 'POST',
       contentType: 'application/json',
       dataType: 'json',
@@ -58,7 +78,7 @@
 
   function confirmPasswordChange(codeOrToken, newPassword){
     const req = ajax({
-      url: '/api/user/password-change/confirm',
+      url: apiUrl('/api/user/password-change/confirm'),
       method: 'POST',
       contentType: 'application/json',
       dataType: 'json',
@@ -72,7 +92,7 @@
 
   function deleteMe(payload){
     const req = ajax({
-      url: '/api/user/me',
+      url: apiUrl('/api/user/me'),
       method: 'DELETE',
       contentType: 'application/json',
       dataType: 'json',

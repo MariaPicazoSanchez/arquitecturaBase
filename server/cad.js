@@ -7,6 +7,7 @@ function CAD() {
   this.db = null;
   this.usuarios = undefined;
   this.logs = undefined;
+  this.passwordResetTokens = undefined;
 
   // ---------- CONEXIÓN ÚNICA, CON TIMEOUTS ----------
   this.conectar = async (callback) => {
@@ -17,6 +18,7 @@ function CAD() {
       console.warn("[cad.conectar] MONGO_URI no definida. MODO MEMORIA (NO persiste).");
       this.usuarios = undefined;
       this.logs = undefined;
+      this.passwordResetTokens = undefined;
       if (typeof callback === "function") callback(undefined, new Error("MONGO_URI no definida"));
       return;
     }
@@ -24,6 +26,7 @@ function CAD() {
       console.warn("[cad.conectar] MONGO_URI involida. MODO MEMORIA (NO persiste).");
       this.usuarios = undefined;
       this.logs = undefined;
+      this.passwordResetTokens = undefined;
       if (typeof callback === "function") callback(undefined, new Error("MONGO_URI involida"));
       return;
     }
@@ -43,12 +46,21 @@ function CAD() {
       this.db = this.client.db("sistema");
       this.usuarios = this.db.collection("usuarios");
       this.logs = this.db.collection("logs");
+      this.passwordResetTokens = this.db.collection("passwordResetTokens");
 
       await this.usuarios.createIndex({ email: 1 }, { unique: true });
       try {
         await this.usuarios.createIndex({ nick: 1 }, { unique: true, sparse: true });
       } catch (e) {
         console.warn("[cad.conectar] No se pudo crear índice único en nick (continuo):", e && e.message);
+      }
+
+      try {
+        await this.passwordResetTokens.createIndex({ tokenHash: 1 }, { unique: true });
+        await this.passwordResetTokens.createIndex({ userId: 1, createdAt: -1 });
+        await this.passwordResetTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+      } catch (e) {
+        console.warn("[cad.conectar] No se pudieron crear índices de passwordResetTokens:", e && e.message);
       }
 
       console.log("[cad.conectar] Conectado a Mongo. Colección: sistema.usuarios");
@@ -62,6 +74,7 @@ function CAD() {
       });
       this.usuarios = undefined;
       this.logs = undefined;
+      this.passwordResetTokens = undefined;
       if (typeof callback === "function") callback(undefined, err);
     }
   };
@@ -121,11 +134,118 @@ function CAD() {
     ).then((result) => {
       console.log("[cad.actualizarUsuarioPorEmail] result:", result);
       console.log("[cad.actualizarUsuarioPorEmail] update result:", result ? "success" : "no result");
-      callback(result || undefined);
+      const doc = result && Object.prototype.hasOwnProperty.call(result, "value")
+        ? result.value
+        : result;
+      callback(doc || undefined);
     }).catch((err) => {
       console.error("[cad.actualizarUsuarioPorEmail] error:", err && err.message ? err.message : err);
       callback(undefined);
     });
+  };
+
+  this.buscarUsuarioPorId = function(userId, cb) {
+    if (!this.usuarios) return cb(undefined);
+    let _id;
+    try {
+      _id = (typeof userId === "string") ? new ObjectId(userId) : userId;
+    } catch (e) {
+      return cb(undefined);
+    }
+    this.usuarios.findOne({ _id }, { maxTimeMS: 5000 })
+      .then((doc) => cb(doc || undefined))
+      .catch((err) => {
+        console.error("[cad.buscarUsuarioPorId] error:", err && err.message ? err.message : err);
+        cb(undefined);
+      });
+  };
+
+  this.actualizarUsuarioPorId = function(userId, patch, callback) {
+    if (!this.usuarios) return callback(undefined);
+    let _id;
+    try {
+      _id = (typeof userId === "string") ? new ObjectId(userId) : userId;
+    } catch (e) {
+      return callback(undefined);
+    }
+    const safePatch = patch && typeof patch === "object" ? patch : {};
+    this.usuarios.findOneAndUpdate(
+      { _id },
+      { $set: safePatch },
+      {
+        upsert: false,
+        returnDocument: "after",
+        projection: { _id: 1, email: 1, nick: 1, displayName: 1, createdAt: 1, confirmada: 1, password: 1 },
+        maxTimeMS: 10000,
+      }
+    ).then((result) => {
+      const doc = result && Object.prototype.hasOwnProperty.call(result, "value")
+        ? result.value
+        : result;
+      callback(doc || undefined);
+    }).catch((err) => {
+      console.error("[cad.actualizarUsuarioPorId] error:", err && err.message ? err.message : err);
+      callback(undefined);
+    });
+  };
+
+  this.insertarPasswordResetToken = function(doc, cb) {
+    if (!this.passwordResetTokens) return cb(undefined);
+    const safeDoc = doc && typeof doc === "object" ? doc : {};
+    this.passwordResetTokens.insertOne(safeDoc, { maxTimeMS: 5000 })
+      .then((res) => {
+        if (!res || !res.insertedId) return cb(undefined);
+        cb(Object.assign({ _id: res.insertedId }, safeDoc));
+      })
+      .catch((err) => {
+        console.error("[cad.insertarPasswordResetToken] error:", err && err.message ? err.message : err);
+        cb(undefined);
+      });
+  };
+
+  this.buscarPasswordResetTokenPorHash = function(tokenHash, cb) {
+    if (!this.passwordResetTokens) return cb(undefined);
+    const h = String(tokenHash || "").trim();
+    if (!h) return cb(undefined);
+    this.passwordResetTokens.findOne({ tokenHash: h }, { maxTimeMS: 5000 })
+      .then((doc) => cb(doc || undefined))
+      .catch((err) => {
+        console.error("[cad.buscarPasswordResetTokenPorHash] error:", err && err.message ? err.message : err);
+        cb(undefined);
+      });
+  };
+
+  this.buscarPasswordResetTokenActivoMasRecienteDeUsuario = function(userId, cb) {
+    if (!this.passwordResetTokens) return cb(undefined);
+    const now = new Date();
+    this.passwordResetTokens.find(
+      { userId, usedAt: null, expiresAt: { $gt: now } },
+      { maxTimeMS: 5000 }
+    )
+      .sort({ createdAt: -1 })
+      .limit(1)
+      .toArray()
+      .then((docs) => cb(Array.isArray(docs) && docs[0] ? docs[0] : undefined))
+      .catch((err) => {
+        console.error("[cad.buscarPasswordResetTokenActivoMasRecienteDeUsuario] error:", err && err.message ? err.message : err);
+        cb(undefined);
+      });
+  };
+
+  this.marcarPasswordResetTokenUsado = function(tokenId, cb) {
+    if (!this.passwordResetTokens) return cb(false);
+    let _id;
+    try {
+      _id = (typeof tokenId === "string") ? new ObjectId(tokenId) : tokenId;
+    } catch (e) {
+      return cb(false);
+    }
+    this.passwordResetTokens.updateOne({ _id }, { $set: { usedAt: new Date() } }, { maxTimeMS: 5000 })
+      .then((res) => cb(!!(res && res.modifiedCount === 1)))
+      .catch((err) => {
+        console.error("[cad.marcarPasswordResetTokenUsado] error:", err && err.message ? err.message : err);
+        cb(false);
+      });
   };
 
   this.eliminarUsuarioPorEmail = function(email, callback){
@@ -181,40 +301,131 @@ module.exports.CAD = CAD;
 
 function buscarOCrear(coleccion, criterio, callback) {
   if (!coleccion) {
-    callback({ email: criterio.email });
+    callback({ email: criterio && criterio.email ? criterio.email : undefined });
     return;
   }
-  
-  // Generar nick automático si no existe
-  if (!criterio.nick && criterio.email) {
-    if (criterio.displayName) {
-      // Usar displayName: quitar espacios, convertir a minúsculas, añadir números aleatorios
-      const baseName = criterio.displayName.toLowerCase().replace(/\s+/g, '');
-      criterio.nick = baseName + Math.floor(Math.random() * 1000);
-    } else {
-      // Usar la parte antes del @ del email
-      const emailPart = criterio.email.split('@')[0];
-      criterio.nick = emailPart + Math.floor(Math.random() * 1000);
-    }
+
+  const email = (criterio && criterio.email ? String(criterio.email) : "").trim().toLowerCase();
+  if (!email) {
+    callback(undefined);
+    return;
   }
-  
-  coleccion.findOneAndUpdate(
-    { email: criterio.email },
-    { $set: criterio, $setOnInsert: { createdAt: new Date().toISOString() } },
-    {
-      upsert: true,
-      returnDocument: "after",
-      projection: { email: 1, nick: 1 },
-      maxTimeMS: 4000,
+
+  const displayName = (criterio && criterio.displayName ? String(criterio.displayName) : "").trim();
+  const nickInput = (criterio && criterio.nick ? String(criterio.nick) : "").trim();
+
+  const sanitizeNickBase = function(value) {
+    const raw = (value || "").toString().trim().toLowerCase();
+    const cleaned = raw
+      .replace(/\s+/g, "")
+      .replace(/[^a-z0-9_]/g, "")
+      .slice(0, 18);
+    return cleaned;
+  };
+
+  const buildNickCandidate = function(base) {
+    const suffix = String(Math.floor(Math.random() * 10000)).padStart(4, "0");
+    let b = sanitizeNickBase(base);
+    if (!b) b = "user";
+    if (b.length < 3) b = (b + "user").slice(0, 3);
+    b = b.slice(0, 24 - suffix.length);
+    return b + suffix;
+  };
+
+  const pickBase = function() {
+    if (nickInput) return nickInput;
+    if (displayName) return displayName;
+    const part = email.includes("@") ? email.split("@")[0] : email;
+    return part || "user";
+  };
+
+  const findUniqueNick = async function() {
+    const base = pickBase();
+    for (let i = 0; i < 8; i++) {
+      const cand = buildNickCandidate(base);
+      const exists = await coleccion.findOne({ nick: cand }, { maxTimeMS: 4000, projection: { _id: 1 } });
+      if (!exists) return cand;
     }
-  ).then((result) => {
-    console.log("[cad.buscarOCrear] result structure:", { hasValue: !!result.value, isDoc: !!result.ok });
-    const doc = result.value || result;
-    const res = doc && doc.email ? { email: doc.email, nick: doc.nick } : undefined;
-    console.log("[cad.buscarOCrear] actualizado:", res);
-    callback(res);
-  }).catch((err) => {
-    console.error("[cad.buscarOCrear] error:", err.message);
+    return buildNickCandidate(base);
+  };
+
+  (async () => {
+    const existing = await coleccion.findOne({ email }, { maxTimeMS: 4000 });
+
+    // Usuario ya existe: NO tocar nick (salvo que esté vacío).
+    if (existing && existing.email) {
+      const hasNick = !!(existing.nick && String(existing.nick).trim());
+
+      if (!hasNick) {
+        for (let i = 0; i < 8; i++) {
+          const candidate = await findUniqueNick();
+          try {
+            const res = await coleccion.updateOne(
+              { email, $or: [{ nick: { $exists: false } }, { nick: null }, { nick: "" }] },
+              { $set: { nick: candidate } },
+              { maxTimeMS: 5000 }
+            );
+            if (res && res.modifiedCount === 1) {
+              callback({ email, nick: candidate });
+              return;
+            }
+            const reread = await coleccion.findOne({ email }, { maxTimeMS: 4000, projection: { email: 1, nick: 1 } });
+            callback(reread && reread.email ? { email: reread.email, nick: reread.nick } : { email, nick: candidate });
+            return;
+          } catch (err) {
+            if (err && err.code === 11000) continue; // nick duplicado -> reintentar
+            throw err;
+          }
+        }
+      }
+
+      // best-effort: actualizar displayName si viene (sin tocar nick)
+      if (displayName) {
+        try {
+          await coleccion.updateOne({ email }, { $set: { displayName } }, { maxTimeMS: 5000 });
+        } catch (e) {}
+      }
+
+      callback({ email: existing.email, nick: existing.nick });
+      return;
+    }
+
+    // Nuevo usuario: crear con nick generado una sola vez.
+    for (let i = 0; i < 8; i++) {
+      const candidate = await findUniqueNick();
+      const $set = {};
+      if (displayName) $set.displayName = displayName;
+
+      try {
+        const result = await coleccion.findOneAndUpdate(
+          { email },
+          {
+            $set,
+            $setOnInsert: { email, nick: candidate, createdAt: new Date().toISOString() },
+          },
+          {
+            upsert: true,
+            returnDocument: "after",
+            projection: { email: 1, nick: 1 },
+            maxTimeMS: 5000,
+          }
+        );
+        const doc = result && Object.prototype.hasOwnProperty.call(result, "value")
+          ? result.value
+          : result;
+        if (doc && doc.email) {
+          callback({ email: doc.email, nick: doc.nick });
+          return;
+        }
+      } catch (err) {
+        if (err && err.code === 11000) continue;
+        throw err;
+      }
+    }
+
+    callback({ email, nick: undefined });
+  })().catch((err) => {
+    console.error("[cad.buscarOCrear] error:", err && err.message ? err.message : err);
     callback(undefined);
   });
 }

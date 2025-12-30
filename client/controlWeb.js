@@ -30,6 +30,7 @@ function ControlWeb() {
         const nombreBonito =
             this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
+            this.juegoActual === "checkers" ? "Damas" :
             this.juegoActual === "hundir" ? "Hundir la flota" :
             this.juegoActual;
 
@@ -38,6 +39,7 @@ function ControlWeb() {
         // URL del juego (iframe)
         let url =
             this.juegoActual === "4raya" ? "/4raya" :
+            this.juegoActual === "checkers" ? "/checkers" :
             this.juegoActual === "uno"   ? "/uno" :
             "/uno";
         if (codigo){
@@ -130,7 +132,7 @@ function ControlWeb() {
             if (window.userService && typeof userService.getMe === "function"){
                 userService.getMe()
                     .done(function(me){
-                        const label = (me && (me.nick || me.email)) || nick;
+                        const label = (me && me.nick) || nick;
                         cw._setNavToLogout();
                         cw._setNavUserLabel(label);
                         cw.mostrarSelectorJuegos();
@@ -166,6 +168,13 @@ function ControlWeb() {
             }
         }else{
             cw._setNavToLogin();
+            try {
+                const params = new URLSearchParams(window.location.search || "");
+                if (params.get("reset") === "1"){
+                    cw.mostrarLogin({ keepMessage: true, message: "Contraseña actualizada. Ya puedes iniciar sesión.", messageType: "success" });
+                    return;
+                }
+            } catch(e) {}
             cw.mostrarRegistro();
         }
     };
@@ -198,6 +207,7 @@ function ControlWeb() {
         const nombreBonito =
             this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
+            this.juegoActual === "checkers" ? "Damas" :
             this.juegoActual === "hundir" ? "Hundir la flota" :
             this.juegoActual;
 
@@ -403,11 +413,9 @@ function ControlWeb() {
 
         const name = user.nombre || user.displayName || "";
         const nick = user.nick || "";
-        const email = user.email || "";
 
         $("#account-nombre").text(name || "—");
         $("#account-nick").text(nick || "—");
-        $("#account-email").text(email || "—");
 
         $("#input-nombre").val(name);
         $("#input-nick").val(nick);
@@ -416,7 +424,7 @@ function ControlWeb() {
         $("#input-newPassword2").val("");
         $("#password-change-form").hide();
 
-        const label = (name || nick || email);
+        const label = (name || nick);
         if (label) this._setNavUserLabel(label);
 
         const canChangePassword = !!user.canChangePassword;
@@ -476,6 +484,13 @@ function ControlWeb() {
                 rest.actualizarMiCuenta({ nombre, nick }, function(user){
                     $btn.prop("disabled", false).text("Guardar cambios");
                     cw._setAccountAlert("Perfil actualizado.", "success");
+                    try {
+                        if (user && user.nick){
+                            if (window.jQuery && $.cookie) $.cookie("nick", user.nick);
+                            cw.email = user.nick;
+                            if (window.ws){ ws.email = user.nick; }
+                        }
+                    } catch(e2) {}
                     cw._renderCuenta(user);
                 }, function(errMsg){
                     $btn.prop("disabled", false).text("Guardar cambios");
@@ -496,7 +511,7 @@ function ControlWeb() {
                 rest.solicitarCambioPasswordMiCuenta(function(){
                     $btn.prop("disabled", false).text("Cambio de contraseña");
                     $("#password-change-form").show();
-                    cw._setAccountAlert("Correo enviado. Revisa tu bandeja e introduce el código.", "success");
+                    cw._setAccountAlert("Correo enviado. Revisa tu bandeja: puedes usar el enlace o introducir el código aquí.", "success");
                 }, function(errMsg){
                     $btn.prop("disabled", false).text("Cambio de contraseña");
                     cw._setAccountAlert(errMsg || "No se pudo enviar el correo.", "error");
@@ -702,6 +717,18 @@ function ControlWeb() {
             if (opts.email){
                 $("#emailLogin").val(opts.email);
             }
+
+            if (opts.message){
+                cw.mostrarAviso(opts.message, opts.messageType || "info");
+                try {
+                    // limpiar query para que no se repita al recargar
+                    if (window.history && window.history.replaceState){
+                        const clean = window.location.pathname + window.location.hash;
+                        window.history.replaceState({}, document.title, clean);
+                    }
+                } catch(e) {}
+            }
+
             $("#btnLogin").on("click", function(e){
             e.preventDefault();
             let email = $("#emailLogin").val();
@@ -710,6 +737,49 @@ function ControlWeb() {
                 rest.loginUsuario(email, pwd);
             }
             });
+
+            $("#link-forgot-password").off("click").on("click", function(e){
+                e.preventDefault();
+                try { $("#forgot-password-alert").hide().text(""); } catch(e2) {}
+                const email = ($("#emailLogin").val() || "").trim();
+                $("#forgot-email").val(email);
+                $("#modalForgotPassword").modal("show");
+            });
+
+            $("#form-forgot-password").off("submit").on("submit", function(e){
+                e.preventDefault();
+                const email = ($("#forgot-email").val() || "").trim();
+                if (!email){
+                    $("#forgot-password-alert").text("Introduce un email válido.").show();
+                    return;
+                }
+
+                const $btn = $("#btn-forgot-send");
+                $btn.prop("disabled", true).text("Enviando...");
+                $("#forgot-password-alert").hide().text("");
+
+                const base = (window.APP_CONFIG && window.APP_CONFIG.SERVER_URL) ? String(window.APP_CONFIG.SERVER_URL) : "";
+                let url = "/api/auth/password-reset/request";
+                if (base) {
+                    try { url = new URL("/api/auth/password-reset/request", base).toString(); } catch(e2) {}
+                }
+
+                fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ email })
+                }).then(function(){
+                    $("#modalForgotPassword").modal("hide");
+                    cw.mostrarAviso("Si el correo existe, te hemos enviado instrucciones.", "success");
+                }).catch(function(){
+                    $("#modalForgotPassword").modal("hide");
+                    cw.mostrarAviso("Si el correo existe, te hemos enviado instrucciones.", "success");
+                }).finally(function(){
+                    $btn.prop("disabled", false).text("Enviar");
+                });
+            });
+
             // ensure navbar shows the login control when login form is visible
             cw._setNavToLogin();
             // ensure main content visible after loading
@@ -832,6 +902,7 @@ function ControlWeb() {
             const nombreJuego =
                 juego === 'uno'    ? 'Última carta' :
                 juego === '4raya'  ? '4 en raya' :
+                juego === 'checkers' ? 'Damas' :
                 juego === 'hundir' ? 'Hundir la flota' :
                 juego;
             const statusClass =

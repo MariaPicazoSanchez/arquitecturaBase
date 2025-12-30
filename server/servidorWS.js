@@ -14,6 +14,13 @@ const {
   ACTION_TYPES: CONNECT4_ACTION_TYPES,
 } = require("./game/connect4EngineMultiplayer");
 
+const {
+  createInitialState: createCheckersInitialState,
+  getLegalMoves: getCheckersLegalMoves,
+  applyMove: applyCheckersMove,
+  CheckersError,
+} = require("./game/checkersEngine");
+
 const UNO_CALL_WINDOW_MS = (() => {
   const parsed = Number.parseInt(process.env.UNO_CALL_WINDOW_MS, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5000;
@@ -28,9 +35,12 @@ function ServidorWS() {
   let srv = this;
   const estadosUNO = {};
   const estados4raya = {};
+  const estadosCheckers = {};
   const rematchVotes4raya = {};
   const socketTo4RayaPlayerId = {};
   const socketTo4RayaCodigo = {};
+  const socketToCheckersPlayerId = {};
+  const socketToCheckersCodigo = {};
   const botRunningByCodigo = {};
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const thinkMs = () => BOT_THINK_MS + Math.floor(Math.random() * 300);
@@ -468,6 +478,33 @@ function ServidorWS() {
     });
   };
 
+  const emitirEstadoCheckers = (io, codigo, datosCheckers) => {
+    const state = datosCheckers?.state ?? null;
+    if (!state) return;
+
+    const legalMoves = getCheckersLegalMoves(state, state.currentPlayer);
+    let white = 0;
+    let black = 0;
+    const board = state.board || [];
+    for (let r = 0; r < board.length; r++) {
+      for (let c = 0; c < (board[r] || []).length; c++) {
+        const v = board[r][c];
+        if (v > 0) white++;
+        else if (v < 0) black++;
+      }
+    }
+
+    io.to(codigo).emit("checkers_state", {
+      codigo,
+      players: Array.isArray(datosCheckers?.players) ? datosCheckers.players : [],
+      state: {
+        ...state,
+        legalMoves,
+        pieceCounts: { white, black },
+      },
+    });
+  };
+
   const ensureUnoTimers = (datosUNO) => {
     if (!datosUNO.unoTimers) {
       datosUNO.unoTimers = {
@@ -696,9 +733,11 @@ function ServidorWS() {
           String(vsBotRaw).toLowerCase() === "true";
         const rawMaxPlayers = datos && (datos.maxPlayers ?? datos.maxJug);
         const parsed = parseInt(rawMaxPlayers, 10);
-        const maxPlayers =
-          juego === "4raya"
-            ? 2
+         const maxPlayers =
+           juego === "4raya"
+             ? 2
+            : juego === "checkers"
+              ? 2
             : vsBot && juego === "uno"
               ? 1
             : Number.isFinite(parsed) && parsed >= 2 && parsed <= 8
@@ -1524,6 +1563,128 @@ function ServidorWS() {
       });
 
       // ==========================
+      //  DAMAS / CHECKERS (WS)
+      // ==========================
+
+      const resolveCheckersPlayers = (partida) => {
+        const raw = Array.isArray(partida?.jugadores) ? partida.jugadores.slice(0, 2) : [];
+        return raw
+          .map((j, idx) => {
+            const id = normalizePlayerId(j?.email);
+            if (!id) return null;
+            return {
+              color: idx === 0 ? "white" : "black",
+              id,
+              name: j?.nick || j?.email || (idx === 0 ? "Jugador 1" : "Jugador 2"),
+            };
+          })
+          .filter(Boolean);
+      };
+
+      socket.on("checkers_join", function (datos) {
+        const codigo = datos && datos.codigo;
+        const email = datos && datos.email;
+        if (!codigo || !email) return;
+
+        const partida = sistema.partidas[codigo];
+        if (!partida) return;
+        if (partida.juego !== "checkers") return;
+
+        const playerId = normalizePlayerId(email);
+        if (!playerId) return;
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) {
+          socket.emit("checkers_error", {
+            codigo,
+            reason: "NOT_IN_MATCH",
+            message: "No perteneces a esta partida.",
+          });
+          return;
+        }
+
+        socketToCheckersPlayerId[socket.id] = playerId;
+        socketToCheckersCodigo[socket.id] = codigo;
+
+        if (!estadosCheckers[codigo]) {
+          estadosCheckers[codigo] = {
+            state: createCheckersInitialState(),
+            players: resolveCheckersPlayers(partida),
+          };
+          console.log("[CHECKERS] estado creado para partida", codigo);
+        } else {
+          estadosCheckers[codigo].players = resolveCheckersPlayers(partida);
+        }
+
+        socket.join(codigo);
+        emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
+      });
+
+      socket.on("checkers_move", function (datos) {
+        const codigo = datos && datos.codigo;
+        const email = datos && datos.email;
+        const from = datos && datos.from;
+        const to = datos && datos.to;
+        if (!codigo || !email || !from || !to) return;
+
+        const partida = sistema.partidas[codigo];
+        if (!partida) return;
+        if (partida.juego !== "checkers") return;
+
+        const playerId = normalizePlayerId(email);
+        if (!playerId) return;
+
+        if (!estadosCheckers[codigo]) {
+          estadosCheckers[codigo] = {
+            state: createCheckersInitialState(),
+            players: resolveCheckersPlayers(partida),
+          };
+        } else {
+          estadosCheckers[codigo].players = resolveCheckersPlayers(partida);
+        }
+
+        const datosCheckers = estadosCheckers[codigo];
+        const players = Array.isArray(datosCheckers.players) ? datosCheckers.players : [];
+        const me = players.find((p) => normalizePlayerId(p.id) === playerId) || null;
+        const myColor = me?.color || null;
+        if (!myColor) {
+          socket.emit("checkers_error", {
+            codigo,
+            reason: "NOT_IN_MATCH",
+            message: "No perteneces a esta partida.",
+          });
+          return;
+        }
+        if (players.length < 2) {
+          socket.emit("checkers_error", {
+            codigo,
+            reason: "WAITING_FOR_OPPONENT",
+            message: "Esperando al segundo jugador...",
+          });
+          return;
+        }
+
+        try {
+          datosCheckers.state = applyCheckersMove(datosCheckers.state, {
+            from,
+            to,
+            player: myColor,
+          });
+          emitirEstadoCheckers(io, codigo, datosCheckers);
+        } catch (e) {
+          const reason =
+            e instanceof CheckersError ? e.code : (e && e.code) || "ERROR";
+          const message =
+            e instanceof CheckersError
+              ? e.message
+              : (e && e.message) || "Movimiento inválido.";
+          socket.emit("checkers_error", { codigo, reason, message });
+        }
+      });
+
+      // ==========================
       //  4 EN RAYA MULTIJUGADOR (WS)
       // ==========================
 
@@ -1703,6 +1864,8 @@ function ServidorWS() {
         }
         delete socketTo4RayaCodigo[socket.id];
         delete socketTo4RayaPlayerId[socket.id];
+        delete socketToCheckersCodigo[socket.id];
+        delete socketToCheckersPlayerId[socket.id];
       });
 
     });

@@ -86,6 +86,9 @@ app.use('/uno', express.static(unoDistPath));
 const connect4DistPath = path.join(__dirname, 'client/games/4raya/dist');
 app.use('/4raya', express.static(connect4DistPath));
 
+const checkersDistPath = path.join(__dirname, 'client/games/checkers/dist');
+app.use('/checkers', express.static(checkersDistPath));
+
 
 // Diagnostic middleware for static assets (helps debug production 503/404)
 app.use(function(req, res, next){
@@ -107,6 +110,11 @@ app.use(function(req, res, next){
 
 // Configurar Express: servir archivos estáticos desde /client
 app.use(express.static(path.join(__dirname, 'client')));
+
+// Página de reset password (link desde email)
+app.get('/reset-password', function(req, res){
+  return res.sendFile(path.join(__dirname, 'client', 'reset-password.html'));
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -244,7 +252,8 @@ app.get("/good", function(req, res) {
       }
       const nickToSet = obj.nick || email;
       console.log("[/good] nick final:", nickToSet);
-      res.cookie('nick', nickToSet);
+      // cookie `nick` se usa como identificador (email) para compatibilidad con WS/clienteRest
+      res.cookie('nick', email);
       res.redirect('/');
     });
   });
@@ -358,7 +367,8 @@ app.post('/oneTap/callback', (req, res, next) => {
         }
         try {
           req.session.user = { email };
-          res.cookie('nick', obj.nick || email);
+          // cookie `nick` se usa como identificador (email) para compatibilidad con WS/clienteRest
+          res.cookie('nick', email);
         } catch (e) {
           console.warn('[oneTap] cookie error:', e.message);
         }
@@ -547,6 +557,58 @@ function clearAuthSession(req, res, done) {
 // --------------------
 // API: Mi cuenta
 // --------------------
+
+// --------------------
+// API: Password reset (forgot + mi cuenta)
+// --------------------
+app.post('/api/auth/password-reset/request', function(req, res) {
+  try {
+    const authEmail = getAuthEmail(req);
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const email = authEmail || String(body.email || "").trim().toLowerCase();
+    const isAuthed = !!authEmail;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email requerido." });
+    }
+
+    // En modo "forgot password" (no autenticado) no revelamos si el email existe.
+    const silent = !isAuthed;
+
+    sistema.solicitarPasswordReset(email, { silent }, function(result) {
+      // Respuesta genérica 200, independientemente de si el email existe.
+      if (!result || result.ok === false) {
+        if (!silent) {
+          const status = result && result.status ? result.status : 500;
+          const message = result && result.message ? result.message : "No se pudo iniciar el reset de contraseña.";
+          return res.status(status).json({ error: message });
+        }
+        return res.status(200).json({ ok: true });
+      }
+      return res.status(200).json({ ok: true });
+    });
+  } catch (err) {
+    console.error("[password-reset/request] error:", err && err.stack ? err.stack : err);
+    return res.status(200).json({ ok: true });
+  }
+});
+
+app.post('/api/auth/password-reset/confirm', function(req, res) {
+  try {
+    sistema.confirmarPasswordReset(req.body, function(result) {
+      if (!result || result.ok === false) {
+        const status = result && result.status ? result.status : 500;
+        const message = result && result.message ? result.message : "No se pudo actualizar la contraseña.";
+        return res.status(status).json({ error: message });
+      }
+      return res.status(200).json({ ok: true });
+    });
+  } catch (err) {
+    console.error("[password-reset/confirm] error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: "No se pudo actualizar la contraseña." });
+  }
+});
+
 app.get('/api/user/me', haIniciado, function(req, res) {
   const email = getAuthEmail(req);
   if (!email) return res.status(401).json({ error: "No autenticado" });

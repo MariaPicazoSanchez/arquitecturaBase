@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt");
 const correo = require("./email.js");
 const datos = require("./cad.js");
+const crypto = require("node:crypto");
 
 function Sistema() {
   this.usuarios = {};
@@ -9,6 +10,21 @@ function Sistema() {
 
   const normalizarEmail = function(email){
     return (email || "").trim().toLowerCase();
+  };
+
+  const sha256Hex = function(value) {
+    return crypto.createHash("sha256").update(String(value || "")).digest("hex");
+  };
+
+  const timingSafeEqualHex = function(aHex, bHex) {
+    try {
+      const a = Buffer.from(String(aHex || ""), "hex");
+      const b = Buffer.from(String(bHex || ""), "hex");
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch (e) {
+      return false;
+    }
   };
 
   const normalizarMaxPlayers = function(maxPlayers, fallback = 2) {
@@ -717,7 +733,200 @@ function Sistema() {
     });
   };
 
+  const generarResetToken = function() {
+    return crypto.randomBytes(32).toString("hex");
+  };
+
+  const generarResetCode = function() {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  };
+
+  this.solicitarPasswordReset = function(email, opts, callback) {
+    const options = opts && typeof opts === "object" ? opts : {};
+    const silent = !!options.silent;
+
+    try {
+      const e = normalizarEmail(email);
+      if (!e) {
+        callback(silent ? { ok: true } : { ok: false, status: 400, message: "Email inválido." });
+        return;
+      }
+
+      if (!this.cad
+        || typeof this.cad.buscarUsuarioRaw !== "function"
+        || typeof this.cad.insertarPasswordResetToken !== "function") {
+        callback(silent ? { ok: true } : { ok: false, status: 503, message: "Reset de contraseña no disponible sin base de datos." });
+        return;
+      }
+
+      const modelo = this;
+      this.cad.buscarUsuarioRaw({ email: e }, function(usr) {
+        if (!usr) return callback(silent ? { ok: true } : { ok: false, status: 404, message: "Usuario no encontrado." });
+        if (!usr.password) return callback(silent ? { ok: true } : { ok: false, status: 409, message: "No disponible para cuentas Google." });
+
+        const token = generarResetToken();
+        const code = generarResetCode();
+        const tokenHash = sha256Hex(token);
+        const codeHash = sha256Hex(code);
+
+        const doc = {
+          userId: usr._id,
+          tokenHash,
+          codeHash,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+          usedAt: null,
+        };
+
+        modelo.cad.insertarPasswordResetToken(doc, function(saved) {
+          if (!saved) return callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo iniciar el reset de contraseña." });
+
+          Promise.resolve()
+            .then(() => correo.enviarEmailCambioPassword(e, { code, token }))
+            .then(() => callback({ ok: true }))
+            .catch((err) => {
+              console.warn("[password-reset] fallo enviando email:", err && err.message ? err.message : err);
+              callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo enviar el correo de reset de contraseña." });
+            });
+        });
+      });
+    } catch (err) {
+      console.error("[modelo.solicitarPasswordReset] error:", err && err.stack ? err.stack : err);
+      callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo iniciar el reset de contraseña." });
+    }
+  };
+
+  this.confirmarPasswordReset = function(payload, callback) {
+    try {
+      const body = payload && typeof payload === "object" ? payload : {};
+      const token = String(body.token || "").trim();
+      const code = String(body.code || "").trim();
+      const newPwdCheck = validarNuevaPassword(body.newPassword);
+
+      if (!token) return callback({ ok: false, status: 400, message: "Token requerido." });
+      if (!code) return callback({ ok: false, status: 400, message: "Código requerido." });
+      if (!newPwdCheck.ok) return callback({ ok: false, status: 400, message: newPwdCheck.message });
+
+      if (!this.cad
+        || typeof this.cad.buscarPasswordResetTokenPorHash !== "function"
+        || typeof this.cad.marcarPasswordResetTokenUsado !== "function"
+        || typeof this.cad.actualizarUsuarioPorId !== "function"
+        || typeof this.cad.buscarUsuarioPorId !== "function") {
+        callback({ ok: false, status: 503, message: "Reset de contraseña no disponible sin base de datos." });
+        return;
+      }
+
+      const modelo = this;
+      const tokenHash = sha256Hex(token);
+      const codeHashInput = sha256Hex(code);
+
+      this.cad.buscarPasswordResetTokenPorHash(tokenHash, function(t) {
+        if (!t) return callback({ ok: false, status: 401, message: "Token inválido." });
+        if (t.usedAt) return callback({ ok: false, status: 409, message: "Este token ya fue usado." });
+
+        const expMs = t.expiresAt
+          ? (t.expiresAt instanceof Date ? t.expiresAt.getTime() : Date.parse(t.expiresAt))
+          : NaN;
+        if (!Number.isFinite(expMs) || Date.now() > expMs) {
+          return callback({ ok: false, status: 410, message: "El token ha expirado. Solicita uno nuevo." });
+        }
+
+        if (!t.codeHash || !timingSafeEqualHex(String(t.codeHash), codeHashInput)) {
+          return callback({ ok: false, status: 401, message: "Código inválido." });
+        }
+
+        modelo.cad.buscarUsuarioPorId(t.userId, function(usr) {
+          if (!usr) return callback({ ok: false, status: 404, message: "Usuario no encontrado." });
+          if (!usr.password) return callback({ ok: false, status: 409, message: "No disponible para cuentas Google." });
+
+          const hash = bcrypt.hashSync(newPwdCheck.value, 10);
+          modelo.cad.actualizarUsuarioPorId(t.userId, { password: hash }, function(updated) {
+            if (!updated) return callback({ ok: false, status: 500, message: "No se pudo actualizar la contraseña." });
+            modelo.cad.marcarPasswordResetTokenUsado(t._id, function() {
+              callback({ ok: true });
+            });
+          });
+        });
+      });
+    } catch (err) {
+      console.error("[modelo.confirmarPasswordReset] error:", err && err.stack ? err.stack : err);
+      callback({ ok: false, status: 500, message: "No se pudo actualizar la contraseña." });
+    }
+  };
+
+  this.confirmarPasswordResetAutenticado = function(email, payload, callback) {
+    const e = normalizarEmail(email);
+    if (!e) {
+      callback({ ok: false, status: 400, message: "Email inválido." });
+      return;
+    }
+    const body = payload && typeof payload === "object" ? payload : {};
+    const code = String(body.code || body.codeOrToken || "").trim();
+    const newPwdCheck = validarNuevaPassword(body.newPassword);
+    if (!code) return callback({ ok: false, status: 400, message: "Código requerido." });
+    if (!newPwdCheck.ok) return callback({ ok: false, status: 400, message: newPwdCheck.message });
+
+    if (!this.cad
+      || typeof this.cad.buscarUsuarioRaw !== "function"
+      || typeof this.cad.buscarPasswordResetTokenActivoMasRecienteDeUsuario !== "function"
+      || typeof this.cad.actualizarUsuarioPorId !== "function") {
+      callback({ ok: false, status: 503, message: "Reset de contraseña no disponible sin base de datos." });
+      return;
+    }
+
+    const modelo = this;
+    this.cad.buscarUsuarioRaw({ email: e }, function(usr) {
+      if (!usr) return callback({ ok: false, status: 404, message: "Usuario no encontrado." });
+      if (!usr.password) return callback({ ok: false, status: 409, message: "No disponible para cuentas Google." });
+
+      modelo.cad.buscarPasswordResetTokenActivoMasRecienteDeUsuario(usr._id, function(t) {
+        if (t) {
+          const expMs = t.expiresAt
+            ? (t.expiresAt instanceof Date ? t.expiresAt.getTime() : Date.parse(t.expiresAt))
+            : NaN;
+          if (!Number.isFinite(expMs) || Date.now() > expMs) {
+            return callback({ ok: false, status: 410, message: "El código ha expirado. Solicita uno nuevo." });
+          }
+          const codeHashInput = sha256Hex(code);
+          if (!t.codeHash || !timingSafeEqualHex(String(t.codeHash), codeHashInput)) {
+            return callback({ ok: false, status: 401, message: "Código inválido." });
+          }
+
+          const hash = bcrypt.hashSync(newPwdCheck.value, 10);
+          modelo.cad.actualizarUsuarioPorId(usr._id, { password: hash }, function(updated) {
+            if (!updated) return callback({ ok: false, status: 500, message: "No se pudo actualizar la contraseña." });
+            if (typeof modelo.cad.marcarPasswordResetTokenUsado === "function") {
+              return modelo.cad.marcarPasswordResetTokenUsado(t._id, function() {
+                callback({ ok: true });
+              });
+            }
+            callback({ ok: true });
+          });
+          return;
+        }
+
+        // Fallback: soportar códigos legacy guardados en claro en el usuario (si existen).
+        const saved = String(usr.passwordResetCode || "").trim();
+        const expiresAtLegacy = usr.passwordResetExpiresAt ? Date.parse(usr.passwordResetExpiresAt) : NaN;
+        if (!saved || saved !== code) return callback({ ok: false, status: 401, message: "Código inválido." });
+        if (!Number.isFinite(expiresAtLegacy) || Date.now() > expiresAtLegacy) {
+          return callback({ ok: false, status: 410, message: "El código ha expirado. Solicita uno nuevo." });
+        }
+
+        const hash = bcrypt.hashSync(newPwdCheck.value, 10);
+        if (typeof modelo.cad.actualizarUsuarioPorEmail !== "function") {
+          return callback({ ok: false, status: 503, message: "Reset de contraseña no disponible sin base de datos." });
+        }
+        modelo.cad.actualizarUsuarioPorEmail(e, { password: hash, passwordResetCode: null, passwordResetExpiresAt: null }, function(updated) {
+          if (!updated) return callback({ ok: false, status: 500, message: "No se pudo actualizar la contraseña." });
+          callback({ ok: true });
+        });
+      });
+    });
+  };
+
   this.solicitarCambioPasswordPorEmail = function(email, callback){
+    return this.solicitarPasswordReset(email, { silent: false }, callback);
     const e = normalizarEmail(email);
     if (!e) {
       callback({ ok: false, status: 400, message: "Email inválido." });
@@ -749,6 +958,7 @@ function Sistema() {
   };
 
   this.confirmarCambioPasswordPorEmail = function(email, payload, callback){
+    return this.confirmarPasswordResetAutenticado(email, payload, callback);
     const e = normalizarEmail(email);
     if (!e) {
       callback({ ok: false, status: 400, message: "Email inválido." });

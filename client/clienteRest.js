@@ -177,7 +177,18 @@ function ClienteRest() {
                     cw.mostrarSelectorJuegos();
                     
                     try { sessionStorage.setItem("bienvenidaMostrada","1"); } catch(e){}
-                    cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
+                    if (window.userService && typeof userService.getMe === "function"){
+                        userService.getMe()
+                            .done(function(me){
+                                const label = (me && me.nick) ? me.nick : "";
+                                cw.mostrarMensaje(label ? ("Bienvenido a Table Room, " + label) : "Bienvenido a Table Room", "success");
+                            })
+                            .fail(function(){
+                                cw.mostrarMensaje("Bienvenido a Table Room", "success");
+                            });
+                    } else {
+                        cw.mostrarMensaje("Bienvenido a Table Room", "success");
+                    }
                 } else {
                     cw.mostrarAviso("Email o contraseña incorrectos.", "error");
                     cw.mostrarModal("No se ha podido iniciar sesión. Credenciales incorrectas o usuario inexistente.");

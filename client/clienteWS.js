@@ -104,6 +104,8 @@ function ClienteWS() {
                 window.location.href = "/uno?codigo=" + encodeURIComponent(datos.codigo);
             } else if (juego === "4raya") {
                 window.location.href = "/4raya?codigo=" + encodeURIComponent(datos.codigo);
+            } else if (juego === "checkers") {
+                window.location.href = "/checkers?codigo=" + encodeURIComponent(datos.codigo);
             } else {
                 console.warn("Partida continuada para juego:", juego,
                             "pero aún no tiene interfaz asociada.");
