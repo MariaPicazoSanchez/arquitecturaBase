@@ -26,6 +26,9 @@ import {
 
 const UNO_CALL_WINDOW_MS = 5000;
 const ACTION_OVERLAY_MS = 1200;
+const BOT_DELAY_MIN_MS = 700;
+const BOT_DELAY_MAX_MS = 1100;
+const BOT_DELAY_CAP_MS = 1500;
 
 export default function UnoGame() {
   const codigoFromUrl = new URLSearchParams(window.location.search).get('codigo');
@@ -51,6 +54,7 @@ export default function UnoGame() {
   const drawStackRef = useRef(null);
   const reshuffleTimerRef = useRef(null);
   const reshuffleRunIdRef = useRef(0);
+  const botTurnTimerRef = useRef(null);
   const [isMuted, setIsMuted] = useState(() => {
     initSfxFromStorage();
     return isSfxMuted();
@@ -99,7 +103,6 @@ export default function UnoGame() {
   const isLocallyEliminatedRef = useRef(false);
   const handWrapRef = useRef(null);
   const firstHandCardRef = useRef(null);
-  const hasHandUserScrolledRef = useRef(false);
   const [handOverlapPx, setHandOverlapPx] = useState(0);
 
   const { engine, uiStatus } = game;
@@ -142,13 +145,15 @@ export default function UnoGame() {
     const padRight = Number.parseFloat(cs.paddingRight || '0') || 0;
     const available = Math.max(0, wrapEl.clientWidth - padLeft - padRight);
 
-    const startStackAt = 12;
-    const baseGap = cardWidth * 0.08; // <= 11: sin apilar (gap)
-    const minOverlap = cardWidth * 0.12; // >= 12: empieza a apilar
-    const maxOverlap = cardWidth * 0.7;
+    const baseGap = cardWidth * 0.08;
+    const baseOverlap = -baseGap; // gap visual con pocas cartas
+    const minOverlap = cardWidth * 0.12;
+    const maxOverlap = cardWidth * 0.85;
 
-    let overlap = -baseGap;
-    if (n >= startStackAt) {
+    const baseWidth = cardWidth + (n - 1) * (cardWidth - baseOverlap);
+
+    let overlap = baseOverlap;
+    if (baseWidth > available + 1) {
       const neededStep = (available - cardWidth) / (n - 1);
       overlap = cardWidth - neededStep;
       overlap = Math.max(minOverlap, Math.min(maxOverlap, overlap));
@@ -157,17 +162,6 @@ export default function UnoGame() {
     setHandOverlapPx(Math.round(overlap));
   }, [player?.hand]);
 
-  const centerHandIfOverflowing = useCallback(() => {
-    const wrapEl = handWrapRef.current;
-    if (!wrapEl) return;
-    if (hasHandUserScrolledRef.current) return;
-
-    const overflow = wrapEl.scrollWidth - wrapEl.clientWidth;
-    if (overflow > 2) {
-      wrapEl.scrollLeft = overflow / 2;
-    }
-  }, []);
-
   useEffect(() => {
     computeHandOverlapPx();
   }, [computeHandOverlapPx]);
@@ -175,8 +169,6 @@ export default function UnoGame() {
   useEffect(() => {
     const wrapEl = handWrapRef.current;
     if (!wrapEl) return;
-
-    hasHandUserScrolledRef.current = false;
 
     if (typeof ResizeObserver === 'undefined') {
       const onResize = () => computeHandOverlapPx();
@@ -191,11 +183,7 @@ export default function UnoGame() {
     return () => ro.disconnect();
   }, [computeHandOverlapPx]);
 
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      centerHandIfOverflowing();
-    });
-  }, [handOverlapPx, player?.hand?.length, centerHandIfOverflowing]);
+  // Sin scroll horizontal: el overlap siempre se ajusta para encajar.
 
   const triggerDeckReshuffleFx = useCallback((movedCount) => {
     const overlay = reshuffleOverlayRef.current;
@@ -1578,9 +1566,26 @@ export default function UnoGame() {
     if (isMultiplayer) return;
     if (!engine) return;
     if (!isPlaying) return;
-    if (engine.currentPlayerIndex !== 1) return;
+    if (engine.currentPlayerIndex !== 1) {
+      if (botTurnTimerRef.current) {
+        clearTimeout(botTurnTimerRef.current);
+        botTurnTimerRef.current = null;
+      }
+      return;
+    }
 
-    const timeout = setTimeout(() => {
+    if (botTurnTimerRef.current) {
+      clearTimeout(botTurnTimerRef.current);
+      botTurnTimerRef.current = null;
+    }
+
+    const delayRaw =
+      BOT_DELAY_MIN_MS +
+      Math.floor(Math.random() * (BOT_DELAY_MAX_MS - BOT_DELAY_MIN_MS + 1));
+    const delay = Math.min(BOT_DELAY_CAP_MS, delayRaw);
+
+    botTurnTimerRef.current = setTimeout(() => {
+      botTurnTimerRef.current = null;
       setGame((prev) => {
         const { engine, uiStatus } = prev;
         if (uiStatus !== 'playing') return prev;
@@ -1692,10 +1697,15 @@ export default function UnoGame() {
           message,
         };
       });
-    }, 800);
+    }, delay);
 
-    return () => clearTimeout(timeout);
-  }, [engine, isPlaying]);
+    return () => {
+      if (botTurnTimerRef.current) {
+        clearTimeout(botTurnTimerRef.current);
+        botTurnTimerRef.current = null;
+      }
+    };
+  }, [engine, isPlaying, isMultiplayer]);
 
   // -------------------------
   // Render
@@ -2249,9 +2259,6 @@ export default function UnoGame() {
         <div
           ref={handWrapRef}
           className="uno-handWrap uno-handWrap--player"
-          onScroll={() => {
-            hasHandUserScrolledRef.current = true;
-          }}
         >
           <div
             className="uno-handRow uno-handRow--player"

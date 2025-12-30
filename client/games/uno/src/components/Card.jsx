@@ -61,6 +61,7 @@ export default function Card({
   isLastPlayed = false,
 }) {
   const isWildValue = card.value === 'wild' || card.value === '+4';
+  const isPlusFour = card.value === '+4';
   const isColorlessSpecial = card.color === 'wild';
 
   let displayValue = card.value;
@@ -79,6 +80,7 @@ export default function Card({
     isPlayable && 'uno-card--playable',
     isLastPlayed && 'uno-card--last-played',
     isWildValue && 'uno-card--wild',
+    isPlusFour && 'uno-card--plus4',
   ]
     .filter(Boolean)
     .join(' ');
@@ -86,19 +88,31 @@ export default function Card({
   const baseColor = COLOR_MAP[card.color];
   const solidColor = baseColor || (isColorlessSpecial ? '#111827' : '#e5e7eb');
 
-  const wildBar =
+  const rainbow =
+    'linear-gradient(135deg, #ef4444 0 25%, #facc15 25% 50%, #22c55e 50% 75%, #3b82f6 75% 100%)';
+  const chosenSolid =
     card.color && card.color !== 'wild' && COLOR_MAP[card.color]
       ? `linear-gradient(90deg, ${COLOR_MAP[card.color]} 0 100%)`
-      : 'linear-gradient(90deg, #ef4444 0 25%, #facc15 25% 50%, #22c55e 50% 75%, #3b82f6 75% 100%)';
+      : null;
+
+  const wildBar = chosenSolid ?? 'linear-gradient(90deg, #ef4444 0 25%, #facc15 25% 50%, #22c55e 50% 75%, #3b82f6 75% 100%)';
 
   const innerStyle = isWildValue
-    ? {
-        backgroundColor: '#111827',
-        backgroundImage: wildBar,
-        backgroundRepeat: 'no-repeat',
-        backgroundSize: '100% 10px',
-        backgroundPosition: 'top',
-      }
+    ? isPlusFour
+      ? {
+          backgroundColor: '#111827',
+          backgroundImage: rainbow,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: '100% 100%',
+          backgroundPosition: 'center',
+        }
+      : {
+          backgroundColor: '#111827',
+          backgroundImage: wildBar,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: '100% 10px',
+          backgroundPosition: 'top',
+        }
     : {
         backgroundColor: solidColor,
         backgroundImage:
