@@ -1566,6 +1566,62 @@ export default function UnoGame() {
     );
   }
 
+  const renderLastAction = (lastAction) => {
+    if (!lastAction) return 'Última jugada: —';
+
+    const actor =
+      engine.players?.[lastAction.playerIndex]?.name ??
+      `Jugador ${Number(lastAction.playerIndex ?? 0) + 1}`;
+
+    const colorText = (color) => {
+      if (color === 'red') return 'rojo';
+      if (color === 'green') return 'verde';
+      if (color === 'blue') return 'azul';
+      if (color === 'yellow') return 'amarillo';
+      return color || '';
+    };
+
+    const valueText = (value) => {
+      if (value === 'skip') return 'Salta';
+      if (value === 'reverse') return 'Reversa';
+      if (value === 'wild') return 'Comodín';
+      if (value === 'double') return 'Doble';
+      if (value === 'swap') return 'Swap';
+      if (value === 'discard_all') return 'Descartar todo';
+      if (value === 'skip_all') return 'Salta todos';
+      return value || '';
+    };
+
+    if (lastAction.type === ACTION_TYPES.PLAY_CARD && lastAction.card) {
+      const { color, value } = lastAction.card;
+      let extra = '';
+      if (lastAction.forcedDraw && typeof lastAction.forcedDraw.count === 'number') {
+        const victimIdx = lastAction.forcedDraw.victimIndex;
+        const victim =
+          engine.players?.[victimIdx]?.name ?? `Jugador ${Number(victimIdx ?? 0) + 1}`;
+        extra = ` (hizo robar ${victim} ${lastAction.forcedDraw.count})`;
+      }
+      if (lastAction.rebuiltDeck) extra += ' (mazo recargado)';
+      return `Última jugada: ${actor} jugó ${valueText(value)} ${colorText(color)}${extra}`;
+    }
+
+    if (lastAction.type === ACTION_TYPES.DRAW_CARD) {
+      const n = Array.isArray(lastAction.cards) ? lastAction.cards.length : 1;
+      const extra = lastAction.rebuiltDeck ? ' (mazo recargado)' : '';
+      return `Última jugada: ${actor} robó ${n} carta${n === 1 ? '' : 's'}${extra}`;
+    }
+
+    if (lastAction.type === ACTION_TYPES.CALL_UNO) {
+      return `Última jugada: ${actor} cantó ÚLTIMA CARTA`;
+    }
+
+    if (lastAction.type === ACTION_TYPES.PASS_TURN) {
+      return `Última jugada: ${actor} pasó turno`;
+    }
+
+    return 'Última jugada: —';
+  };
+
   const lastActionText = renderLastAction(engine.lastAction);
   const canDraw =
     engine.drawPile.length > 0 || (engine.discardPile?.length ?? 0) > 1;
