@@ -17,8 +17,8 @@ export function createSfx() {
   let lose = null;
 
   const candidates = {
-    win: ["/audio/win.mp3", "/4raya/audio/sfx-victory1.mp3", "/uno/audio/sfx-victory1.mp3"],
-    lose: ["/audio/lose.mp3", "/4raya/audio/sfx-defeat5.mp3", "/uno/audio/sfx-defeat5.mp3"],
+    win: ["/audio/sfx-victory1.mp3", "/4raya/audio/sfx-victory1.mp3", "/uno/audio/sfx-victory1.mp3"],
+    lose: ["/audio/sfx-defeat5.mp3", "/4raya/audio/sfx-defeat5.mp3", "/uno/audio/sfx-defeat5.mp3"],
   };
 
   async function init() {
