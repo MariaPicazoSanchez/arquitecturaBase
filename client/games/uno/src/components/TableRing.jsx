@@ -54,7 +54,7 @@ export default function TableRing({ gameState, children }) {
   }, [players, myPlayerId, turnPlayerId, turnIndexRaw, direction]);
 
   return (
-    <div className="uno-table-area table">
+    <div className="uno-table-area">
       <div className="uno-table-seats" aria-label="Mesa">
         {seats.map((seat) => (
           <div key={seat.key} className="uno-seat-pos seat" style={seat.style}>

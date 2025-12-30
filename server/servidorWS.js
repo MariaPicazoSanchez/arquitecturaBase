@@ -80,7 +80,7 @@ function ServidorWS() {
     return bestColor;
   };
 
-  const BOT_WILD_VALUES = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
+  const BOT_WILD_VALUES = new Set(['wild', '+4', 'swap', 'discard_all', 'skip_all']);
 
   const getBotIndexes = (engine, datosUNO) => {
     if (!engine || !engine.hasBot) return [];
@@ -281,6 +281,8 @@ function ServidorWS() {
     if (shift === 0) return engine;
 
     const rotateIndex = (idx) => (idx == null ? idx : (idx - shift + n) % n);
+    const rotateIndexes = (arr) =>
+      Array.isArray(arr) ? arr.map((idx) => rotateIndex(idx)).filter((v) => v != null) : arr;
     const players = engine.players
       .slice(shift)
       .concat(engine.players.slice(0, shift));
@@ -290,8 +292,14 @@ function ServidorWS() {
       players,
       currentPlayerIndex: rotateIndex(engine.currentPlayerIndex),
       winnerIndex: rotateIndex(engine.winnerIndex),
+      winnerIndexes: rotateIndexes(engine.winnerIndexes),
+      loserIndexes: rotateIndexes(engine.loserIndexes),
       lastAction: engine.lastAction
-        ? { ...engine.lastAction, playerIndex: rotateIndex(engine.lastAction.playerIndex) }
+        ? {
+            ...engine.lastAction,
+            playerIndex: rotateIndex(engine.lastAction.playerIndex),
+            triggeredBy: rotateIndex(engine.lastAction.triggeredBy),
+          }
         : null,
       doublePlay: engine.doublePlay
         ? { ...engine.doublePlay, playerIndex: rotateIndex(engine.doublePlay.playerIndex) }

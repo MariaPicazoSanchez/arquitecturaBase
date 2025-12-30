@@ -13,11 +13,15 @@ const SPECIAL_COLOR_COUNTS = {
 };
 
 const COLORLESS_COUNTS = {
-  wild: 4,
-  '+4': 4,
   swap: 2,
   discard_all: 2,
   skip_all: 1,
+};
+
+const COLORLESS_VALUES = ['wild', '+4'];
+
+// +6/+8 son cartas con color (no comodines): su cantidad es total (no por color).
+const COLORED_SPECIAL_TOTAL_COUNTS = {
   '+6': 2,
   '+8': 1,
 };
@@ -29,7 +33,8 @@ export const ACTION_TYPES = {
   PASS_TURN: 'PASS_TURN',
 };
 
-const WILD_VALUES = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
+const WILD_VALUES = new Set(['wild', '+4', 'swap', 'discard_all', 'skip_all']);
+const MAX_HAND = 40;
 
 function createCard(color, value) {
   return {
@@ -53,8 +58,20 @@ function createDeck() {
     }
   }
 
+  for (const [value, count] of Object.entries(COLORED_SPECIAL_TOTAL_COUNTS)) {
+    if (count <= 0) continue;
+    const shuffledColors = shuffle(COLORS);
+    for (let i = 0; i < count; i++) {
+      deck.push(createCard(shuffledColors[i % shuffledColors.length], value));
+    }
+  }
+
   for (const [value, count] of Object.entries(COLORLESS_COUNTS)) {
     for (let i = 0; i < count; i++) deck.push(createCard('wild', value));
+  }
+
+  for (const value of COLORLESS_VALUES) {
+    for (let i = 0; i < 4; i++) deck.push(createCard('wild', value));
   }
 
   return shuffle(deck);
@@ -102,6 +119,20 @@ export function createInitialState({ numPlayers = 2, names = [] } = {}) {
 
   const discardPile = firstCard ? [firstCard] : [];
 
+  if (
+    typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.DEV &&
+    typeof window !== 'undefined' &&
+    window?.localStorage?.getItem &&
+    window.localStorage.getItem('UNO_DEBUG_WILDS') === '1'
+  ) {
+    const wildCount = drawPile.filter((c) => c?.value === 'wild').length;
+    const plus4Count = drawPile.filter((c) => c?.value === '+4').length;
+    // eslint-disable-next-line no-console
+    console.log('[UNO] init drawPile', { wild: wildCount, plus4: plus4Count, total: drawPile.length });
+  }
+
   return {
     players,
     drawPile,
@@ -112,6 +143,10 @@ export function createInitialState({ numPlayers = 2, names = [] } = {}) {
     penaltyDrawCount: 0,
     status: 'playing', // 'playing' | 'finished'
     winnerIndex: null,
+    winnerIndexes: [],
+    loserIndexes: [],
+    finishReason: null, // 'normal' | 'max_hand'
+    maxHand: MAX_HAND,
     lastAction: null,
   };
 }
@@ -130,7 +165,54 @@ function cloneState(state) {
     lastAction: state.lastAction ? { ...state.lastAction } : null,
     doublePlay: state.doublePlay ? { ...state.doublePlay } : null,
     penaltyDrawCount: state.penaltyDrawCount ?? 0,
+    winnerIndexes: Array.isArray(state.winnerIndexes) ? [...state.winnerIndexes] : [],
+    loserIndexes: Array.isArray(state.loserIndexes) ? [...state.loserIndexes] : [],
+    finishReason: state.finishReason ?? null,
   };
+}
+
+function finishGame(state, { finishReason, winnerIndexes, loserIndexes, triggeredByPlayerIndex } = {}) {
+  const winners = Array.isArray(winnerIndexes) ? [...winnerIndexes] : [];
+  const losers =
+    Array.isArray(loserIndexes)
+      ? [...loserIndexes]
+      : Array.from({ length: state.players.length }, (_, idx) => idx).filter(
+          (idx) => !winners.includes(idx),
+        );
+
+  state.status = 'finished';
+  state.finishReason = finishReason ?? 'normal';
+  state.winnerIndexes = winners;
+  state.loserIndexes = losers;
+  state.winnerIndex = winners.length === 1 ? winners[0] : null;
+
+  if (state.finishReason === 'max_hand') {
+    state.lastAction = {
+      ...(state.lastAction || {}),
+      finishReason: 'max_hand',
+      maxHand: MAX_HAND,
+      triggeredBy: triggeredByPlayerIndex ?? null,
+    };
+  }
+}
+
+function checkMaxHandLose(state, { triggeredByPlayerIndex } = {}) {
+  const counts = (state.players || []).map((p) => (Array.isArray(p?.hand) ? p.hand.length : 0));
+  if (counts.length === 0) return false;
+  if (!counts.some((n) => n >= MAX_HAND)) return false;
+
+  const minCount = Math.min(...counts);
+  const winnerIndexes = counts
+    .map((n, idx) => ({ n, idx }))
+    .filter((x) => x.n === minCount)
+    .map((x) => x.idx);
+
+  finishGame(state, {
+    finishReason: 'max_hand',
+    winnerIndexes,
+    triggeredByPlayerIndex,
+  });
+  return true;
 }
 
 export function getTopCard(state) {
@@ -327,16 +409,14 @@ function applyPlayCard(state, action) {
     const target = s.players[swapTargetIndex];
     if (target?.hand?.length === 0) {
       s.lastAction = baseLastAction;
-      s.status = 'finished';
-      s.winnerIndex = swapTargetIndex;
+      finishGame(s, { finishReason: 'normal', winnerIndexes: [swapTargetIndex] });
       return s;
     }
   }
 
   if (player.hand.length === 0) {
     s.lastAction = baseLastAction;
-    s.status = 'finished';
-    s.winnerIndex = playerIndex;
+    finishGame(s, { finishReason: 'normal', winnerIndexes: [playerIndex] });
     return s;
   }
 
@@ -355,6 +435,9 @@ function applyPlayCard(state, action) {
     ...(forcedDraw ? { forcedDraw } : null),
   };
 
+  if (checkMaxHandLose(s, { triggeredByPlayerIndex: playerIndex })) {
+    return s;
+  }
   return s;
 }
 
@@ -387,6 +470,9 @@ function applyDrawCard(state, action) {
     ...(rebuiltDeck ? { rebuiltDeck: true } : null),
   };
 
+  if (checkMaxHandLose(s, { triggeredByPlayerIndex: playerIndex })) {
+    return s;
+  }
   return s;
 }
 

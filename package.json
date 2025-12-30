@@ -1,7 +1,7 @@
 {
-  "name": "ignition",
+  "name": "table-room",
   "version": "1.0.0",
-  "description": "Table Room",
+  "description": "Web que permite jugar a juegos de mesa online con amigos.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

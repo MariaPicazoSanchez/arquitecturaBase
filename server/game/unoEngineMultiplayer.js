@@ -13,11 +13,15 @@ const SPECIAL_COLOR_COUNTS = {
 
 // Especiales sin color (comodines, con cantidades distintas)
 const COLORLESS_COUNTS = {
-  wild: 4, // cambio de color
-  '+4': 4,
   swap: 2,
   discard_all: 2,
   skip_all: 1,
+};
+
+const COLORLESS_VALUES = ['wild', '+4'];
+
+// +6/+8 son cartas con color (no comodines): su cantidad es total (no por color).
+const COLORED_SPECIAL_TOTAL_COUNTS = {
   '+6': 2,
   '+8': 1,
 };
@@ -29,7 +33,8 @@ const ACTION_TYPES = {
   PASS_TURN: 'PASS_TURN',
 };
 
-const WILD_VALUES = new Set(['wild', '+4', '+6', '+8', 'swap', 'discard_all', 'skip_all']);
+const WILD_VALUES = new Set(['wild', '+4', 'swap', 'discard_all', 'skip_all']);
+const MAX_HAND = 40;
 const MAX_LOG_ENTRIES = 300;
 
 function snapshotState(state) {
@@ -131,8 +136,20 @@ function createDeck() {
     }
   }
 
+  for (const [value, count] of Object.entries(COLORED_SPECIAL_TOTAL_COUNTS)) {
+    if (count <= 0) continue;
+    const shuffledColors = shuffle(COLORS);
+    for (let i = 0; i < count; i++) {
+      deck.push(createCard(shuffledColors[i % shuffledColors.length], value));
+    }
+  }
+
   for (const [value, count] of Object.entries(COLORLESS_COUNTS)) {
     for (let i = 0; i < count; i++) deck.push(createCard('wild', value));
+  }
+
+  for (const value of COLORLESS_VALUES) {
+    for (let i = 0; i < 4; i++) deck.push(createCard('wild', value));
   }
 
   return shuffle(deck);
@@ -181,6 +198,12 @@ function createInitialState({ numPlayers = 2, names = [] } = {}) {
 
   const discardPile = firstCard ? [firstCard] : [];
 
+  if (process.env.UNO_DEBUG_WILDS === '1') {
+    const wildCount = drawPile.filter((c) => c?.value === 'wild').length;
+    const plus4Count = drawPile.filter((c) => c?.value === '+4').length;
+    console.log('[UNO] init drawPile', { wild: wildCount, plus4: plus4Count, total: drawPile.length });
+  }
+
   const state = {
     players,
     drawPile,
@@ -191,6 +214,10 @@ function createInitialState({ numPlayers = 2, names = [] } = {}) {
     penaltyDrawCount: 0,
     status: 'playing', // 'playing' | 'finished'
     winnerIndex: null,
+    winnerIndexes: [],
+    loserIndexes: [],
+    finishReason: null, // 'normal' | 'max_hand'
+    maxHand: MAX_HAND,
     lastAction: null,
     reshuffleSeq: 0,
     lastReshuffle: null, // { seq, movedCount }
@@ -224,7 +251,54 @@ function cloneState(state) {
     lastReshuffle: state.lastReshuffle ? { ...state.lastReshuffle } : null,
     gameLog: Array.isArray(state.gameLog) ? [...state.gameLog] : [],
     logSeq: Number.isFinite(state.logSeq) ? state.logSeq : 0,
+    winnerIndexes: Array.isArray(state.winnerIndexes) ? [...state.winnerIndexes] : [],
+    loserIndexes: Array.isArray(state.loserIndexes) ? [...state.loserIndexes] : [],
+    finishReason: state.finishReason ?? null,
   };
+}
+
+function finishGame(state, { finishReason, winnerIndexes, loserIndexes, triggeredByPlayerIndex } = {}) {
+  const winners = Array.isArray(winnerIndexes) ? [...winnerIndexes] : [];
+  const losers =
+    Array.isArray(loserIndexes)
+      ? [...loserIndexes]
+      : Array.from({ length: state.players.length }, (_, idx) => idx).filter(
+          (idx) => !winners.includes(idx),
+        );
+
+  state.status = 'finished';
+  state.finishReason = finishReason ?? 'normal';
+  state.winnerIndexes = winners;
+  state.loserIndexes = losers;
+  state.winnerIndex = winners.length === 1 ? winners[0] : null;
+
+  if (state.finishReason === 'max_hand') {
+    state.lastAction = {
+      ...(state.lastAction || {}),
+      finishReason: 'max_hand',
+      maxHand: MAX_HAND,
+      triggeredBy: triggeredByPlayerIndex ?? null,
+    };
+  }
+}
+
+function checkMaxHandLose(state, { triggeredByPlayerIndex } = {}) {
+  const counts = (state.players || []).map((p) => (Array.isArray(p?.hand) ? p.hand.length : 0));
+  if (counts.length === 0) return false;
+  if (!counts.some((n) => n >= MAX_HAND)) return false;
+
+  const minCount = Math.min(...counts);
+  const winnerIndexes = counts
+    .map((n, idx) => ({ n, idx }))
+    .filter((x) => x.n === minCount)
+    .map((x) => x.idx);
+
+  finishGame(state, {
+    finishReason: 'max_hand',
+    winnerIndexes,
+    triggeredByPlayerIndex,
+  });
+  return true;
 }
 
 function refillDeckFromDiscard(state, { reason = 'deckEmpty' } = {}) {
@@ -241,11 +315,21 @@ function refillDeckFromDiscard(state, { reason = 'deckEmpty' } = {}) {
   const before = snapshotState(state);
   const top = disc[disc.length - 1];
   const recycle = disc.slice(0, disc.length - 1);
-  const normalizedRecycle = recycle.map((c) => (WILD_VALUES.has(c.value) ? { ...c, color: 'wild' } : c));
+  const normalizedRecycle = recycle.map((c) =>
+    c?.value === 'wild' || c?.value === '+4' ? { ...c, color: 'wild' } : c,
+  );
   const shuffled = shuffle(normalizedRecycle);
 
   if (process.env.UNO_DEBUG_REBUILD === '1') {
-    console.log('[UNO] rebuild deck', { recycle: normalizedRecycle.length, top: top?.value, topColor: top?.color });
+    const wildCount = normalizedRecycle.filter((c) => c?.value === 'wild').length;
+    const plus4Count = normalizedRecycle.filter((c) => c?.value === '+4').length;
+    console.log('[UNO] rebuild deck', {
+      recycle: normalizedRecycle.length,
+      top: top?.value,
+      topColor: top?.color,
+      wild: wildCount,
+      plus4: plus4Count,
+    });
   }
 
   if (Array.isArray(state.drawPile)) state.drawPile = shuffled;
@@ -466,9 +550,12 @@ function applyPlayCard(state, action) {
   } else if (card.value === 'reverse') {
     s.direction = -s.direction;
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
-  } else if (card.value === '+4' || card.value === '+6' || card.value === '+8') {
-    const drawCount = card.value === '+4' ? 4 : card.value === '+6' ? 6 : 8;
-    applyForcedDraw(s, playerIndex, drawCount, { reason: card.value });
+  } else if (card.value === '+4') {
+    applyForcedDraw(s, playerIndex, 4, { reason: '+4' });
+  } else if (card.value === '+6') {
+    applyForcedDraw(s, playerIndex, 6, { reason: '+6' });
+  } else if (card.value === '+8') {
+    applyForcedDraw(s, playerIndex, 8, { reason: '+8' });
   } else if (card.value === 'wild') {
     s.currentPlayerIndex = getNextPlayerIndex(s, playerIndex, 1);
   } else if (card.value === 'skip_all') {
@@ -523,16 +610,14 @@ function applyPlayCard(state, action) {
     const target = s.players[swapTargetIndex];
     if (target?.hand?.length === 0) {
       s.lastAction = baseLastAction;
-      s.status = 'finished';
-      s.winnerIndex = swapTargetIndex;
+      finishGame(s, { finishReason: 'normal', winnerIndexes: [swapTargetIndex] });
       return s;
     }
   }
 
   if (player.hand.length === 0) {
     s.lastAction = baseLastAction;
-    s.status = 'finished';
-    s.winnerIndex = playerIndex;
+    finishGame(s, { finishReason: 'normal', winnerIndexes: [playerIndex] });
     return s;
   }
 
@@ -557,6 +642,10 @@ function applyPlayCard(state, action) {
       after: snapshotState(s),
     },
   });
+
+  if (checkMaxHandLose(s, { triggeredByPlayerIndex: playerIndex })) {
+    return s;
+  }
   return s;
 }
 
@@ -598,6 +687,9 @@ function applyDrawCard(state, action) {
     },
   });
 
+  if (checkMaxHandLose(s, { triggeredByPlayerIndex: playerIndex })) {
+    return s;
+  }
   return s;
 }
 

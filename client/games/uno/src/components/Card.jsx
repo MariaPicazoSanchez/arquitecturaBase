@@ -21,21 +21,27 @@ function getCardTooltip(card) {
   const color = String(card.color ?? '');
 
   if (/^\d+$/.test(value)) {
-    return `Número ${value} — Color ${COLOR_LABEL[color] ?? color}`;
+    return `Número ${value} · Color ${COLOR_LABEL[color] ?? color}`;
   }
 
   if (value === 'skip') return 'Salta el turno del siguiente jugador.';
   if (value === 'reverse') return 'Cambia el sentido de juego.';
   if (value === '+2') return 'El siguiente roba 2 y pierde el turno.';
+  if (value === '+6') return 'El siguiente roba 6 y pierde el turno.';
+  if (value === '+8') return 'El siguiente roba 8 y pierde el turno.';
+
   if (value === 'wild') {
-    const chosen = color !== 'wild' ? ` (color elegido: ${COLOR_LABEL[color] ?? color})` : '';
+    const chosen =
+      color !== 'wild' ? ` (color elegido: ${COLOR_LABEL[color] ?? color})` : '';
     return `Comodín: elige un color.${chosen}`;
   }
-  if (value === '+4' || value === '+6' || value === '+8') {
-    const n = value === '+4' ? 4 : value === '+6' ? 6 : 8;
-    const chosen = color !== 'wild' ? ` (color elegido: ${COLOR_LABEL[color] ?? color})` : '';
-    return `Comodín +${n}: elige un color. El siguiente roba ${n} y pierde el turno.${chosen}`;
+
+  if (value === '+4') {
+    const chosen =
+      color !== 'wild' ? ` (color elegido: ${COLOR_LABEL[color] ?? color})` : '';
+    return `Comodín +4: elige un color. El siguiente roba 4 y pierde el turno.${chosen}`;
   }
+
   if (value === 'double') {
     return 'Double (x2): el siguiente roba tantas cartas como tenga en ese momento y pierde el turno.';
   }
@@ -43,7 +49,7 @@ function getCardTooltip(card) {
   if (value === 'discard_all') return 'Elige un color y descartas todas las cartas de ese color.';
   if (value === 'skip_all') return 'Saltas a todos y juegas otra vez.';
 
-  return `${value} — Color ${COLOR_LABEL[color] ?? color}`;
+  return `${value} · Color ${COLOR_LABEL[color] ?? color}`;
 }
 
 export default function Card({
@@ -54,23 +60,17 @@ export default function Card({
   isPlayable = false,
   isLastPlayed = false,
 }) {
-  const isWildType =
-    card.value === 'wild' ||
-    card.value === '+4' ||
-    card.value === 'swap' ||
-    card.value === 'discard_all' ||
-    card.value === 'skip_all' ||
-    card.value === '+6' ||
-    card.value === '+8';
+  const isWildValue = card.value === 'wild' || card.value === '+4';
+  const isColorlessSpecial = card.color === 'wild';
 
   let displayValue = card.value;
   if (card.value === 'skip') displayValue = '⏭';
-  else if (card.value === 'reverse') displayValue = '↻';
-  else if (card.value === 'wild') displayValue = '★';
-  else if (card.value === 'double') displayValue = '×2';
-  else if (card.value === 'swap') displayValue = '⇄';
-  else if (card.value === 'discard_all') displayValue = '✖';
-  else if (card.value === 'skip_all') displayValue = '⦸';
+  else if (card.value === 'reverse') displayValue = '↺';
+  else if (card.value === 'wild') displayValue = 'W';
+  else if (card.value === 'double') displayValue = 'x2';
+  else if (card.value === 'swap') displayValue = 'SWAP';
+  else if (card.value === 'discard_all') displayValue = 'ALL';
+  else if (card.value === 'skip_all') displayValue = 'SKIP';
 
   const classes = [
     'uno-card',
@@ -78,37 +78,32 @@ export default function Card({
     disabled && 'uno-card--disabled',
     isPlayable && 'uno-card--playable',
     isLastPlayed && 'uno-card--last-played',
-    isWildType && 'uno-card--wild',
+    isWildValue && 'uno-card--wild',
   ]
     .filter(Boolean)
     .join(' ');
 
   const baseColor = COLOR_MAP[card.color];
+  const solidColor = baseColor || (isColorlessSpecial ? '#111827' : '#e5e7eb');
 
-  let innerStyle;
+  const wildBar =
+    card.color && card.color !== 'wild' && COLOR_MAP[card.color]
+      ? `linear-gradient(90deg, ${COLOR_MAP[card.color]} 0 100%)`
+      : 'linear-gradient(90deg, #ef4444 0 25%, #facc15 25% 50%, #22c55e 50% 75%, #3b82f6 75% 100%)';
 
-  if (isWildType) {
-    if (card.color === 'wild') {
-      innerStyle = {
-        background:
-          'conic-gradient(from 45deg, #ef4444, #facc15, #22c55e, #3b82f6, #ef4444)',
+  const innerStyle = isWildValue
+    ? {
+        backgroundColor: '#111827',
+        backgroundImage: wildBar,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 10px',
+        backgroundPosition: 'top',
+      }
+    : {
+        backgroundColor: solidColor,
+        backgroundImage:
+          'linear-gradient(180deg, rgba(255,255,255,0.22), rgba(0,0,0,0.10))',
       };
-    } else {
-      innerStyle = {
-        background:
-          `radial-gradient(circle at 30% 20%, rgba(248,250,252,0.55), transparent 55%),` +
-          `radial-gradient(circle at 70% 80%, rgba(15,23,42,0.4), transparent 60%),` +
-          `linear-gradient(135deg, ${baseColor || '#e5e7eb'}, ${baseColor || '#e5e7eb'})`,
-      };
-    }
-  } else {
-    innerStyle = {
-      background:
-        `radial-gradient(circle at 30% 20%, rgba(248,250,252,0.55), transparent 55%),` +
-        `radial-gradient(circle at 70% 80%, rgba(15,23,42,0.4), transparent 60%),` +
-        `linear-gradient(135deg, ${baseColor || '#e5e7eb'}, ${baseColor || '#e5e7eb'})`,
-    };
-  }
 
   return (
     <div
@@ -117,15 +112,9 @@ export default function Card({
       title={getCardTooltip(card)}
     >
       <div className="uno-card__inner" style={innerStyle}>
-        <div className="uno-card__corner uno-card__corner--tl">
-          {displayValue}
-        </div>
-
+        <div className="uno-card__corner uno-card__corner--tl">{displayValue}</div>
         <div className="uno-card__center">{displayValue}</div>
-
-        <div className="uno-card__corner uno-card__corner--br">
-          {displayValue}
-        </div>
+        <div className="uno-card__corner uno-card__corner--br">{displayValue}</div>
       </div>
     </div>
   );

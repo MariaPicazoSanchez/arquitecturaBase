@@ -2,18 +2,45 @@ import React from 'react';
 
 export default function GameResultModal({
   status,
+  engine = null,
   onRestart,
+  onExit,
   isMultiplayer = false,
   rematch = null,
 }) {
   const isWin = status === 'won';
-  const title = isWin ? '¡Has ganado!' : 'Has perdido';
-  const emoji = isWin ? '🏆' : '😢';
-  const subtitle = isMultiplayer
-    ? 'Partida terminada.'
-    : isWin
-      ? 'Te has quedado sin cartas antes que el bot.'
-      : 'El bot se ha quedado sin cartas antes que tú.';
+  const isTie = status === 'tied';
+
+  const title = isTie ? 'Empate' : isWin ? '¡Has ganado!' : 'Has perdido';
+
+  const finishReason = engine?.finishReason ?? null;
+  const maxHandRaw = engine?.maxHand ?? engine?.lastAction?.maxHand ?? null;
+  const maxHand = Number.isFinite(maxHandRaw) && maxHandRaw > 0 ? maxHandRaw : 40;
+
+  const players = Array.isArray(engine?.players) ? engine.players : [];
+  const winnerIndexes =
+    Array.isArray(engine?.winnerIndexes) && engine.winnerIndexes.length > 0
+      ? engine.winnerIndexes
+      : Number.isInteger(engine?.winnerIndex)
+        ? [engine.winnerIndex]
+        : [];
+  const loserIndexes =
+    Array.isArray(engine?.loserIndexes) && engine.loserIndexes.length > 0
+      ? engine.loserIndexes
+      : players.map((_, idx) => idx).filter((idx) => !winnerIndexes.includes(idx));
+
+  const nameForIndex = (idx) => players[idx]?.name ?? `Jugador ${idx + 1}`;
+  const winnerNames = winnerIndexes.map(nameForIndex);
+  const loserNames = loserIndexes.map(nameForIndex);
+
+  const subtitle =
+    finishReason === 'max_hand'
+      ? `Motivo: Límite de ${maxHand} cartas alcanzado.`
+      : isMultiplayer
+        ? 'Partida terminada.'
+        : isWin
+          ? 'Te has quedado sin cartas antes que el bot.'
+          : 'El bot se ha quedado sin cartas antes que tú.';
 
   const readyCount = Number(rematch?.readyCount ?? 0);
   const totalCount = Number(rematch?.totalCount ?? 0);
@@ -23,15 +50,53 @@ export default function GameResultModal({
       ? Math.max(0, totalCount - readyCount)
       : null;
 
+  const handleExitClick = () => {
+    if (typeof onExit === 'function') {
+      onExit();
+      return;
+    }
+    if (window.history.length > 1) window.history.back();
+    else window.location.href = window.location.origin;
+  };
+
   return (
     <div className="uno-modal-backdrop">
       <div className="uno-modal">
-        <div className="uno-modal__emoji">{emoji}</div>
         <h2>{title}</h2>
         <p>{subtitle}</p>
-        <button onClick={onRestart} disabled={isMultiplayer && isReady}>
-          {isMultiplayer && isReady ? 'Listo' : 'Jugar otra vez'}
-        </button>
+
+        {winnerNames.length > 0 && (
+          <div className="uno-modal__outcome">
+            {winnerNames.length > 1 ? (
+              <p>
+                <strong>Empate.</strong> Ganadores: {winnerNames.join(', ')}
+              </p>
+            ) : (
+              <p>
+                <strong>Ganador:</strong> {winnerNames[0]}
+              </p>
+            )}
+            {loserNames.length > 0 && (
+              <p>
+                <strong>Perdedores:</strong> {loserNames.join(', ')}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="uno-modal__actions">
+          <button
+            className="uno-btn"
+            onClick={onRestart}
+            disabled={isMultiplayer && isReady}
+          >
+            {isMultiplayer && isReady ? 'Listo' : 'Jugar otra vez'}
+          </button>
+          <button className="uno-btn uno-btn--secondary" onClick={handleExitClick}>
+            Salir
+          </button>
+        </div>
+
         {isMultiplayer && Number.isFinite(totalCount) && totalCount > 0 && (
           <p style={{ marginTop: '0.75rem', opacity: 0.9 }}>
             {readyCount}/{totalCount} listos
@@ -44,3 +109,4 @@ export default function GameResultModal({
     </div>
   );
 }
+

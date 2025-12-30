@@ -121,3 +121,108 @@ describe("[UNO] recarga del mazo desde descarte", function () {
     expect(countTotalCards(next)).toEqual(totalBefore);
   });
 });
+
+describe("[UNO] l\u00edmite m\u00e1ximo de cartas en mano (MAX_HAND)", function () {
+  const mkCard = (id) => ({ id: `c-${id}`, color: "red", value: String(id) });
+
+  it("con 2 jugadores: si alguien llega a 40, gana el otro", function () {
+    let state = createInitialState({ numPlayers: 2, names: ["A", "B"] });
+    state = {
+      ...state,
+      currentPlayerIndex: 1,
+      players: [
+        { ...state.players[0], hand: Array.from({ length: 10 }, (_, i) => mkCard(`p0-${i}`)) },
+        { ...state.players[1], hand: Array.from({ length: 39 }, (_, i) => mkCard(`p1-${i}`)) },
+      ],
+      drawPile: [mkCard("draw-0")],
+    };
+
+    const next = applyAction(state, {
+      type: ACTION_TYPES.DRAW_CARD,
+      playerIndex: 1,
+    });
+
+    expect(next.status).toBe("finished");
+    expect(next.finishReason).toBe("max_hand");
+    expect(next.winnerIndexes).toEqual([0]);
+    expect(next.loserIndexes).toEqual([1]);
+    expect(next.lastAction && next.lastAction.finishReason).toBe("max_hand");
+    expect(next.lastAction && next.lastAction.maxHand).toBe(40);
+    expect(next.lastAction && next.lastAction.triggeredBy).toBe(1);
+  });
+
+  it("con 3+ jugadores: gana(n) los de menor mano y el resto pierde", function () {
+    let state = createInitialState({ numPlayers: 3, names: ["A", "B", "C"] });
+    state = {
+      ...state,
+      currentPlayerIndex: 1,
+      players: [
+        { ...state.players[0], hand: Array.from({ length: 10 }, (_, i) => mkCard(`p0-${i}`)) },
+        { ...state.players[1], hand: Array.from({ length: 39 }, (_, i) => mkCard(`p1-${i}`)) },
+        { ...state.players[2], hand: Array.from({ length: 5 }, (_, i) => mkCard(`p2-${i}`)) },
+      ],
+      drawPile: [mkCard("draw-0")],
+    };
+
+    const next = applyAction(state, {
+      type: ACTION_TYPES.DRAW_CARD,
+      playerIndex: 1,
+    });
+
+    expect(next.status).toBe("finished");
+    expect(next.finishReason).toBe("max_hand");
+    expect(next.winnerIndexes).toEqual([2]);
+    expect(next.loserIndexes.sort()).toEqual([0, 1]);
+  });
+
+  it("si hay empate en la menor mano, devuelve varios ganadores", function () {
+    let state = createInitialState({ numPlayers: 3, names: ["A", "B", "C"] });
+    state = {
+      ...state,
+      currentPlayerIndex: 1,
+      players: [
+        { ...state.players[0], hand: Array.from({ length: 5 }, (_, i) => mkCard(`p0-${i}`)) },
+        { ...state.players[1], hand: Array.from({ length: 39 }, (_, i) => mkCard(`p1-${i}`)) },
+        { ...state.players[2], hand: Array.from({ length: 5 }, (_, i) => mkCard(`p2-${i}`)) },
+      ],
+      drawPile: [mkCard("draw-0")],
+    };
+
+    const next = applyAction(state, {
+      type: ACTION_TYPES.DRAW_CARD,
+      playerIndex: 1,
+    });
+
+    expect(next.status).toBe("finished");
+    expect(next.finishReason).toBe("max_hand");
+    expect(next.winnerIndexes.sort()).toEqual([0, 2]);
+    expect(next.winnerIndex).toBe(null);
+    expect(next.loserIndexes).toEqual([1]);
+  });
+
+  it("prioriza victoria normal (0 cartas) frente a max hand en la misma acci\u00f3n", function () {
+    let state = createInitialState({ numPlayers: 2, names: ["A", "B"] });
+    const plus8 = { id: "red-plus8", color: "red", value: "+8" };
+
+    state = {
+      ...state,
+      currentPlayerIndex: 0,
+      players: [
+        { ...state.players[0], hand: [plus8] },
+        { ...state.players[1], hand: Array.from({ length: 32 }, (_, i) => mkCard(`p1-${i}`)) },
+      ],
+      discardPile: [{ id: "top", color: "red", value: "5" }],
+      drawPile: Array.from({ length: 8 }, (_, i) => mkCard(`draw-${i}`)),
+    };
+
+    const next = applyAction(state, {
+      type: ACTION_TYPES.PLAY_CARD,
+      playerIndex: 0,
+      cardId: plus8.id,
+    });
+
+    expect(next.status).toBe("finished");
+    expect(next.finishReason).toBe("normal");
+    expect(next.winnerIndexes).toEqual([0]);
+  });
+});

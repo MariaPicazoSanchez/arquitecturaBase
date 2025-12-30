@@ -97,11 +97,105 @@ export default function UnoGame() {
 
   const latestEngineRef = useRef(null);
   const isLocallyEliminatedRef = useRef(false);
+  const handWrapRef = useRef(null);
+  const firstHandCardRef = useRef(null);
+  const hasHandUserScrolledRef = useRef(false);
+  const [handOverlapPx, setHandOverlapPx] = useState(0);
 
   const { engine, uiStatus } = game;
   const player = engine?.players?.[0] ?? null;
   const isHumanTurn = engine?.currentPlayerIndex === 0;
   const isPlaying = uiStatus === 'playing' && !isLocallyEliminated;
+  const directionArrow =
+    (tableState?.direction ?? engine?.direction) === -1 ? '←' : '→';
+
+  const resolveWinnerIndexes = (engineState) => {
+    const indexes = Array.isArray(engineState?.winnerIndexes)
+      ? engineState.winnerIndexes.filter((idx) => Number.isInteger(idx))
+      : [];
+    if (indexes.length > 0) return indexes;
+    return Number.isInteger(engineState?.winnerIndex) ? [engineState.winnerIndex] : [];
+  };
+
+  const resolveMaxHand = (engineState) => {
+    const fromState = engineState?.maxHand;
+    if (Number.isFinite(fromState) && fromState > 0) return fromState;
+    const fromLastAction = engineState?.lastAction?.maxHand;
+    if (Number.isFinite(fromLastAction) && fromLastAction > 0) return fromLastAction;
+    return 40;
+  };
+
+  const computeHandOverlapPx = useCallback(() => {
+    const wrapEl = handWrapRef.current;
+    const firstEl = firstHandCardRef.current;
+    const n = Array.isArray(player?.hand) ? player.hand.length : 0;
+
+    if (!wrapEl || !firstEl || n <= 1) {
+      setHandOverlapPx(0);
+      return;
+    }
+
+    const cardWidth = Math.max(1, firstEl.getBoundingClientRect().width || 0);
+
+    const cs = window.getComputedStyle(wrapEl);
+    const padLeft = Number.parseFloat(cs.paddingLeft || '0') || 0;
+    const padRight = Number.parseFloat(cs.paddingRight || '0') || 0;
+    const available = Math.max(0, wrapEl.clientWidth - padLeft - padRight);
+
+    const startStackAt = 12;
+    const baseGap = cardWidth * 0.08; // <= 11: sin apilar (gap)
+    const minOverlap = cardWidth * 0.12; // >= 12: empieza a apilar
+    const maxOverlap = cardWidth * 0.7;
+
+    let overlap = -baseGap;
+    if (n >= startStackAt) {
+      const neededStep = (available - cardWidth) / (n - 1);
+      overlap = cardWidth - neededStep;
+      overlap = Math.max(minOverlap, Math.min(maxOverlap, overlap));
+    }
+
+    setHandOverlapPx(Math.round(overlap));
+  }, [player?.hand]);
+
+  const centerHandIfOverflowing = useCallback(() => {
+    const wrapEl = handWrapRef.current;
+    if (!wrapEl) return;
+    if (hasHandUserScrolledRef.current) return;
+
+    const overflow = wrapEl.scrollWidth - wrapEl.clientWidth;
+    if (overflow > 2) {
+      wrapEl.scrollLeft = overflow / 2;
+    }
+  }, []);
+
+  useEffect(() => {
+    computeHandOverlapPx();
+  }, [computeHandOverlapPx]);
+
+  useEffect(() => {
+    const wrapEl = handWrapRef.current;
+    if (!wrapEl) return;
+
+    hasHandUserScrolledRef.current = false;
+
+    if (typeof ResizeObserver === 'undefined') {
+      const onResize = () => computeHandOverlapPx();
+      window.addEventListener('resize', onResize);
+      return () => window.removeEventListener('resize', onResize);
+    }
+
+    const ro = new ResizeObserver(() => {
+      computeHandOverlapPx();
+    });
+    ro.observe(wrapEl);
+    return () => ro.disconnect();
+  }, [computeHandOverlapPx]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      centerHandIfOverflowing();
+    });
+  }, [handOverlapPx, player?.hand?.length, centerHandIfOverflowing]);
 
   const triggerDeckReshuffleFx = useCallback((movedCount) => {
     const overlay = reshuffleOverlayRef.current;
@@ -628,6 +722,14 @@ export default function UnoGame() {
               newEngine.winnerIndex === 0
                 ? '¡Te has quedado sin cartas! Has ganado.'
                 : `${winnerName} se ha quedado sin cartas. Has perdido.`;
+
+            const winnerIndexes = resolveWinnerIndexes(newEngine);
+            const iAmWinner = winnerIndexes.includes(0);
+            const isTie = winnerIndexes.length > 1;
+            newUiStatus = isTie ? (iAmWinner ? 'tied' : 'lost') : iAmWinner ? 'won' : 'lost';
+            if (newEngine.finishReason === 'max_hand') {
+              message = `Fin de partida: se alcanzó el límite de ${resolveMaxHand(newEngine)} cartas.`;
+            }
           } else {
             newUiStatus = 'playing';
             
@@ -1092,8 +1194,11 @@ export default function UnoGame() {
     sfxPlayCard();
     suppressNextSfxRef.current = 'play';
 
-    // comodines necesitan elegir color
-    if (card.color === 'wild') {
+    const needsColorPick = ['wild', '+4', 'swap', 'discard_all', 'skip_all'].includes(
+      card.value,
+    );
+
+    if (needsColorPick) {
       const playable = getPlayableCards(engine, 0);
       if (!playable.some((c) => c.id === card.id)) {
         setGame((prev) => ({
@@ -1103,6 +1208,7 @@ export default function UnoGame() {
         }));
         return;
       }
+
       setPendingWild({ cardId: card.id, value: card.value });
 
       if (card.value === 'swap') {
@@ -1165,10 +1271,18 @@ export default function UnoGame() {
           newUiStatus = 'lost';
           message = 'El bot se ha quedado sin cartas. Has perdido 😭';
         }
-      } else {
-        if (newEngine.currentPlayerIndex === 0) {
-          message = 'Te toca de nuevo.';
+
+          const winnerIndexes = resolveWinnerIndexes(newEngine);
+          const iAmWinner = winnerIndexes.includes(0);
+          const isTie = winnerIndexes.length > 1;
+          newUiStatus = isTie ? (iAmWinner ? 'tied' : 'lost') : iAmWinner ? 'won' : 'lost';
+          if (newEngine.finishReason === 'max_hand') {
+            message = `Fin de partida: se alcanzó el límite de ${resolveMaxHand(newEngine)} cartas.`;
+          }
         } else {
+          if (newEngine.currentPlayerIndex === 0) {
+            message = 'Te toca de nuevo.';
+          } else {
           message = 'Turno del bot...';
         }
       }
@@ -1239,6 +1353,14 @@ export default function UnoGame() {
         } else {
           newUiStatus = 'lost';
           message = 'El bot se ha quedado sin cartas. Has perdido 😭';
+        }
+
+        const winnerIndexes = resolveWinnerIndexes(newEngine);
+        const iAmWinner = winnerIndexes.includes(0);
+        const isTie = winnerIndexes.length > 1;
+        newUiStatus = isTie ? (iAmWinner ? 'tied' : 'lost') : iAmWinner ? 'won' : 'lost';
+        if (newEngine.finishReason === 'max_hand') {
+          message = `Fin de partida: se alcanzó el límite de ${resolveMaxHand(newEngine)} cartas.`;
         }
       } else {
         if (newEngine.currentPlayerIndex === 0) {
@@ -1349,7 +1471,7 @@ export default function UnoGame() {
     if (!isMultiplayer && lastCardRequiredForPlayerId === player.id) {
       setGame((prev) => ({
         ...prev,
-        message: 'Debes pulsar ÇsLTIMA CARTA antes de pasar.',
+        message: 'Debes pulsar ÚLTIMA CARTA antes de pasar.',
       }));
       return;
     }
@@ -1433,6 +1555,21 @@ export default function UnoGame() {
       message:
         '',
     });
+  };
+
+  const handleExit = () => {
+    try {
+      unoNetRef.current?.disconnect?.();
+    } catch {
+      // ignore
+    }
+
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+
+    window.location.href = window.location.origin;
   };
 
   // ---------- Turno del bot ----------
@@ -1531,6 +1668,14 @@ export default function UnoGame() {
           } else {
             newUiStatus = 'lost';
             message = 'El bot se ha quedado sin cartas. Has perdido 😭';
+          }
+
+          const winnerIndexes = resolveWinnerIndexes(newEngine);
+          const iAmWinner = winnerIndexes.includes(0);
+          const isTie = winnerIndexes.length > 1;
+          newUiStatus = isTie ? (iAmWinner ? 'tied' : 'lost') : iAmWinner ? 'won' : 'lost';
+          if (newEngine.finishReason === 'max_hand') {
+            message = `Fin de partida: se alcanzó el límite de ${resolveMaxHand(newEngine)} cartas.`;
           }
         } else if (!message) {
           if (newEngine.currentPlayerIndex === 1) {
@@ -1800,138 +1945,182 @@ export default function UnoGame() {
 
   return (
     <div className="uno-game" onPointerDown={handleUserGesture}>
-      <div className="uno-status">
-        <button
-          type="button"
-          className={
-            'uno-mute-toggle' + (isMuted ? ' uno-mute-toggle--muted' : '')
-          }
-          onClick={(e) => {
-            e.stopPropagation();
-            handleToggleMute();
-          }}
-          aria-label={isMuted ? 'Activar sonido' : 'Silenciar'}
-          title={isMuted ? 'Activar sonido' : 'Silenciar'}
-        >
-          {isMuted ? 'Unmute' : 'Mute'}
-        </button>
-        <p>{game.message}</p>
-        <div className="uno-deck-row">
-          <p>Mazo: {engine.drawPile.length} cartas</p>
-          {isMultiplayer && (
-            <button
-              type="button"
-              className="uno-reload-button"
-              onClick={handleReloadDeck}
-              disabled={!canReloadDeck || isReloadingDeck}
-              title={
-                canReloadDeck
-                  ? 'Recargar mazo'
-                  : 'Disponible cuando el mazo est\u00e1 a 0 y hay descartes para reciclar.'
-              }
-            >
-              {isReloadingDeck ? 'Recargando...' : 'Recargar mazo'}
-            </button>
-          )}
-          {isMultiplayer && (
-            <button
-              type="button"
-              className="uno-reload-button"
-              onClick={handleToggleLog}
-              title="Ver registro de movimientos"
-            >
-              {isLogOpen ? 'Cerrar registro' : 'Registro'}
-            </button>
-          )}
-          {canPassExtra && (
-            <button
-              type="button"
-              className="uno-reload-button"
-              onClick={handlePassTurn}
-              title="Pasar jugada extra"
-            >
-              Pasar
-            </button>
-          )}
-        </div>
-        <p className="uno-lastaction">{lastActionText}</p>
+      <div className="unoPage">
+        <header className="unoHeader">
+          <div className="unoHeaderBar">
+            <p className="unoHeaderMessage">{game.message}</p>
+            <div className="unoHeaderActions">
+              {engine?.drawPile?.length != null && (
+                <span className="unoHeaderStat">Mazo: {engine.drawPile.length}</span>
+              )}
 
-        {isMultiplayer && isLogOpen && (
-          <div className="uno-events" aria-label="Registro de movimientos">
-            <div className="uno-events-title">Registro</div>
-            <div className="uno-deck-row">
+              {isMultiplayer && (
+                <button
+                  type="button"
+                  className="uno-reload-button"
+                  onClick={handleReloadDeck}
+                  disabled={!canReloadDeck || isReloadingDeck}
+                  title={
+                    canReloadDeck
+                      ? 'Recargar mazo'
+                      : 'Disponible cuando el mazo está a 0 y hay descartes para reciclar.'
+                  }
+                >
+                  {isReloadingDeck ? 'Recargando...' : 'Recargar mazo'}
+                </button>
+              )}
+
+              {isMultiplayer && (
+                <button
+                  type="button"
+                  className="uno-reload-button"
+                  onClick={handleToggleLog}
+                  title="Ver registro de movimientos"
+                >
+                  {isLogOpen ? 'Cerrar registro' : 'Registro'}
+                </button>
+              )}
+
+              {canPassExtra && (
+                <button
+                  type="button"
+                  className="uno-reload-button"
+                  onClick={handlePassTurn}
+                  title="Pasar jugada extra"
+                >
+                  Pasar
+                </button>
+              )}
+
+              <span className="uno-uno-tooltip" title={unoButtonTooltip}>
+                <button
+                  type="button"
+                  className="uno-uno-button"
+                  onClick={handleLastCardClick}
+                  disabled={!canCallUnoNow}
+                >
+                  ÚLTIMA CARTA
+                </button>
+              </span>
+
+              {myUnoDeadlineTs != null &&
+                player.hand.length === 1 &&
+                !player.hasCalledUno &&
+                myUnoRemainingMs != null &&
+                myUnoRemainingMs > 0 && (
+                  <div className="unoHeaderUnoTimer" aria-label="Tiempo para cantar">
+                    <div className="uno-lastcard-timer">
+                      <div
+                        className="uno-lastcard-timer-fill"
+                        style={{
+                          transform: `scaleX(${Math.max(
+                            0,
+                            Math.min(
+                              1,
+                              myUnoRemainingMs / (isMultiplayer ? unoWindowMs : UNO_CALL_WINDOW_MS),
+                            ),
+                          )})`,
+                        }}
+                      />
+                    </div>
+                    <span className="uno-uno-subtext">{myUnoSecondsRemaining}s</span>
+                  </div>
+                )}
+
               <button
                 type="button"
-                className="uno-reload-button"
-                onClick={handleRequestLog}
-                disabled={isLogLoading}
-                title="Actualizar registro"
+                className={
+                  'uno-mute-toggle' + (isMuted ? ' uno-mute-toggle--muted' : '')
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleMute();
+                }}
+                aria-label={isMuted ? 'Activar sonido' : 'Silenciar'}
+                title={isMuted ? 'Activar sonido' : 'Silenciar'}
               >
-                {isLogLoading ? 'Cargando...' : 'Actualizar'}
+                {isMuted ? 'Unmute' : 'Mute'}
               </button>
             </div>
-            <ul className="uno-events-list">
-              {(gameLogEntries || []).slice(-80).map((e) => (
-                <li key={e.seq} className="uno-events-item">
-                  {formatLogLine(e)}
-                  {e?.details?.myHandDelta?.added?.length > 0 &&
-                    ` (tus cartas: ${e.details.myHandDelta.added
-                      .map((c) => `${c.value}${c.color && c.color !== 'wild' ? `:${c.color}` : ''}`)
-                      .join(', ')})`}
-                </li>
-              ))}
-              {(gameLogEntries || []).length === 0 && (
-                <li className="uno-events-item">No hay entradas todavía.</li>
-              )}
-            </ul>
           </div>
-        )}
+        </header>
 
-        <div className="uno-turn">
-          <span>Turno:</span>
-          <span
-            className={
-              'uno-turn-badge ' +
-              (isHumanTurn
-                ? 'uno-turn-badge--you'
-                : 'uno-turn-badge--bot')
-            }
-          >
-            {activePublic ? `${activePublic.nick} (${activePublic.handCount})` : '—'}
-          </span>
-        </div>
-
-        {doublePlayHint && <p className="uno-lastaction">{doublePlayHint}</p>}
-
-        {orderedByPlay.length > 1 && (
-          <div className="uno-turn-order" aria-label="Orden de juego">
-            <span className="uno-turn-order-label">Orden:</span>
-            <div className="uno-turn-order-chips">
-              {orderedByPlay.map((p, i) => (
-                <React.Fragment key={p.playerId}>
-                  <span
-                    className={
-                      'turnChip ' +
-                      (String(p.playerId) === String(turnPlayerId) ? 'active' : 'inactive')
-                    }
-                  >
-                    {p.nick} ({p.handCount})
-                  </span>
-                  {i < orderedByPlay.length - 1 && (
-                    <span className="turnArrow" aria-hidden="true">
-                      →
-                    </span>
-                  )}
-                </React.Fragment>
-              ))}
+        <main className="unoMain">
+          <aside className="unoSideLeft">
+            <div className="uno-turn">
+              <span>Turno:</span>
+              <span
+                className={
+                  'uno-turn-badge ' +
+                  (isHumanTurn ? 'uno-turn-badge--you' : 'uno-turn-badge--bot')
+                }
+              >
+                {activePublic ? `${activePublic.nick} (${activePublic.handCount})` : '—'}
+              </span>
             </div>
-          </div>
-        )}
+            <p className="uno-lastaction">{lastActionText}</p>
+            {doublePlayHint && <p className="uno-lastaction">{doublePlayHint}</p>}
 
+            {orderedByPlay.length > 1 && (
+              <div className="uno-turn-order" aria-label="Rivales">
+                <span className="uno-turn-order-label">Orden:</span>
+                <div className="uno-turn-order-chips">
+                  {orderedByPlay.map((p, i) => (
+                    <React.Fragment key={p.playerId}>
+                      <span
+                        className={
+                          'turnChip ' +
+                          (String(p.playerId) === String(turnPlayerId)
+                            ? 'active'
+                            : 'inactive')
+                        }
+                      >
+                        {p.nick} ({p.handCount})
+                      </span>
+                      {i < orderedByPlay.length - 1 && (
+                        <span className="turnArrow" aria-hidden="true">
+                          {directionArrow}
+                        </span>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            )}
 
-      </div>
-
-      <TableRing
+            {isMultiplayer && isLogOpen && (
+              <div className="uno-events" aria-label="Registro de movimientos">
+                <div className="uno-events-title">Registro</div>
+                <div className="uno-deck-row">
+                  <button
+                    type="button"
+                    className="uno-reload-button"
+                    onClick={handleRequestLog}
+                    disabled={isLogLoading}
+                    title="Actualizar registro"
+                  >
+                    {isLogLoading ? 'Cargando...' : 'Actualizar'}
+                  </button>
+                </div>
+                <ul className="uno-events-list">
+                  {(gameLogEntries || []).slice(-80).map((e) => (
+                    <li key={e.seq} className="uno-events-item">
+                      {formatLogLine(e)}
+                      {e?.details?.myHandDelta?.added?.length > 0 &&
+                        ` (tus cartas: ${e.details.myHandDelta.added
+                          .map((c) => `${c.value}${c.color && c.color !== 'wild' ? `:${c.color}` : ''}`)
+                          .join(', ')})`}
+                    </li>
+                  ))}
+                  {(gameLogEntries || []).length === 0 && (
+                    <li className="uno-events-item">No hay entradas todavía.</li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </aside>
+          <section className="unoCenter">
+            <TableRing
         gameState={
           tableState
             ? {
@@ -1974,7 +2163,6 @@ export default function UnoGame() {
           />
           <div className="centerPiles">
             <div className="uno-discard">
-              <h3>Carta en mesa</h3>
               <div
                 ref={discardStackRef}
                 className={
@@ -2052,116 +2240,24 @@ export default function UnoGame() {
             </button>
           </div>
         </div>
-      </TableRing>
+            </TableRing>
+          </section>
+        </main>
 
       {/* Zona jugador */}
-      <div className="uno-zone uno-zone--player">
-        <h2>
-          {player.name} ({player.hand.length} cartas)
-          {player.hand.length === 1 && <span className="uno-badge">Última Carta!</span>}
-        </h2>
-
-        {/* Selector de color para comodín */}
-        {showTargetPicker && pendingWild?.value === 'swap' && isPlaying && (
-          <div className="uno-wild-picker">
-            <p>Elige rival para SWAP:</p>
-            <div className="uno-wild-picker-buttons">
-              {(engine.players || [])
-                .filter((_, idx) => idx !== 0)
-                .map((p) => {
-                  const handCount =
-                    typeof p?.handCount === 'number'
-                      ? p.handCount
-                      : Array.isArray(p?.hand)
-                        ? p.hand.length
-                        : 0;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className="uno-reload-button"
-                      onClick={() => handleChooseSwapTarget(p.id)}
-                    >
-                      {(p?.name ?? 'Jugador') + ` (${handCount})`}
-                    </button>
-                  );
-                })}
-              <button
-                type="button"
-                className="uno-reload-button"
-                onClick={handleCancelPendingWild}
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        )}
-
-        {showColorPicker && pendingWild && isPlaying && (
-          <div className="uno-wild-picker">
-            <p>Elige color para el comodín:</p>
-            <div className="uno-wild-picker-buttons">
-              <button
-                className="uno-wild-color uno-wild-color--red"
-                onClick={() => handleChooseWildColor('red')}
-              />
-              <button
-                className="uno-wild-color uno-wild-color--yellow"
-                onClick={() => handleChooseWildColor('yellow')}
-              />
-              <button
-                className="uno-wild-color uno-wild-color--green"
-                onClick={() => handleChooseWildColor('green')}
-              />
-              <button
-                className="uno-wild-color uno-wild-color--blue"
-                onClick={() => handleChooseWildColor('blue')}
-              />
-            </div>
-          </div>
-        )}
-
-        <div className="uno-uno-wrapper">
-          <span className="uno-uno-tooltip" title={unoButtonTooltip}>
-            <button
-              type="button"
-              className="uno-uno-button"
-              onClick={handleLastCardClick}
-              disabled={!canCallUnoNow}
-            >
-              ÚLTIMA CARTA
-            </button>
-          </span>
-
-          {myUnoDeadlineTs != null &&
-            player.hand.length === 1 &&
-            !player.hasCalledUno &&
-            myUnoRemainingMs != null &&
-            myUnoRemainingMs > 0 && (
-              <>
-                <div className="uno-lastcard-timer">
-                  <div
-                    className="uno-lastcard-timer-fill"
-                    style={{
-                      transform: `scaleX(${Math.max(
-                        0,
-                        Math.min(
-                          1,
-                          myUnoRemainingMs / (isMultiplayer ? unoWindowMs : UNO_CALL_WINDOW_MS),
-                        ),
-                      )})`,
-                    }}
-                  />
-                </div>
-                <p className="uno-uno-subtext">
-                  Te quedan {myUnoSecondsRemaining}s para cantar.
-                </p>
-              </>
-            )}
-        </div>
-
-        <div className="uno-hand uno-hand--player">
-          {player.hand.map((card) => {
+      <footer className="unoHand uno-zone uno-zone--player">
+        <div
+          ref={handWrapRef}
+          className="uno-handWrap uno-handWrap--player"
+          onScroll={() => {
+            hasHandUserScrolledRef.current = true;
+          }}
+        >
+          <div
+            className="uno-handRow uno-handRow--player"
+            style={{ '--overlap': `${handOverlapPx}px` }}
+          >
+            {player.hand.map((card, idx) => {
             const isPlayableCard =
               isPlaying &&
               isHumanTurn &&
@@ -2169,23 +2265,122 @@ export default function UnoGame() {
               getPlayableCards(engine, 0).some((c) => c.id === card.id);
 
             return (
-              <Card
+              <div
                 key={card.id}
-                card={card}
-                onClick={() => handleCardClick(card)}
-                size="normal"
-                disabled={!isPlayableCard}
-                isPlayable={isPlayableCard}
-              />
+                className={
+                  'uno-handCard ' +
+                  (isPlayableCard
+                    ? 'uno-handCard--playable'
+                    : 'uno-handCard--notPlayable')
+                }
+                ref={idx === 0 ? firstHandCardRef : null}
+              >
+                <Card
+                  card={card}
+                  onClick={() => handleCardClick(card)}
+                  size="normal"
+                  disabled={!isPlayableCard}
+                  isPlayable={isPlayableCard}
+                />
+              </div>
             );
-          })}
+            })}
+          </div>
         </div>
+      </footer>
+
       </div>
 
-      {(uiStatus === 'won' || uiStatus === 'lost') && (
+      {(showColorPicker || showTargetPicker) && pendingWild && isPlaying && (
+        <div className="uno-modal-backdrop" onClick={handleCancelPendingWild}>
+          <div className="uno-modal" onClick={(e) => e.stopPropagation()}>
+            {showTargetPicker && pendingWild?.value === 'swap' ? (
+              <>
+                <h2>Elegir rival</h2>
+                <p>Selecciona el jugador con el que quieres hacer SWAP.</p>
+                <div className="uno-wild-picker-buttons">
+                  {(engine.players || [])
+                    .filter((_, idx) => idx !== 0)
+                    .map((p) => {
+                      const handCount =
+                        typeof p?.handCount === 'number'
+                          ? p.handCount
+                          : Array.isArray(p?.hand)
+                            ? p.hand.length
+                            : 0;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className="uno-reload-button"
+                          onClick={() => handleChooseSwapTarget(p.id)}
+                        >
+                          {(p?.name ?? 'Jugador') + ` (${handCount})`}
+                        </button>
+                      );
+                    })}
+                  <button
+                    type="button"
+                    className="uno-reload-button"
+                    onClick={handleCancelPendingWild}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Elegir color</h2>
+                <p>Selecciona el color para el comodín.</p>
+                <div className="uno-wild-picker-buttons">
+                  <button
+                    type="button"
+                    className="uno-wild-color uno-wild-color--red"
+                    onClick={() => handleChooseWildColor('red')}
+                    aria-label="Rojo"
+                    title="Rojo"
+                  />
+                  <button
+                    type="button"
+                    className="uno-wild-color uno-wild-color--yellow"
+                    onClick={() => handleChooseWildColor('yellow')}
+                    aria-label="Amarillo"
+                    title="Amarillo"
+                  />
+                  <button
+                    type="button"
+                    className="uno-wild-color uno-wild-color--green"
+                    onClick={() => handleChooseWildColor('green')}
+                    aria-label="Verde"
+                    title="Verde"
+                  />
+                  <button
+                    type="button"
+                    className="uno-wild-color uno-wild-color--blue"
+                    onClick={() => handleChooseWildColor('blue')}
+                    aria-label="Azul"
+                    title="Azul"
+                  />
+                  <button
+                    type="button"
+                    className="uno-reload-button"
+                    onClick={handleCancelPendingWild}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {(uiStatus === 'won' || uiStatus === 'lost' || uiStatus === 'tied') && (
         <GameResultModal
           status={uiStatus}
+          engine={engine}
           onRestart={handleRestart}
+          onExit={handleExit}
           isMultiplayer={isMultiplayer}
           rematch={isMultiplayer ? rematch : null}
         />
