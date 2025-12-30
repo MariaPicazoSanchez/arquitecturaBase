@@ -648,8 +648,30 @@ function Sistema() {
       }
 
       const patch = {};
-      if (typeof displayNameCheck.value === "string") patch.displayName = displayNameCheck.value;
-      if (typeof nickCheck.value === "string") patch.nick = nickCheck.value;
+      const currentDisplayName = String(usr.displayName || "");
+      const currentNick = String(usr.nick || "");
+
+      if (typeof displayNameCheck.value === "string" && displayNameCheck.value !== currentDisplayName) {
+        patch.displayName = displayNameCheck.value;
+      }
+      if (typeof nickCheck.value === "string" && nickCheck.value !== currentNick) {
+        patch.nick = nickCheck.value;
+      }
+
+      if (Object.keys(patch).length === 0) {
+        callback({
+          ok: true,
+          user: {
+            email: usr.email,
+            nick: usr.nick || usr.email,
+            nombre: usr.displayName || "",
+            displayName: usr.displayName || "",
+            createdAt: usr.createdAt || null,
+            canChangePassword: !!usr.password,
+          },
+        });
+        return;
+      }
 
       const applyUpdate = function(){
         modelo.cad.actualizarUsuarioPorEmail(e, patch, function(updated){
@@ -676,8 +698,8 @@ function Sistema() {
         });
       };
 
-      if (typeof nickCheck.value === "string" && nickCheck.value !== (usr.nick || "")) {
-        modelo.cad.buscarUsuarioRaw({ nick: nickCheck.value }, function(usrNick){
+      if (typeof patch.nick === "string") {
+        modelo.cad.buscarUsuarioRaw({ nick: patch.nick }, function(usrNick){
           if (usrNick && usrNick.email && normalizarEmail(usrNick.email) !== e) {
             callback({ ok: false, status: 409, message: "Ese nick ya está en uso." });
             return;
@@ -804,7 +826,6 @@ function Sistema() {
       const newPwdCheck = validarNuevaPassword(body.newPassword);
 
       if (!token) return callback({ ok: false, status: 400, message: "Token requerido." });
-      if (!code) return callback({ ok: false, status: 400, message: "Código requerido." });
       if (!newPwdCheck.ok) return callback({ ok: false, status: 400, message: newPwdCheck.message });
 
       if (!this.cad
@@ -818,7 +839,7 @@ function Sistema() {
 
       const modelo = this;
       const tokenHash = sha256Hex(token);
-      const codeHashInput = sha256Hex(code);
+      const codeHashInput = code ? sha256Hex(code) : null;
 
       this.cad.buscarPasswordResetTokenPorHash(tokenHash, function(t) {
         if (!t) return callback({ ok: false, status: 401, message: "Token inválido." });
@@ -831,8 +852,10 @@ function Sistema() {
           return callback({ ok: false, status: 410, message: "El token ha expirado. Solicita uno nuevo." });
         }
 
-        if (!t.codeHash || !timingSafeEqualHex(String(t.codeHash), codeHashInput)) {
-          return callback({ ok: false, status: 401, message: "Código inválido." });
+        if (code) {
+          if (!t.codeHash || !codeHashInput || !timingSafeEqualHex(String(t.codeHash), codeHashInput)) {
+            return callback({ ok: false, status: 401, message: "Código inválido." });
+          }
         }
 
         modelo.cad.buscarUsuarioPorId(t.userId, function(usr) {
@@ -1031,6 +1054,12 @@ function Sistema() {
           return;
         }
       }
+
+      try {
+        if (typeof modelo.cad.eliminarPasswordResetTokensDeUsuario === "function") {
+          modelo.cad.eliminarPasswordResetTokensDeUsuario(usr._id, function() {});
+        }
+      } catch (ex) {}
 
       modelo.cad.eliminarUsuarioPorEmail(e, function(deleted){
         if (!deleted) {

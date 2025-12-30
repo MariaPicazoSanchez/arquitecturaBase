@@ -266,6 +266,28 @@ function CAD() {
       });
   };
 
+  this.eliminarPasswordResetTokensDeUsuario = function(userId, callback) {
+    if (!this.passwordResetTokens) {
+      if (typeof callback === "function") callback(false);
+      return;
+    }
+    let uid = userId;
+    try {
+      if (typeof userId === "string") uid = new ObjectId(userId);
+    } catch (e) {
+      if (typeof callback === "function") callback(false);
+      return;
+    }
+    this.passwordResetTokens.deleteMany({ userId: uid }, { maxTimeMS: 5000 })
+      .then((res) => {
+        if (typeof callback === "function") callback(!!res);
+      })
+      .catch((err) => {
+        console.error("[cad.eliminarPasswordResetTokensDeUsuario] error:", err && err.message ? err.message : err);
+        if (typeof callback === "function") callback(false);
+      });
+  };
+
   this.insertarLog = async function (tipoOperacion, usuario) {
     if (!this.logs) {
       console.error("[cad.insertarLog] Coleccion logs no inicializada");
@@ -379,10 +401,14 @@ function buscarOCrear(coleccion, criterio, callback) {
         }
       }
 
-      // best-effort: actualizar displayName si viene (sin tocar nick)
+      // best-effort: actualizar displayName solo si est\u00e1 vac\u00edo (sin tocar nick)
       if (displayName) {
         try {
-          await coleccion.updateOne({ email }, { $set: { displayName } }, { maxTimeMS: 5000 });
+          await coleccion.updateOne(
+            { email, $or: [{ displayName: { $exists: false } }, { displayName: null }, { displayName: "" }] },
+            { $set: { displayName } },
+            { maxTimeMS: 5000 }
+          );
         } catch (e) {}
       }
 

@@ -116,6 +116,14 @@ app.get('/reset-password', function(req, res){
   return res.sendFile(path.join(__dirname, 'client', 'reset-password.html'));
 });
 
+app.get('/forgot-password', function(req, res){
+  return res.sendFile(path.join(__dirname, 'client', 'forgot-password.html'));
+});
+
+app.get('/help', function(req, res){
+  return res.sendFile(path.join(__dirname, 'client', 'help.html'));
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

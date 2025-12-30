@@ -301,7 +301,8 @@ function ControlWeb() {
         const $nav = $(".navbar-nav.ml-auto");
         if (!$nav.length) return;
 
-        try { $("#menuHelp").closest("li").hide(); } catch(e) {}
+        // Ayuda visible siempre
+        try { $("#menuHelp").closest("li").show(); } catch(e) {}
         try { $("#menuIniciarSesion").closest("li").hide(); } catch(e) {}
 
         $("#navUserDropdown").remove();
@@ -338,7 +339,7 @@ function ControlWeb() {
         });
         $("#navAyuda").off("click").on("click", function(e){
             e.preventDefault();
-            try { $("#menuHelp").trigger("click"); } catch(ex) {}
+            try { window.location.href = "/help"; } catch(ex) {}
         });
         $("#navSalir").off("click").on("click", function(e){
             e.preventDefault();
@@ -346,8 +347,8 @@ function ControlWeb() {
         });
 
         try {
-            const fallback = ($.cookie && $.cookie("nick")) || this.email || "";
-            if (fallback) { this._setNavUserLabel(fallback); }
+            const label = ($.cookie && $.cookie("nick")) ? $.cookie("nick") : "Usuario";
+            this._setNavUserLabel(label);
         } catch(e) {}
     };
 
@@ -527,15 +528,15 @@ function ControlWeb() {
 
             if (window.rest && typeof rest.solicitarCambioPasswordMiCuenta === "function"){
                 rest.solicitarCambioPasswordMiCuenta(function(){
-                    $btn.prop("disabled", false).text("Cambio de contraseña");
-                    $("#password-change-form").show();
-                    cw._setAccountAlert("Correo enviado. Revisa tu bandeja: puedes usar el enlace o introducir el código aquí.", "success");
+                    $btn.prop("disabled", false).text("Cambiar contraseña");
+                    $("#password-change-form").hide();
+                    cw._setAccountAlert("Correo enviado. Revisa tu bandeja y abre el enlace para restablecer la contraseña.", "success");
                 }, function(errMsg){
-                    $btn.prop("disabled", false).text("Cambio de contraseña");
+                    $btn.prop("disabled", false).text("Cambiar contraseña");
                     cw._setAccountAlert(errMsg || "No se pudo enviar el correo.", "error");
                 });
             } else {
-                $btn.prop("disabled", false).text("Cambio de contraseña");
+                $btn.prop("disabled", false).text("Cambiar contraseña");
                 cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
             }
         });
@@ -758,10 +759,9 @@ function ControlWeb() {
 
             $("#link-forgot-password").off("click").on("click", function(e){
                 e.preventDefault();
-                try { $("#forgot-password-alert").hide().text(""); } catch(e2) {}
                 const email = ($("#emailLogin").val() || "").trim();
-                $("#forgot-email").val(email);
-                $("#modalForgotPassword").modal("show");
+                const qs = email ? ("?email=" + encodeURIComponent(email)) : "";
+                window.location.href = "/forgot-password" + qs;
             });
 
             $("#form-forgot-password").off("submit").on("submit", function(e){
