@@ -1,13 +1,31 @@
     // Verifica si el usuario tiene una partida activa
     this.tienePartidaPropia = function(lista) {
-        const me = ($.cookie("nick") || this.email || "").toLowerCase();
-        return Array.isArray(lista) && lista.some(p => p.propietario && p.propietario.toLowerCase() === me);
+        const norm = (v) => String(v || "").trim().toLowerCase();
+        const myKeys = [
+            norm($.cookie && $.cookie("email")),
+            norm($.cookie && $.cookie("nick")),
+            norm(this.email),
+            norm(window.ws && window.ws.email),
+        ].filter(Boolean);
+        return Array.isArray(lista) && lista.some(p => {
+            const ownerKeys = [norm(p && p.propietarioEmail), norm(p && p.propietario)].filter(Boolean);
+            return ownerKeys.some(k => myKeys.includes(k));
+        });
     };
 function ControlWeb() {
         // Verifica si el usuario tiene una partida activa
         this.tienePartidaPropia = function(lista) {
-            const me = ($.cookie("nick") || this.email || "").toLowerCase();
-            return Array.isArray(lista) && lista.some(p => p.propietario && p.propietario.toLowerCase() === me);
+            const norm = (v) => String(v || "").trim().toLowerCase();
+            const myKeys = [
+                norm($.cookie && $.cookie("email")),
+                norm($.cookie && $.cookie("nick")),
+                norm(this.email),
+                norm(window.ws && window.ws.email),
+            ].filter(Boolean);
+            return Array.isArray(lista) && lista.some(p => {
+                const ownerKeys = [norm(p && p.propietarioEmail), norm(p && p.propietario)].filter(Boolean);
+                return ownerKeys.some(k => myKeys.includes(k));
+            });
         };
     this.juegoActual = null;
 
@@ -30,7 +48,7 @@ function ControlWeb() {
         const nombreBonito =
             this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
-            this.juegoActual === "checkers" ? "Damas" :
+            this.juegoActual === "damas" || this.juegoActual === "checkers" ? "Damas" :
             this.juegoActual === "hundir" ? "Hundir la flota" :
             this.juegoActual;
 
@@ -39,7 +57,7 @@ function ControlWeb() {
         // URL del juego (iframe)
         let url =
             this.juegoActual === "4raya" ? "/4raya" :
-            this.juegoActual === "checkers" ? "/checkers" :
+            this.juegoActual === "damas" || this.juegoActual === "checkers" ? "/damas" :
             this.juegoActual === "uno"   ? "/uno" :
             "/uno";
         if (codigo){
@@ -207,7 +225,7 @@ function ControlWeb() {
         const nombreBonito =
             this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
-            this.juegoActual === "checkers" ? "Damas" :
+            this.juegoActual === "damas" || this.juegoActual === "checkers" ? "Damas" :
             this.juegoActual === "hundir" ? "Hundir la flota" :
             this.juegoActual;
 
@@ -869,10 +887,18 @@ function ControlWeb() {
             return;
         }
 
+        const norm = (v) => String(v || "").trim().toLowerCase();
+        const myKeys = new Set(
+            [
+                norm($.cookie && $.cookie("email")),
+                norm($.cookie && $.cookie("nick")),
+                norm(cw.email),
+                norm(window.ws && window.ws.email),
+            ].filter(Boolean),
+        );
+
         // Usar tarjetas visuales en vez de filas de tabla
         listaFiltrada.forEach(function(p){
-            const me = ($.cookie("nick") || cw.email || "").toLowerCase();
-            const esPropia = (p.propietario && p.propietario.toLowerCase() === me);
             const jugadores = Array.isArray(p.jugadores)
                 ? p.jugadores.length
                 : (typeof p.jugadores === 'number'
@@ -885,8 +911,14 @@ function ControlWeb() {
                 ? p.status
                 : (jugadores >= maxPlayers ? 'FULL' : 'OPEN');
             const partidaCompleta = (status === 'FULL' || status === 'STARTED' || jugadores >= maxPlayers);
-            const yaEstoy = Array.isArray(p.jugadores)
-                && p.jugadores.some(j => (j.email || j.nick || "").toLowerCase() === me);
+
+            const ownerKeys = [norm(p && p.propietarioEmail), norm(p && p.propietario)].filter(Boolean);
+            const esPropia = ownerKeys.some((k) => myKeys.has(k));
+
+            const yaEstoy = Array.isArray(p.jugadores) && p.jugadores.some(j => {
+                const k = norm(j && (j.email || j.nick));
+                return k && myKeys.has(k);
+            });
             const puedeUnirse = !partidaCompleta && !yaEstoy;
             let textoBoton;
             if (yaEstoy) {
@@ -902,7 +934,7 @@ function ControlWeb() {
             const nombreJuego =
                 juego === 'uno'    ? 'Última carta' :
                 juego === '4raya'  ? '4 en raya' :
-                juego === 'checkers' ? 'Damas' :
+                (juego === 'damas' || juego === 'checkers') ? 'Damas' :
                 juego === 'hundir' ? 'Hundir la flota' :
                 juego;
             const statusClass =
@@ -911,8 +943,12 @@ function ControlWeb() {
                 'status-finished';
             let acciones = '';
             if (esPropia){
+                const minPlayers = (p && p.vsBot && juego === "uno") ? 1 : 2;
+                const puedeIniciar = (status === "STARTED") || (jugadores >= minPlayers);
+                const startDisabled = (status !== "STARTED") && !puedeIniciar;
+                const startTitle = startDisabled ? "Falta jugador" : "";
                 acciones += `
-                  <button class="btn btn-jugar btn-continuar" data-codigo="${p.codigo}">Jugar</button>
+                  <button class="btn btn-jugar btn-continuar" data-codigo="${p.codigo}" ${startDisabled ? 'disabled' : ''} ${startTitle ? 'title="' + startTitle + '"' : ''}>Jugar</button>
                   <button class="btn btn-eliminar btn-eliminar" data-codigo="${p.codigo}">Eliminar</button>
                 `;
             } else {

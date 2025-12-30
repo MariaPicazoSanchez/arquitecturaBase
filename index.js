@@ -86,8 +86,8 @@ app.use('/uno', express.static(unoDistPath));
 const connect4DistPath = path.join(__dirname, 'client/games/4raya/dist');
 app.use('/4raya', express.static(connect4DistPath));
 
-const checkersDistPath = path.join(__dirname, 'client/games/checkers/dist');
-app.use('/checkers', express.static(checkersDistPath));
+const damasPath = path.join(__dirname, 'client/games/damas');
+app.use('/damas', express.static(damasPath));
 
 
 // Diagnostic middleware for static assets (helps debug production 503/404)

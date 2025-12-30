@@ -12,6 +12,10 @@ function inBounds(r, c) {
   return r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE;
 }
 
+function isDarkSquare(r, c) {
+  return ((r + c) & 1) === 1;
+}
+
 function cloneBoard(board) {
   return (board || []).map((row) => row.slice());
 }
@@ -59,23 +63,20 @@ function shouldPromote(piece, player, row) {
   return row === BOARD_SIZE - 1;
 }
 
-function promotePiece(piece, player) {
-  const sign = getSignForPlayer(player);
-  return 2 * sign;
+function promotePiece(player) {
+  return 2 * getSignForPlayer(player);
 }
 
 function createInitialBoard() {
-  const board = Array.from({ length: BOARD_SIZE }, () =>
-    Array(BOARD_SIZE).fill(0),
-  );
+  const board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(0));
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < BOARD_SIZE; c++) {
-      if ((r + c) % 2 === 1) board[r][c] = -1;
+      if (isDarkSquare(r, c)) board[r][c] = -1;
     }
   }
   for (let r = BOARD_SIZE - 3; r < BOARD_SIZE; r++) {
     for (let c = 0; c < BOARD_SIZE; c++) {
-      if ((r + c) % 2 === 1) board[r][c] = 1;
+      if (isDarkSquare(r, c)) board[r][c] = 1;
     }
   }
   return board;
@@ -88,7 +89,7 @@ function createInitialState() {
     forcedFrom: null,
     status: "playing", // playing|finished
     winner: null, // white|black|null
-    lastAction: null,
+    lastMove: null,
   };
 }
 
@@ -106,24 +107,26 @@ function getMoveDirsForPiece(piece, player) {
 
 function getCaptureMovesForPiece(board, player, fromR, fromC) {
   if (!inBounds(fromR, fromC)) return [];
+  if (!isDarkSquare(fromR, fromC)) return [];
   const piece = board[fromR][fromC];
   if (!isPlayersPiece(piece, player)) return [];
-  const dirs = getMoveDirsForPiece(piece, player);
 
   const out = [];
-  for (const [dr, dc] of dirs) {
+  for (const [dr, dc] of getMoveDirsForPiece(piece, player)) {
     const midR = fromR + dr;
     const midC = fromC + dc;
     const toR = fromR + dr * 2;
     const toC = fromC + dc * 2;
     if (!inBounds(midR, midC) || !inBounds(toR, toC)) continue;
+    if (!isDarkSquare(toR, toC)) continue;
     if (board[toR][toC] !== 0) continue;
     const mid = board[midR][midC];
     if (!isOpponentsPiece(mid, player)) continue;
+
     out.push({
       from: { r: fromR, c: fromC },
       to: { r: toR, c: toC },
-      capture: { r: midR, c: midC },
+      captured: { r: midR, c: midC },
     });
   }
   return out;
@@ -131,36 +134,38 @@ function getCaptureMovesForPiece(board, player, fromR, fromC) {
 
 function getSimpleMovesForPiece(board, player, fromR, fromC) {
   if (!inBounds(fromR, fromC)) return [];
+  if (!isDarkSquare(fromR, fromC)) return [];
   const piece = board[fromR][fromC];
   if (!isPlayersPiece(piece, player)) return [];
-  const dirs = getMoveDirsForPiece(piece, player);
 
   const out = [];
-  for (const [dr, dc] of dirs) {
+  for (const [dr, dc] of getMoveDirsForPiece(piece, player)) {
     const toR = fromR + dr;
     const toC = fromC + dc;
     if (!inBounds(toR, toC)) continue;
+    if (!isDarkSquare(toR, toC)) continue;
     if (board[toR][toC] !== 0) continue;
     out.push({
       from: { r: fromR, c: fromC },
       to: { r: toR, c: toC },
-      capture: null,
     });
   }
   return out;
 }
 
-function getLegalMoves(state, player) {
+function getLegalMoves(state, playerColor) {
   const s = state || createInitialState();
-  const p = normalizePlayer(player);
-  if (!p) return [];
-  if (s.status !== "playing") return [];
+  const p = normalizePlayer(playerColor);
+  if (!p) return { captures: [], normals: [] };
+  if (s.status !== "playing") return { captures: [], normals: [] };
 
   const board = s.board || createInitialBoard();
-
   const forced = s.forcedFrom;
   if (forced && inBounds(forced.r, forced.c)) {
-    return getCaptureMovesForPiece(board, p, forced.r, forced.c);
+    return {
+      captures: getCaptureMovesForPiece(board, p, forced.r, forced.c),
+      normals: [],
+    };
   }
 
   const captures = [];
@@ -170,25 +175,44 @@ function getLegalMoves(state, player) {
       captures.push(...getCaptureMovesForPiece(board, p, r, c));
     }
   }
-  if (captures.length > 0) return captures;
+  if (captures.length > 0) return { captures, normals: [] };
 
-  const moves = [];
+  const normals = [];
   for (let r = 0; r < BOARD_SIZE; r++) {
     for (let c = 0; c < BOARD_SIZE; c++) {
       if (!isPlayersPiece(board[r][c], p)) continue;
-      moves.push(...getSimpleMovesForPiece(board, p, r, c));
+      normals.push(...getSimpleMovesForPiece(board, p, r, c));
     }
   }
-  return moves;
+  return { captures: [], normals };
 }
 
 function samePos(a, b) {
-  if (!a || !b) return false;
-  return a.r === b.r && a.c === b.c;
+  return !!a && !!b && a.r === b.r && a.c === b.c;
 }
 
-function applyMove(state, { from, to, player } = {}) {
+function normalizeApplyMoveArgs(playerOrPayload, fromMaybe, toMaybe) {
+  if (
+    playerOrPayload &&
+    typeof playerOrPayload === "object" &&
+    (playerOrPayload.player || playerOrPayload.from || playerOrPayload.to)
+  ) {
+    return {
+      player: playerOrPayload.player,
+      from: playerOrPayload.from,
+      to: playerOrPayload.to,
+    };
+  }
+  return {
+    player: playerOrPayload,
+    from: fromMaybe,
+    to: toMaybe,
+  };
+}
+
+function applyMove(state, playerOrPayload, fromMaybe, toMaybe) {
   const s = state || createInitialState();
+  const { player, from, to } = normalizeApplyMoveArgs(playerOrPayload, fromMaybe, toMaybe);
   const p = normalizePlayer(player);
   if (!p) throw new CheckersError("INVALID_PLAYER", "Jugador inválido.");
   if (s.status !== "playing") throw new CheckersError("FINISHED", "La partida ya ha terminado.");
@@ -197,60 +221,60 @@ function applyMove(state, { from, to, player } = {}) {
   if (!from || !to || !inBounds(from.r, from.c) || !inBounds(to.r, to.c)) {
     throw new CheckersError("INVALID_COORDS", "Movimiento inválido.");
   }
-
-  if (s.forcedFrom && !samePos(s.forcedFrom, from)) {
-    throw new CheckersError(
-      "FORCED_PIECE",
-      "Debes seguir capturando con la misma pieza.",
-    );
+  if (!isDarkSquare(from.r, from.c) || !isDarkSquare(to.r, to.c)) {
+    throw new CheckersError("ILLEGAL_SQUARE", "Solo se puede jugar en casillas oscuras.");
   }
-
-  const legal = getLegalMoves(s, p);
-  const chosen = legal.find((m) => samePos(m.from, from) && samePos(m.to, to));
-  if (!chosen) throw new CheckersError("ILLEGAL_MOVE", "Movimiento ilegal.");
+  if (s.forcedFrom && !samePos(s.forcedFrom, from)) {
+    throw new CheckersError("FORCED_PIECE", "Debes seguir capturando con la misma pieza.");
+  }
 
   const board = cloneBoard(s.board);
   const movingPiece = board[from.r][from.c];
+  if (movingPiece === 0) throw new CheckersError("EMPTY_FROM", "No hay ninguna pieza en esa casilla.");
   if (!isPlayersPiece(movingPiece, p)) {
     throw new CheckersError("NOT_YOUR_PIECE", "No puedes mover piezas del rival.");
   }
+
+  const legal = getLegalMoves(s, p);
+  const pool = legal.captures.length > 0 ? legal.captures : legal.normals;
+  const chosen = pool.find((m) => samePos(m.from, from) && samePos(m.to, to));
+  if (!chosen) throw new CheckersError("ILLEGAL_MOVE", "Movimiento ilegal.");
 
   board[from.r][from.c] = 0;
   board[to.r][to.c] = movingPiece;
 
   let captured = null;
-  if (chosen.capture) {
-    captured = { ...chosen.capture };
+  if (chosen.captured) {
+    captured = { ...chosen.captured };
     board[captured.r][captured.c] = 0;
   }
 
-  let promoted = false;
+  let becameKing = false;
   if (shouldPromote(board[to.r][to.c], p, to.r)) {
-    board[to.r][to.c] = promotePiece(board[to.r][to.c], p);
-    promoted = true;
+    board[to.r][to.c] = promotePiece(p);
+    becameKing = true;
   }
 
   const next = {
     ...s,
     board,
-    lastAction: {
-      type: "MOVE",
-      player: p,
+    lastMove: {
       from: { ...from },
       to: { ...to },
-      capture: captured,
-      promoted,
+      captured,
+      becameKing,
+      multi: false,
     },
   };
 
   const counts = countPieces(board);
   const opponent = p === "white" ? "black" : "white";
+
   if (counts[opponent] === 0) {
     next.status = "finished";
     next.winner = p;
     next.forcedFrom = null;
     next.currentPlayer = p;
-    next.lastAction = { ...next.lastAction, type: "WIN", reason: "no_pieces" };
     return next;
   }
 
@@ -259,11 +283,7 @@ function applyMove(state, { from, to, player } = {}) {
     if (furtherCaptures.length > 0) {
       next.forcedFrom = { r: to.r, c: to.c };
       next.currentPlayer = p;
-      next.lastAction = {
-        ...next.lastAction,
-        multiCapture: true,
-        forcedFrom: next.forcedFrom,
-      };
+      next.lastMove = { ...next.lastMove, multi: true };
       return next;
     }
   }
@@ -271,12 +291,12 @@ function applyMove(state, { from, to, player } = {}) {
   next.forcedFrom = null;
   next.currentPlayer = opponent;
 
-  const oppMoves = getLegalMoves(next, opponent);
-  if (oppMoves.length === 0) {
+  const oppLegal = getLegalMoves(next, opponent);
+  const oppHasMove = oppLegal.captures.length > 0 || oppLegal.normals.length > 0;
+  if (!oppHasMove) {
     next.status = "finished";
     next.winner = p;
     next.currentPlayer = p;
-    next.lastAction = { ...next.lastAction, type: "WIN", reason: "no_moves" };
     return next;
   }
 
@@ -289,5 +309,9 @@ module.exports = {
   createInitialState,
   getLegalMoves,
   applyMove,
+  // exported for tests / helpers
+  _internals: {
+    isDarkSquare,
+    countPieces,
+  },
 };
-

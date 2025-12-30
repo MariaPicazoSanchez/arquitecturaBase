@@ -5,8 +5,8 @@ function ClienteWS() {
     this.gameType = null;
 
     this._ensureEmail = function(){
-        if (!this.email && window.$ && $.cookie){
-            this.email = $.cookie("nick") || $.cookie("email") || this.email;
+        if (window.$ && $.cookie){
+            this.email = $.cookie("email") || $.cookie("nick") || this.email;
         }
         return this.email;
     };
@@ -104,8 +104,8 @@ function ClienteWS() {
                 window.location.href = "/uno?codigo=" + encodeURIComponent(datos.codigo);
             } else if (juego === "4raya") {
                 window.location.href = "/4raya?codigo=" + encodeURIComponent(datos.codigo);
-            } else if (juego === "checkers") {
-                window.location.href = "/checkers?codigo=" + encodeURIComponent(datos.codigo);
+            } else if (juego === "damas" || juego === "checkers") {
+                window.location.href = "/damas?codigo=" + encodeURIComponent(datos.codigo);
             } else {
                 console.warn("Partida continuada para juego:", juego,
                             "pero aún no tiene interfaz asociada.");

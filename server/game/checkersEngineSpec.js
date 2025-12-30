@@ -1,20 +1,15 @@
-const {
-  createInitialState,
-  getLegalMoves,
-  applyMove,
-} = require("./checkersEngine");
+const { createInitialState, getLegalMoves, applyMove } = require("./checkersEngine");
 
 function empty8() {
   return Array.from({ length: 8 }, () => Array(8).fill(0));
 }
 
-describe("[CHECKERS] reglas MVP", function () {
+describe("[CHECKERS] reglas", function () {
   it("capturas obligatorias: si hay captura, no hay movimientos simples", function () {
     const board = empty8();
     board[5][0] = 1;
     board[4][1] = -1;
     board[5][2] = 1;
-    board[4][3] = 0;
 
     const state = {
       ...createInitialState(),
@@ -26,10 +21,10 @@ describe("[CHECKERS] reglas MVP", function () {
     };
 
     const moves = getLegalMoves(state, "white");
-    expect(moves.some((m) => m.capture)).toBe(true);
-    expect(moves.every((m) => m.capture)).toBe(true);
+    expect(moves.captures.length).toBeGreaterThan(0);
+    expect(moves.normals.length).toBe(0);
     expect(
-      moves.some((m) => m.from.r === 5 && m.from.c === 2 && m.to.r === 4 && m.to.c === 3),
+      moves.captures.some((m) => m.from.r === 5 && m.from.c === 2 && m.to.r === 4 && m.to.c === 3),
     ).toBe(false);
   });
 
@@ -38,7 +33,7 @@ describe("[CHECKERS] reglas MVP", function () {
     board[5][0] = 1;
     board[4][1] = -1;
     board[2][3] = -1;
-    board[0][1] = -1;
+    board[0][1] = -1; // asegurar que el rival sigue teniendo jugadas después
 
     const state = {
       ...createInitialState(),
@@ -93,6 +88,45 @@ describe("[CHECKERS] reglas MVP", function () {
     expect(next.board[0][3]).toBe(2);
   });
 
+  it("multi-captura tras coronación: si puede seguir capturando como dama, está obligado", function () {
+    const board = empty8();
+    board[2][1] = 1;
+    board[1][2] = -1;
+    board[1][4] = -1;
+    board[5][0] = -1; // mantener piezas negras para que no termine la partida
+
+    const state = {
+      ...createInitialState(),
+      board,
+      currentPlayer: "white",
+      forcedFrom: null,
+      status: "playing",
+      winner: null,
+    };
+
+    const afterFirst = applyMove(state, {
+      player: "white",
+      from: { r: 2, c: 1 },
+      to: { r: 0, c: 3 },
+    });
+
+    expect(afterFirst.board[0][3]).toBe(2);
+    expect(afterFirst.currentPlayer).toBe("white");
+    expect(afterFirst.forcedFrom).toEqual({ r: 0, c: 3 });
+
+    const afterSecond = applyMove(afterFirst, {
+      player: "white",
+      from: { r: 0, c: 3 },
+      to: { r: 2, c: 5 },
+    });
+
+    expect(afterSecond.status).toBe("playing");
+    expect(afterSecond.currentPlayer).toBe("black");
+    expect(afterSecond.forcedFrom).toBe(null);
+    expect(afterSecond.board[1][4]).toBe(0);
+    expect(afterSecond.board[2][5]).toBe(2);
+  });
+
   it("fin de partida: gana si el rival se queda sin piezas", function () {
     const board = empty8();
     board[5][0] = 1;
@@ -123,7 +157,7 @@ describe("[CHECKERS] reglas MVP", function () {
     board[2][1] = -1;
     board[3][0] = 1;
     board[3][2] = 1;
-    board[4][3] = 1; // bloquea captura negra a (4,3)
+    board[4][3] = 1;
 
     // Evitar captura obligatoria para blancas (bloquear aterrizajes)
     board[1][0] = 1;

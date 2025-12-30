@@ -494,15 +494,40 @@ function ServidorWS() {
       }
     }
 
-    io.to(codigo).emit("checkers_state", {
+    const players = Array.isArray(datosCheckers?.players) ? datosCheckers.players : [];
+    const winnerColor = state.status === "finished" ? state.winner : null;
+    const winnerPlayer = winnerColor ? players.find((p) => p?.color === winnerColor) : null;
+    const loserPlayer =
+      winnerColor ? players.find((p) => p?.color && p.color !== winnerColor) : null;
+
+    const payload = {
       codigo,
-      players: Array.isArray(datosCheckers?.players) ? datosCheckers.players : [],
+      statePublic: {
+        board: state.board,
+        currentPlayer: state.currentPlayer,
+        forcedFrom: state.forcedFrom,
+        status: state.status,
+        winner: state.winner,
+        winnerPlayerId: winnerPlayer?.id ?? null,
+        winnerName: winnerPlayer?.name ?? null,
+        loserPlayerId: loserPlayer?.id ?? null,
+        loserName: loserPlayer?.name ?? null,
+        lastMove: state.lastMove ?? null,
+        legalMoves,
+        pieceCounts: { white, black },
+        players,
+      },
+      // compat (cliente antiguo)
+      players,
       state: {
         ...state,
         legalMoves,
         pieceCounts: { white, black },
       },
-    });
+    };
+
+    io.to(codigo).emit("damas_state", payload);
+    io.to(codigo).emit("checkers_state", payload);
   };
 
   const ensureUnoTimers = (datosUNO) => {
@@ -733,10 +758,10 @@ function ServidorWS() {
           String(vsBotRaw).toLowerCase() === "true";
         const rawMaxPlayers = datos && (datos.maxPlayers ?? datos.maxJug);
         const parsed = parseInt(rawMaxPlayers, 10);
-         const maxPlayers =
-           juego === "4raya"
-             ? 2
-            : juego === "checkers"
+        const maxPlayers =
+          juego === "4raya"
+            ? 2
+            : juego === "damas" || juego === "checkers"
               ? 2
             : vsBot && juego === "uno"
               ? 1
@@ -1575,20 +1600,36 @@ function ServidorWS() {
             return {
               color: idx === 0 ? "white" : "black",
               id,
-              name: j?.nick || j?.email || (idx === 0 ? "Jugador 1" : "Jugador 2"),
+              name: j?.nick || (idx === 0 ? "Jugador 1" : "Jugador 2"),
             };
           })
           .filter(Boolean);
       };
 
-      socket.on("checkers_join", function (datos) {
+      const isDamasGame = (partida) =>
+        partida?.juego === "damas" || partida?.juego === "checkers";
+
+      const emitDamasError = (socket, payload) => {
+        try { socket.emit("damas_error", payload); } catch {}
+        try { socket.emit("checkers_error", payload); } catch {}
+      };
+
+      const onDamasJoin = function (datos) {
         const codigo = datos && datos.codigo;
         const email = datos && datos.email;
         if (!codigo || !email) return;
 
         const partida = sistema.partidas[codigo];
         if (!partida) return;
-        if (partida.juego !== "checkers") return;
+        if (!isDamasGame(partida)) return;
+        if (partida.status !== "STARTED") {
+          emitDamasError(socket, {
+            codigo,
+            reason: "NOT_STARTED",
+            message: "La partida no está iniciada.",
+          });
+          return;
+        }
 
         const playerId = normalizePlayerId(email);
         if (!playerId) return;
@@ -1597,7 +1638,7 @@ function ServidorWS() {
           Array.isArray(partida.jugadores) &&
           partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
         if (!belongs) {
-          socket.emit("checkers_error", {
+          emitDamasError(socket, {
             codigo,
             reason: "NOT_IN_MATCH",
             message: "No perteneces a esta partida.",
@@ -1620,9 +1661,12 @@ function ServidorWS() {
 
         socket.join(codigo);
         emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
-      });
+      };
 
-      socket.on("checkers_move", function (datos) {
+      socket.on("damas_join", onDamasJoin);
+      socket.on("checkers_join", onDamasJoin);
+
+      const onDamasMove = function (datos) {
         const codigo = datos && datos.codigo;
         const email = datos && datos.email;
         const from = datos && datos.from;
@@ -1631,7 +1675,15 @@ function ServidorWS() {
 
         const partida = sistema.partidas[codigo];
         if (!partida) return;
-        if (partida.juego !== "checkers") return;
+        if (!isDamasGame(partida)) return;
+        if (partida.status !== "STARTED") {
+          emitDamasError(socket, {
+            codigo,
+            reason: "NOT_STARTED",
+            message: "La partida no está iniciada.",
+          });
+          return;
+        }
 
         const playerId = normalizePlayerId(email);
         if (!playerId) return;
@@ -1650,7 +1702,7 @@ function ServidorWS() {
         const me = players.find((p) => normalizePlayerId(p.id) === playerId) || null;
         const myColor = me?.color || null;
         if (!myColor) {
-          socket.emit("checkers_error", {
+          emitDamasError(socket, {
             codigo,
             reason: "NOT_IN_MATCH",
             message: "No perteneces a esta partida.",
@@ -1658,7 +1710,7 @@ function ServidorWS() {
           return;
         }
         if (players.length < 2) {
-          socket.emit("checkers_error", {
+          emitDamasError(socket, {
             codigo,
             reason: "WAITING_FOR_OPPONENT",
             message: "Esperando al segundo jugador...",
@@ -1667,6 +1719,14 @@ function ServidorWS() {
         }
 
         try {
+          if (datosCheckers.state?.status === "finished") {
+            emitDamasError(socket, {
+              codigo,
+              reason: "FINISHED",
+              message: "La partida ya ha terminado.",
+            });
+            return;
+          }
           datosCheckers.state = applyCheckersMove(datosCheckers.state, {
             from,
             to,
@@ -1680,9 +1740,82 @@ function ServidorWS() {
             e instanceof CheckersError
               ? e.message
               : (e && e.message) || "Movimiento inválido.";
-          socket.emit("checkers_error", { codigo, reason, message });
+          emitDamasError(socket, { codigo, reason, message });
         }
-      });
+      };
+
+      socket.on("damas_move", onDamasMove);
+      socket.on("checkers_move", onDamasMove);
+
+      const onDamasRestart = function (datos) {
+        const codigo = datos && datos.codigo;
+        const email = datos && datos.email;
+        if (!codigo || !email) return;
+
+        const partida = sistema.partidas[codigo];
+        if (!partida) return;
+        if (!isDamasGame(partida)) return;
+        if (partida.status !== "STARTED") {
+          emitDamasError(socket, {
+            codigo,
+            reason: "NOT_STARTED",
+            message: "La partida no está iniciada.",
+          });
+          return;
+        }
+
+        const playerId = normalizePlayerId(email);
+        if (!playerId) return;
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) {
+          emitDamasError(socket, {
+            codigo,
+            reason: "NOT_IN_MATCH",
+            message: "No perteneces a esta partida.",
+          });
+          return;
+        }
+
+        if (!estadosCheckers[codigo]) {
+          estadosCheckers[codigo] = {
+            state: createCheckersInitialState(),
+            players: resolveCheckersPlayers(partida),
+          };
+        } else {
+          estadosCheckers[codigo].players = resolveCheckersPlayers(partida);
+        }
+
+        const datosCheckers = estadosCheckers[codigo];
+        const players = Array.isArray(datosCheckers.players) ? datosCheckers.players : [];
+        if (players.length < 2) {
+          emitDamasError(socket, {
+            codigo,
+            reason: "WAITING_FOR_OPPONENT",
+            message: "Esperando al segundo jugador...",
+          });
+          return;
+        }
+
+        if (datosCheckers.state?.status !== "finished") {
+          emitDamasError(socket, {
+            codigo,
+            reason: "NOT_FINISHED",
+            message: "La partida todavía está en curso.",
+          });
+          return;
+        }
+
+        datosCheckers.state = createCheckersInitialState();
+        io.to(codigo).emit("damas_restart", { codigo });
+        io.to(codigo).emit("checkers_restart", { codigo });
+        emitirEstadoCheckers(io, codigo, datosCheckers);
+      };
+
+      socket.on("damas_restart", onDamasRestart);
+      socket.on("checkers_restart", onDamasRestart);
 
       // ==========================
       //  4 EN RAYA MULTIJUGADOR (WS)
