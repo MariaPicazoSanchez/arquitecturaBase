@@ -315,7 +315,7 @@ function ControlWeb() {
           <li class="nav-item dropdown" id="navUserDropdown">
             <a class="nav-link dropdown-toggle nav-user-toggle" href="#" id="navUserToggle" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"></a>
             <div class="dropdown-menu dropdown-menu-right" aria-labelledby="navUserToggle">
-              <a class="dropdown-item" href="#" id="navGestionarCuenta">Gestionar cuenta</a>
+              <a class="dropdown-item" href="#" id="navGestionarCuenta">Mi cuenta</a>
               <a class="dropdown-item" href="#" id="navActividad">Actividad</a>
               <a class="dropdown-item" href="#" id="navAyuda">Ayuda</a>
               <div class="dropdown-divider"></div>
