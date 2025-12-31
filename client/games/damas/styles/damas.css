@@ -67,6 +67,21 @@ body {
   flex-wrap: wrap;
 }
 
+.damas-mute-toggle {
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(2, 6, 23, 0.2);
+  color: #e5e7eb;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.damas-mute-toggle--muted {
+  opacity: 0.75;
+}
+
 .damasMeta {
   margin-top: 10px;
   display: flex;

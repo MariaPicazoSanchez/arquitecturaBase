@@ -82,8 +82,9 @@ body {
 }
 
 .c4-board {
-  --cell: clamp(34px, 6vw, 62px);
-  --gap: calc(var(--cell) * 0.12);
+  --board: min(92vmin, 780px, 64vh);
+  --cell: clamp(28px, calc(var(--board) / 8), 74px);
+  --gap: clamp(4px, calc(var(--cell) * 0.12), 10px);
 
   border-radius: 20px;
   padding: calc(var(--cell) * 0.16);

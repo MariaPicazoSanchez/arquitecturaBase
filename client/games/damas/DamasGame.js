@@ -61,6 +61,7 @@ export class DamasGame {
     this.selectedFrom = null;
     this.endSoundKey = null;
     this.restartPending = false;
+    this.isMuted = false;
 
     this.sfx = createSfx();
 
@@ -68,6 +69,7 @@ export class DamasGame {
       title: DAMAS,
       onFullscreen: () => this.toggleFullscreen(),
       onExit: () => this.exitToLobby(),
+      onToggleMute: () => this.toggleMute(),
     });
 
     this.board = new TableroDamas({
@@ -144,6 +146,9 @@ export class DamasGame {
     }
 
     this.sfx.init().catch(() => {});
+    this.sfx.initSfxFromStorage?.();
+    this.isMuted = this.sfx.isMuted?.() ?? false;
+    this.panel.setMuted?.(this.isMuted);
 
     this.socket = window.io(window.location.origin, {
       path: "/socket.io",
@@ -168,6 +173,11 @@ export class DamasGame {
 
     this.socket.on("damas_restart", (payload) => {
       if (!payload || payload.codigo !== this.codigo) return;
+      if (payload.newCodigo) {
+        const nextUrl = `${window.location.origin}/damas?codigo=${encodeURIComponent(payload.newCodigo)}`;
+        window.location.assign(nextUrl);
+        return;
+      }
       this.restartPending = false;
       this.endSoundKey = null;
       this.selectedFrom = null;
@@ -187,6 +197,16 @@ export class DamasGame {
       this.panel.setError(ERROR_CONEXION);
       this.panel.setSubtitle(ERROR_CONEXION);
     });
+  }
+
+  toggleMute() {
+    try {
+      this.sfx.unlock?.();
+    } catch {}
+    const next = !(this.sfx.isMuted?.() ?? false);
+    this.sfx.setMuted?.(next);
+    this.isMuted = next;
+    this.panel.setMuted?.(next);
   }
 
   updateMyColor() {
@@ -275,6 +295,7 @@ export class DamasGame {
       destinations: dests,
       forcedFrom: this.state.forcedFrom,
       disabled: !this.isMyTurn(),
+      flip: this.myColor === "black",
       pieceRenderer: (piece) => {
         if (piece === 0) return null;
         const owner = pieceOwner(piece);
@@ -393,4 +414,3 @@ export class DamasGame {
     } catch {}
   }
 }
-

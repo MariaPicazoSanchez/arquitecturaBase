@@ -60,29 +60,36 @@ export class TableroDamas {
     }
   }
 
-  render({ board, selectedFrom, destinations, forcedFrom, disabled, pieceRenderer } = {}) {
+  render({ board, selectedFrom, destinations, forcedFrom, disabled, pieceRenderer, flip } = {}) {
     const dests = destinations instanceof Set ? destinations : new Set();
     const rows = Array.isArray(board) ? board : [];
+    const shouldFlip = !!flip;
 
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         const cell = this.cells?.[r]?.[c];
         if (!cell) continue;
 
-        const dark = isDarkSquare(r, c);
+        const rr = shouldFlip ? 7 - r : r;
+        const cc = shouldFlip ? 7 - c : c;
+
+        cell.dataset.r = String(rr);
+        cell.dataset.c = String(cc);
+
+        const dark = isDarkSquare(rr, cc);
         cell.disabled = !dark || !!disabled;
 
         cell.classList.toggle(
           "damasCell--selected",
-          !!selectedFrom && selectedFrom.r === r && selectedFrom.c === c,
+          !!selectedFrom && selectedFrom.r === rr && selectedFrom.c === cc,
         );
         cell.classList.toggle(
           "damasCell--forced",
-          !!forcedFrom && forcedFrom.r === r && forcedFrom.c === c,
+          !!forcedFrom && forcedFrom.r === rr && forcedFrom.c === cc,
         );
-        cell.classList.toggle("damasCell--dest", dests.has(`${r},${c}`));
+        cell.classList.toggle("damasCell--dest", dests.has(`${rr},${cc}`));
 
-        const piece = rows?.[r]?.[c] ?? 0;
+        const piece = rows?.[rr]?.[cc] ?? 0;
         cell.innerHTML = "";
         const rendered = pieceRenderer?.(piece);
         if (!rendered) continue;

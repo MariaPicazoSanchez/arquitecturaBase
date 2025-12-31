@@ -13,6 +13,7 @@ async function firstReachableUrl(urls) {
 export function createSfx() {
   const supported = typeof window !== "undefined" && typeof window.Audio !== "undefined";
   let unlocked = false;
+  let mutedPref = false;
   let win = null;
   let lose = null;
 
@@ -46,6 +47,34 @@ export function createSfx() {
     }
   }
 
+  function initSfxFromStorage() {
+    try {
+      mutedPref = localStorage.getItem("uno_muted") === "1";
+    } catch {
+      // ignore
+    }
+  }
+
+  function isMuted() {
+    return !!mutedPref;
+  }
+
+  function setMuted(muted) {
+    mutedPref = !!muted;
+    try {
+      localStorage.setItem("uno_muted", mutedPref ? "1" : "0");
+    } catch {
+      // ignore
+    }
+
+    // Best-effort: stop any currently playing sounds.
+    for (const a of [win, lose]) {
+      try {
+        if (a) a.pause();
+      } catch {}
+    }
+  }
+
   function unlock() {
     if (!supported || unlocked) return;
     unlocked = true;
@@ -68,6 +97,7 @@ export function createSfx() {
   }
 
   function playOnce(a) {
+    if (isMuted()) return;
     if (!a || !supported) return;
     try {
       a.currentTime = 0;
@@ -80,9 +110,11 @@ export function createSfx() {
 
   return {
     init,
+    initSfxFromStorage,
     unlock,
+    isMuted,
+    setMuted,
     playWin: () => playOnce(win),
     playLose: () => playOnce(lose),
   };
 }
-

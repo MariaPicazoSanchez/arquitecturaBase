@@ -84,7 +84,18 @@ function applyVolumeToAll() {
 
 export function initSfxFromStorage() {
   try {
-    mutedPref = localStorage.getItem('c4_muted') === '1';
+    const global = localStorage.getItem('uno_muted');
+    if (global === '1' || global === '0') {
+      mutedPref = global === '1';
+    } else {
+      // Back-compat: migrate old per-game key once.
+      mutedPref = localStorage.getItem('c4_muted') === '1';
+      try {
+        localStorage.setItem('uno_muted', mutedPref ? '1' : '0');
+      } catch {
+        // ignore
+      }
+    }
   } catch {
     // Ignore errors from localStorage access
   }
@@ -99,7 +110,7 @@ export function setMuted(muted) {
   mutedPref = !!muted;
   applyVolumeToAll();
   try {
-    localStorage.setItem('c4_muted', mutedPref ? '1' : '0');
+    localStorage.setItem('uno_muted', mutedPref ? '1' : '0');
   } catch {
     // Ignore errors from localStorage access
   }
@@ -232,4 +243,3 @@ export function sfxWin() {
 export function sfxLose() {
   playCached('lose');
 }
-

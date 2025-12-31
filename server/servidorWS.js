@@ -298,7 +298,15 @@ function ServidorWS() {
 
   const getBotUserFromPartida = (partida) => {
     const players = Array.isArray(partida?.jugadores) ? partida.jugadores : [];
-    return players.find((p) => p && (p.isBot === true || normalizePlayerId(p.email) === "bot")) || null;
+    return (
+      players.find(
+        (p) =>
+          p &&
+          (p.isBot === true ||
+            normalizePlayerId(p.email) === "bot" ||
+            normalizePlayerId(p.email).startsWith("bot@")),
+      ) || null
+    );
   };
 
   const maybeBotMoveConnect4 = async (io, codigo) => {
@@ -1957,6 +1965,49 @@ function ServidorWS() {
           return;
         }
 
+        if (partida.mode === "PVBOT") {
+          const hostEmail = normalizePlayerId(partida.propietarioEmail || email);
+          try {
+            if (!hostEmail) throw new Error("no se pudo resolver hostEmail");
+
+            const newCodigo = sistema.crearPartida(hostEmail, partida.juego, 2, {
+              mode: "PVBOT",
+              vsBot: true,
+            });
+            if (newCodigo === -1) throw new Error("no se pudo crear partida vs bot");
+
+            const contRes = sistema.continuarPartida(hostEmail, newCodigo);
+            const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
+            if (contCodigo === -1) throw new Error("no se pudo iniciar la partida vs bot");
+
+            try {
+              sistema.eliminarPartida(hostEmail, codigo);
+            } catch {
+              // best-effort
+            }
+            if (sistema.partidas && sistema.partidas[codigo]) {
+              delete sistema.partidas[codigo];
+            }
+
+            delete estadosCheckers[codigo];
+            delete botRunningByCodigo[codigo];
+
+            io.to(codigo).emit("damas_restart", { codigo, newCodigo });
+            io.to(codigo).emit("checkers_restart", { codigo, newCodigo });
+
+            const lista = sistema.obtenerPartidasDisponibles(partida.juego);
+            srv.enviarGlobal(io, "listaPartidas", lista);
+          } catch (e) {
+            console.warn("[CHECKERS] fallo creando nueva vs bot:", e?.message || e);
+            emitDamasError(socket, {
+              codigo,
+              reason: "RESTART_FAILED",
+              message: "No se pudo iniciar la revancha.",
+            });
+          }
+          return;
+        }
+
         datosCheckers.state = createCheckersInitialState();
         io.to(codigo).emit("damas_restart", { codigo });
         io.to(codigo).emit("checkers_restart", { codigo });
@@ -2067,6 +2118,48 @@ function ServidorWS() {
           Array.isArray(partida.jugadores) &&
           partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
         if (!belongs) return;
+
+        if (partida.mode === "PVBOT") {
+          const hostEmail = normalizePlayerId(partida.propietarioEmail || email);
+          try {
+            if (!hostEmail) throw new Error("no se pudo resolver hostEmail");
+
+            const newCodigo = sistema.crearPartida(hostEmail, "4raya", 2, {
+              mode: "PVBOT",
+              vsBot: true,
+            });
+            if (newCodigo === -1) throw new Error("no se pudo crear partida vs bot");
+
+            const contRes = sistema.continuarPartida(hostEmail, newCodigo);
+            const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
+            if (contCodigo === -1) throw new Error("no se pudo iniciar la partida vs bot");
+
+            try {
+              sistema.eliminarPartida(hostEmail, codigo);
+            } catch {
+              // best-effort
+            }
+            if (sistema.partidas && sistema.partidas[codigo]) {
+              delete sistema.partidas[codigo];
+            }
+
+            delete estados4raya[codigo];
+            delete rematchVotes4raya[codigo];
+
+            io.to(codigo).emit("4raya:rematch_ready", { codigo, newCodigo });
+
+            const lista = sistema.obtenerPartidasDisponibles("4raya");
+            srv.enviarGlobal(io, "listaPartidas", lista);
+          } catch (e) {
+            console.warn("[4RAYA] fallo creando revancha vs bot:", e?.message || e);
+            io.to(codigo).emit("4raya:rematch_ready", {
+              codigo,
+              newCodigo: null,
+              error: "No se pudo iniciar la revancha.",
+            });
+          }
+          return;
+        }
 
         if (!rematchVotes4raya[codigo]) rematchVotes4raya[codigo] = new Set();
         rematchVotes4raya[codigo].add(playerId);

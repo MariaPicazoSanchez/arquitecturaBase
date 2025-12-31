@@ -1,5 +1,5 @@
 export class PanelInfo {
-  constructor({ title, onFullscreen, onExit } = {}) {
+  constructor({ title, onFullscreen, onExit, onToggleMute } = {}) {
     this.el = document.createElement("div");
     this.el.className = "damasPanel card";
     this.el.innerHTML = `
@@ -9,7 +9,15 @@ export class PanelInfo {
             <div class="damasTitle"></div>
             <div class="damasSubtitle text-muted"></div>
           </div>
-
+          <div class="damasHeaderBtns">
+            <button
+              type="button"
+              class="damas-mute-toggle"
+              data-role="mute"
+              aria-label="Silenciar"
+              title="Silenciar"
+            >🔊</button>
+          </div>
         </div>
         <div class="damasMeta">
           <div class="damasPill" data-role="metaLeft"></div>
@@ -38,12 +46,29 @@ export class PanelInfo {
     this.errorEl = this.el.querySelector('[data-role="error"]');
     this.countWhiteEl = this.el.querySelector('[data-role="countWhite"]');
     this.countBlackEl = this.el.querySelector('[data-role="countBlack"]');
+    this.muteBtn = this.el.querySelector('[data-role="mute"]');
 
     this.titleEl.textContent = title || "";
 
     const btnFull = this.el.querySelector('[data-role="fullscreen"]');
     const btnExit = this.el.querySelector('[data-role="exit"]');
 
+    if (this.muteBtn) {
+      this.muteBtn.addEventListener("click", (e) => {
+        e?.preventDefault?.();
+        e?.stopPropagation?.();
+        onToggleMute?.();
+      });
+    }
+  }
+
+  setMuted(isMuted) {
+    if (!this.muteBtn) return;
+    const muted = !!isMuted;
+    this.muteBtn.classList.toggle("damas-mute-toggle--muted", muted);
+    this.muteBtn.textContent = muted ? "🔇" : "🔊";
+    this.muteBtn.setAttribute("aria-label", muted ? "Activar sonido" : "Silenciar");
+    this.muteBtn.setAttribute("title", muted ? "Activar sonido" : "Silenciar");
   }
 
   setSubtitle(text) {
@@ -97,4 +122,3 @@ export class PanelInfo {
     if (this.countBlackEl) this.countBlackEl.textContent = `Negras: ${Number(black || 0)}`;
   }
 }
-
