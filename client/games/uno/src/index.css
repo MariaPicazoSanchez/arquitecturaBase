@@ -435,20 +435,6 @@ h1 {
   border: 1px solid rgba(16, 185, 129, 0.6);
 }
 
-/* Contenedor principal del centro */
-/* .uno-table-center {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.8rem;
-  margin: 0.3rem 0;
-  padding: 0.9rem 1rem;
-  border-radius: 16px;
-  background: #0b1220;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-} */
-
 /* Zona donde van descarte + mazo */
 .uno-table-main {
   position: relative;
@@ -1232,8 +1218,8 @@ button:disabled {
 .uno-seat-pos {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: clamp(90px, 18vw, 180px);
-  max-width: 42vw;
+  width: clamp(120px, 20vw, 240px);
+  max-width: 66vw;
 }
 
 .uno-seat {
@@ -1323,7 +1309,7 @@ button:disabled {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: clamp(80px, 18vw, 120px);
+  max-width: clamp(100px, 20vw, 180px);
 }
 
 .uno-seat-count {
@@ -1788,6 +1774,13 @@ button:disabled {
   .unoHand.uno-zone--player {
     height: clamp(115px, 16vh, 175px);
   }
+  .uno-table-center{
+    padding-bottom: 100%;
+
+  }
+  .uno-handWrap{
+    padding-top: 10px;
+  }
 }
 
 @media (max-height: 760px) {
@@ -1795,9 +1788,7 @@ button:disabled {
   .uno-table-seats { transform: translateY(-14px) scale(0.90); }
   .unoHand.uno-zone--player { height: clamp(100px, 14vh, 155px); }
 }
-@media (max-height: 980px), (max-width: 1100px) {
-  .uno-card--large { outline: 4px solid hotpink; }
-}
+
 
 /* Subir SOLO la pila de descarte (carta central) cuando la pantalla es baja */
 @media (max-height: 780px) {

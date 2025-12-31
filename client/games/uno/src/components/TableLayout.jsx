@@ -16,15 +16,24 @@ export default function TableLayout({
 }) {
   const n = Math.max(1, Math.min(players?.length ?? 0, 8));
   const seats = useMemo(() => {
-    const step = n > 0 ? -TWO_PI / n : 0;
+    // Posiciones fijas en las orillas de la mesa
+    const edgePositions = [
+      { left: '50%', top: '96%' },    // 0: abajo centro (jugador local)
+      { left: '8%', top: '50%' },     // 1: izquierda centro
+      { left: '50%', top: '4%' },     // 2: arriba centro
+      { left: '92%', top: '50%' },    // 3: derecha centro
+      { left: '15%', top: '88%' },    // 4: abajo izquierda
+      { left: '15%', top: '12%' },    // 5: arriba izquierda
+      { left: '85%', top: '12%' },    // 6: arriba derecha
+      { left: '85%', top: '88%' },    // 7: abajo derecha
+    ];
+    
     return (players ?? []).slice(0, 8).map((p, idx) => {
-      const angle = BASE_ANGLE + idx * step;
-      const left = 50 + Math.cos(angle) * 40;
-      const top = 50 + Math.sin(angle) * 34;
+      const position = edgePositions[idx] || edgePositions[0];
       return {
         player: p,
         idx,
-        style: { left: `${left}%`, top: `${top}%` },
+        style: position,
       };
     });
   }, [players, n]);

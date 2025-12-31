@@ -49,7 +49,7 @@ export default function PlayerBadge({
         <div className="playerBadgeChips">
           {isBot && <span className="playerBadgeChip">BOT</span>}
           {isConnected === false && (
-            <span className="playerBadgeChip" title="Sin conexi\u00f3n">
+            <span className="playerBadgeChip" title="Sin conexión">
               OFF
             </span>
           )}
