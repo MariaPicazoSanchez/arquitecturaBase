@@ -128,12 +128,15 @@ function ClienteWS() {
     }
     const maxPlayers = arguments[0];
     const opts = arguments[1] && typeof arguments[1] === "object" ? arguments[1] : {};
-    const vsBot = !!opts.vsBot;
+    const modeRaw = opts.mode;
+    const mode = String(modeRaw || "").trim().toUpperCase();
+    const vsBot = mode === "PVBOT" || !!opts.vsBot;
     this.socket.emit("crearPartida", { 
         email: this.email,
         juego: this.gameType,
         maxPlayers: maxPlayers,
         vsBot: vsBot,
+        mode: vsBot ? "PVBOT" : "PVP",
     });
   };
 

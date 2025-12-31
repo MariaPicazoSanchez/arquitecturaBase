@@ -172,29 +172,36 @@
       // Botones del panel de partidas
       $('#btn-crear-partida').on('click', function() {
         const juego = (window.cw && cw.juegoActual) || (window.ws && ws.gameType) || 'uno';
-        if (juego === '4raya' || juego === 'damas') {
-          if (ws && ws.crearPartida) {
-            ws.crearPartida(2);
-          }
-          return;
-        }
-        $('#chk-vs-bot').prop('checked', false);
-        $('#select-max-players').prop('disabled', false);
+        const fixedTwo = (juego === '4raya' || juego === 'damas' || juego === 'checkers');
+
+        $('#select-match-mode').val('PVP');
+        $('#select-max-players').prop('disabled', fixedTwo);
         $('#modalCrearPartida').modal('show');
       });
 
       $('#btn-confirmar-crear-partida').on('click', function() {
-        const vsBot = $('#chk-vs-bot').is(':checked');
-        const maxPlayers = vsBot ? 1 : (parseInt($('#select-max-players').val(), 10) || 2);
+        const juego = (window.cw && cw.juegoActual) || (window.ws && ws.gameType) || 'uno';
+        const mode = ($('#select-match-mode').val() || 'PVP').toString().trim().toUpperCase();
+        const vsBot = (mode === 'PVBOT');
+
+        const fixedTwo = (juego === '4raya' || juego === 'damas' || juego === 'checkers');
+        const maxPlayers = fixedTwo
+          ? 2
+          : (vsBot && juego === 'uno')
+            ? 1
+            : (parseInt($('#select-max-players').val(), 10) || 2);
         if (ws && ws.crearPartida) {
-          ws.crearPartida(maxPlayers, { vsBot });
+          ws.crearPartida(maxPlayers, { mode });
         }
         $('#modalCrearPartida').modal('hide');
       });
 
-      $('#chk-vs-bot').on('change', function() {
-        const on = $(this).is(':checked');
-        $('#select-max-players').prop('disabled', on);
+      $('#select-match-mode').on('change', function() {
+        const juego = (window.cw && cw.juegoActual) || (window.ws && ws.gameType) || 'uno';
+        const mode = ($(this).val() || 'PVP').toString().trim().toUpperCase();
+        const fixedTwo = (juego === '4raya' || juego === 'damas' || juego === 'checkers');
+        const disableMaxPlayers = fixedTwo || (mode === 'PVBOT');
+        $('#select-max-players').prop('disabled', disableMaxPlayers);
       });
 
 
@@ -553,11 +560,12 @@
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <div class="custom-control custom-checkbox mb-2">
-              <input type="checkbox" class="custom-control-input" id="chk-vs-bot">
-              <label class="custom-control-label" for="chk-vs-bot">1 jugador (vs bot)</label>
-            </div>
-            <small class="text-muted d-block mb-2">Crea una partida privada y empieza autom&aacute;ticamente.</small>
+            <label for="select-match-mode">Modo</label>
+            <select id="select-match-mode" class="form-control mb-2">
+              <option value="PVP" selected>Vs jugador</option>
+              <option value="PVBOT">Vs bot</option>
+            </select>
+            <small class="text-muted d-block mb-3">En vs bot, la partida se inicia autom&aacute;ticamente.</small>
             <label for="select-max-players">Máximo de jugadores</label>
             <select id="select-max-players" class="form-control">
               <option value="2" selected>2</option>

@@ -21,6 +21,9 @@ const {
   CheckersError,
 } = require("./game/checkersEngine");
 
+const { getBestMove: getBestConnect4Move } = require("./game/connect4_bot");
+const { getBestMove: getBestCheckersMove } = require("./game/checkers_bot");
+
 const UNO_CALL_WINDOW_MS = (() => {
   const parsed = Number.parseInt(process.env.UNO_CALL_WINDOW_MS, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5000;
@@ -31,8 +34,24 @@ const BOT_THINK_MS = (() => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 900;
 })();
 
+const BOT_TURN_BUDGET_MS = (() => {
+  const parsed = Number.parseInt(process.env.BOT_TURN_BUDGET_MS, 10);
+  return Number.isFinite(parsed) && parsed >= 50 ? parsed : 220;
+})();
+
+const BOT_TURN_DELAY_MIN_MS = (() => {
+  const parsed = Number.parseInt(process.env.BOT_TURN_DELAY_MIN_MS, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 250;
+})();
+
+const BOT_TURN_DELAY_MAX_MS = (() => {
+  const parsed = Number.parseInt(process.env.BOT_TURN_DELAY_MAX_MS, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 500;
+})();
+
 function ServidorWS() {
   let srv = this;
+  let sistemaRef = null;
   const estadosUNO = {};
   const estados4raya = {};
   const estadosCheckers = {};
@@ -44,6 +63,11 @@ function ServidorWS() {
   const botRunningByCodigo = {};
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const thinkMs = () => BOT_THINK_MS + Math.floor(Math.random() * 300);
+  const botTurnDelayMs = () => {
+    const min = Math.max(0, BOT_TURN_DELAY_MIN_MS);
+    const max = Math.max(min, BOT_TURN_DELAY_MAX_MS);
+    return min + Math.floor(Math.random() * (max - min + 1));
+  };
 
   const normalizePlayerId = (value) =>
     (value || "").toString().trim().toLowerCase();
@@ -267,6 +291,109 @@ function ServidorWS() {
       }
     } catch (e) {
       console.warn("[UNO] error en bot loop", codigo, e?.message || e);
+    } finally {
+      botRunningByCodigo[codigo] = false;
+    }
+  };
+
+  const getBotUserFromPartida = (partida) => {
+    const players = Array.isArray(partida?.jugadores) ? partida.jugadores : [];
+    return players.find((p) => p && (p.isBot === true || normalizePlayerId(p.email) === "bot")) || null;
+  };
+
+  const maybeBotMoveConnect4 = async (io, codigo) => {
+    if (!io || !codigo) return;
+    if (botRunningByCodigo[codigo]) return;
+
+    const partida = sistemaRef?.partidas?.[codigo];
+    if (!partida || partida.juego !== "4raya" || partida.mode !== "PVBOT") return;
+
+    const datos4Raya = estados4raya[codigo];
+    const engine = datos4Raya?.engine;
+    if (!engine || engine.status !== "playing") return;
+
+    const botUser = getBotUserFromPartida(partida);
+    const botPlayerId = botUser ? normalizePlayerId(botUser.email) : "bot";
+    const botIndex = (engine.players || []).findIndex(
+      (p) => normalizePlayerId(p?.id) === botPlayerId,
+    );
+    if (botIndex !== engine.currentPlayerIndex) return;
+
+    botRunningByCodigo[codigo] = true;
+    try {
+      await sleep(botTurnDelayMs());
+
+      const latest = estados4raya[codigo]?.engine;
+      if (!latest || latest.status !== "playing") return;
+      if (latest.currentPlayerIndex !== botIndex) return;
+
+      const botId = latest.players?.[botIndex]?.id ?? botPlayerId;
+      const best = getBestConnect4Move(latest, botId, BOT_TURN_BUDGET_MS);
+      const col = best && Number.isFinite(best.col) ? Math.trunc(best.col) : null;
+      if (col == null || col < 0 || col > 6) return;
+
+      estados4raya[codigo].engine = applyConnect4Action(latest, {
+        type: CONNECT4_ACTION_TYPES.PLACE_TOKEN,
+        column: col,
+        playerIndex: botIndex,
+      });
+
+      emitirEstado4Raya(io, codigo, estados4raya[codigo]);
+    } catch (e) {
+      console.warn("[4RAYA][BOT] error", codigo, e?.message || e);
+    } finally {
+      botRunningByCodigo[codigo] = false;
+    }
+  };
+
+  const maybeBotMoveCheckers = async (io, codigo) => {
+    if (!io || !codigo) return;
+    if (botRunningByCodigo[codigo]) return;
+
+    const partida = sistemaRef?.partidas?.[codigo];
+    if (!partida || (partida.juego !== "damas" && partida.juego !== "checkers")) return;
+    if (partida.mode !== "PVBOT") return;
+
+    const datosCheckers = estadosCheckers[codigo];
+    const state = datosCheckers?.state;
+    if (!state || state.status !== "playing") return;
+
+    const botUser = getBotUserFromPartida(partida);
+    const botPlayerId = botUser ? normalizePlayerId(botUser.email) : "bot";
+    const players = Array.isArray(datosCheckers?.players) ? datosCheckers.players : [];
+    const botPlayer = players.find((p) => normalizePlayerId(p?.id) === botPlayerId) || null;
+    const botColor = botPlayer?.color === "white" || botPlayer?.color === "black" ? botPlayer.color : "black";
+    if (state.currentPlayer !== botColor) return;
+
+    botRunningByCodigo[codigo] = true;
+    try {
+      await sleep(botTurnDelayMs());
+
+      const latest = estadosCheckers[codigo]?.state;
+      const latestPlayers = Array.isArray(estadosCheckers[codigo]?.players)
+        ? estadosCheckers[codigo].players
+        : players;
+      if (!latest || latest.status !== "playing") return;
+      if (latest.currentPlayer !== botColor) return;
+      if (!latestPlayers.find((p) => p?.color === botColor)) return;
+
+      const best = getBestCheckersMove(latest, botColor, BOT_TURN_BUDGET_MS);
+      const steps = Array.isArray(best?.steps) ? best.steps : null;
+      if (!steps || steps.length === 0) return;
+
+      let updated = latest;
+      for (const step of steps) {
+        updated = applyCheckersMove(updated, {
+          player: botColor,
+          from: step.from,
+          to: step.to,
+        });
+      }
+
+      estadosCheckers[codigo].state = updated;
+      emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
+    } catch (e) {
+      console.warn("[CHECKERS][BOT] error", codigo, e?.message || e);
     } finally {
       botRunningByCodigo[codigo] = false;
     }
@@ -743,6 +870,7 @@ function ServidorWS() {
   };
 
   this.lanzarServidor = function(io, sistema) {
+    sistemaRef = sistema;
     io.on("connection", function(socket) {
       console.log("Capa WS activa");
 
@@ -758,12 +886,20 @@ function ServidorWS() {
       // === crearPartida ===
       socket.on("crearPartida", function(datos) {
         const juego = datos && datos.juego;
+        const modeRaw = datos && datos.mode;
         const vsBotRaw = datos && datos.vsBot;
         const vsBot =
           vsBotRaw === true ||
           vsBotRaw === 1 ||
           vsBotRaw === "1" ||
           String(vsBotRaw).toLowerCase() === "true";
+        const mode =
+          String(modeRaw || "").trim().toUpperCase() === "PVBOT" || vsBot
+            ? "PVBOT"
+            : "PVP";
+        const isBotMode =
+          mode === "PVBOT" &&
+          (juego === "uno" || juego === "4raya" || juego === "damas" || juego === "checkers");
         const rawMaxPlayers = datos && (datos.maxPlayers ?? datos.maxJug);
         const parsed = parseInt(rawMaxPlayers, 10);
         const maxPlayers =
@@ -771,13 +907,13 @@ function ServidorWS() {
             ? 2
             : juego === "damas" || juego === "checkers"
               ? 2
-            : vsBot && juego === "uno"
+            : isBotMode && juego === "uno"
               ? 1
             : Number.isFinite(parsed) && parsed >= 2 && parsed <= 8
               ? parsed
               : 2;
 
-        let codigo = sistema.crearPartida(datos.email, juego, maxPlayers, { vsBot });
+        let codigo = sistema.crearPartida(datos.email, juego, maxPlayers, { vsBot: isBotMode, mode });
 
         if (codigo !== -1) {
           socket.join(codigo); // sala de socket.io
@@ -788,7 +924,11 @@ function ServidorWS() {
           maxPlayers: maxPlayers,
         });
 
-        if (codigo !== -1 && vsBot && juego === "uno") {
+        if (
+          codigo !== -1 &&
+          isBotMode &&
+          (juego === "uno" || juego === "4raya" || juego === "damas" || juego === "checkers")
+        ) {
           const contRes = sistema.continuarPartida(datos.email, codigo);
           const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
           if (contCodigo !== -1) {
@@ -1741,6 +1881,7 @@ function ServidorWS() {
             player: myColor,
           });
           emitirEstadoCheckers(io, codigo, datosCheckers);
+          maybeBotMoveCheckers(io, codigo);
         } catch (e) {
           const reason =
             e instanceof CheckersError ? e.code : (e && e.code) || "ERROR";
@@ -1898,12 +2039,16 @@ function ServidorWS() {
           return;
         }
 
-        datos4Raya.engine = applyConnect4Action(datos4Raya.engine, {
+        const prevEngine = datos4Raya.engine;
+        datos4Raya.engine = applyConnect4Action(prevEngine, {
           ...action,
           playerIndex,
         });
 
         emitirEstado4Raya(io, codigo, datos4Raya);
+        if (datos4Raya.engine !== prevEngine) {
+          maybeBotMoveConnect4(io, codigo);
+        }
       });
 
       socket.on("4raya:rematch_request", function(datos) {

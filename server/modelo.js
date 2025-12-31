@@ -8,6 +8,13 @@ function Sistema() {
   this.usuariosLocales = {};
   this.partidas = {};
 
+  const BOT_PLAYER = Object.freeze({
+    id: "BOT",
+    email: "bot@local",
+    nick: "Bot",
+    isBot: true,
+  });
+
   const normalizarEmail = function(email){
     return (email || "").trim().toLowerCase();
   };
@@ -119,7 +126,12 @@ function Sistema() {
     }
 
     // Si el nick del usuario aún es su email (carga perezosa), intenta resolverlo desde BD
-    const vsBot =
+    const requestedMode =
+      opts && typeof opts === "object" && typeof opts.mode === "string"
+        ? String(opts.mode).trim().toUpperCase()
+        : null;
+    const vsBotRequested =
+      requestedMode === "PVBOT" ||
       (typeof opts === "boolean" && opts) ||
       (opts && typeof opts === "object" && !!opts.vsBot) ||
       false;
@@ -141,16 +153,39 @@ function Sistema() {
     // Usar el nick del usuario como propietario (si no disponible, caer a email)
     let propietarioVisible = usuario.nick || email;
     const normalizedJuego = juego || "uno";
+    const isBotMode =
+      !!vsBotRequested &&
+      (normalizedJuego === "uno" ||
+        normalizedJuego === "4raya" ||
+        normalizedJuego === "damas" ||
+        normalizedJuego === "checkers");
     const effectiveMaxPlayers =
-      vsBot && normalizedJuego === "uno"
+      isBotMode && normalizedJuego === "uno"
         ? 1
         : normalizarMaxPlayers(maxPlayers, 2);
     let p = new Partida(codigo, propietarioVisible, normalizedJuego, effectiveMaxPlayers);
     // Guardar también el email para validaciones
     p.propietarioEmail = email;
-    p.vsBot = !!(vsBot && normalizedJuego === "uno");
+    p.mode = isBotMode ? "PVBOT" : "PVP";
+    p.vsBot = !!(isBotMode && normalizedJuego === "uno");
+    p.botPlayer = null;
 
     p.jugadores.push(usuario);
+
+    if (
+      isBotMode &&
+      (normalizedJuego === "4raya" || normalizedJuego === "damas" || normalizedJuego === "checkers")
+    ) {
+      p.botPlayer = { id: BOT_PLAYER.id, nick: BOT_PLAYER.nick, isBot: true };
+      p.maxPlayers = 2;
+      p.maxJug = 2;
+
+      const botUser = this._obtenerOcrearUsuarioEnMemoria(BOT_PLAYER.email, BOT_PLAYER.nick);
+      if (botUser && !p.jugadores.some((j) => normalizarEmail(j?.email) === BOT_PLAYER.email)) {
+        botUser.isBot = true;
+        p.jugadores.push(botUser);
+      }
+    }
     recalcularEstadoPartida(p);
     this.partidas[codigo] = p;
     this.registrarActividad("crearPartida", email, { partida: codigo });
@@ -180,6 +215,18 @@ function Sistema() {
           codigo: -1,
           reason: "BOT_MATCH",
           message: "Esta partida es de 1 jugador (vs bot).",
+        };
+      }
+    }
+
+    if (partida.mode === "PVBOT") {
+      const hostEmail = normalizarEmail(partida.propietarioEmail || partida.propietario);
+      if (hostEmail && hostEmail !== email) {
+        this.registrarActividad("unirAPartidaFallido", email);
+        return {
+          codigo: -1,
+          reason: "BOT_MATCH",
+          message: "Esta partida es vs bot.",
         };
       }
     }
@@ -232,7 +279,14 @@ function Sistema() {
 
     recalcularEstadoPartida(partida);
     const minPlayers =
-      partida.vsBot && (partida.juego || "uno") === "uno" ? 1 : 2;
+      (partida.mode === "PVBOT" &&
+        ((partida.juego || "uno") === "uno" ||
+          (partida.juego || "uno") === "4raya" ||
+          (partida.juego || "uno") === "damas" ||
+          (partida.juego || "uno") === "checkers")) ||
+      (partida.vsBot && (partida.juego || "uno") === "uno")
+        ? 1
+        : 2;
     if ((partida.playersCount || partida.jugadores.length) < minPlayers) {
       this.registrarActividad("continuarPartidaFallido", email);
       return {
@@ -1153,5 +1207,7 @@ function Partida(codigo, propietario, juego, maxJug) {
   this.estado = 'pendiente';
   this.juego = juego || 'uno' ;
   this.vsBot = false;
+  this.mode = "PVP"; // PVP|PVBOT
+  this.botPlayer = null;
 }
 module.exports.Sistema = Sistema;
