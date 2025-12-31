@@ -4,7 +4,6 @@ export default function GameResultModal({
   status,
   engine = null,
   onRestart,
-  onExit,
   isMultiplayer = false,
   rematch = null,
 }) {
@@ -50,14 +49,6 @@ export default function GameResultModal({
       ? Math.max(0, totalCount - readyCount)
       : null;
 
-  const handleExitClick = () => {
-    if (typeof onExit === 'function') {
-      onExit();
-      return;
-    }
-    if (window.history.length > 1) window.history.back();
-    else window.location.href = window.location.origin;
-  };
 
   return (
     <div className="uno-modal-backdrop">
@@ -91,9 +82,6 @@ export default function GameResultModal({
             disabled={isMultiplayer && isReady}
           >
             {isMultiplayer && isReady ? 'Listo' : 'Jugar otra vez'}
-          </button>
-          <button className="uno-btn uno-btn--secondary" onClick={handleExitClick}>
-            Salir
           </button>
         </div>
 

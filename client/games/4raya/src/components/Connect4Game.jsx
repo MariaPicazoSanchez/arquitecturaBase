@@ -235,7 +235,7 @@ export default function Connect4Game() {
             aria-label={isMuted ? 'Activar sonido' : 'Silenciar'}
             title={isMuted ? 'Activar sonido' : 'Silenciar'}
           >
-            {isMuted ? 'Unmute' : 'Mute'}
+            {isMuted ? '🔇' : '🔊'}
           </button>
           {codigoFromUrl && <div className="c4-status-code">Partida: {codigoFromUrl}</div>}
         </div>

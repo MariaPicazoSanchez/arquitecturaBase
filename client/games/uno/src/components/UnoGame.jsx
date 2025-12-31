@@ -2049,7 +2049,7 @@ export default function UnoGame() {
                 aria-label={isMuted ? 'Activar sonido' : 'Silenciar'}
                 title={isMuted ? 'Activar sonido' : 'Silenciar'}
               >
-                {isMuted ? 'Unmute' : 'Mute'}
+                {isMuted ? '🔇' : '🔊'}
               </button>
             </div>
           </div>

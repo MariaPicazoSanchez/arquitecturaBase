@@ -60,18 +60,17 @@ export default function Card({
   isPlayable = false,
   isLastPlayed = false,
 }) {
-  const isWildValue = card.value === 'wild' || card.value === '+4';
-  const isPlusFour = card.value === '+4';
-  const isColorlessSpecial = card.color === 'wild';
+
+  const isColorlessSpecial = card.color === 'wild' || card.value === 'swap' || card.value === 'discard_all';
 
   let displayValue = card.value;
   if (card.value === 'skip') displayValue = '⏭';
   else if (card.value === 'reverse') displayValue = '↺';
-  else if (card.value === 'wild') displayValue = 'W';
+  else if (card.value === 'wild') displayValue = '★';
   else if (card.value === 'double') displayValue = 'x2';
-  else if (card.value === 'swap') displayValue = 'SWAP';
-  else if (card.value === 'discard_all') displayValue = 'ALL';
-  else if (card.value === 'skip_all') displayValue = 'SKIP';
+  else if (card.value === 'swap') displayValue = '⇄';
+  else if (card.value === 'discard_all') displayValue = '✖';
+  else if (card.value === 'skip_all') displayValue = '⦸';
 
   const classes = [
     'uno-card',
@@ -79,42 +78,27 @@ export default function Card({
     disabled && 'uno-card--disabled',
     isPlayable && 'uno-card--playable',
     isLastPlayed && 'uno-card--last-played',
-    isWildValue && 'uno-card--wild',
-    isPlusFour && 'uno-card--plus4',
+    (card.value === 'wild' || card.value === '+4') && 'uno-card--wild',
   ]
     .filter(Boolean)
     .join(' ');
 
   const baseColor = COLOR_MAP[card.color];
-  const solidColor = baseColor || (isColorlessSpecial ? '#111827' : '#e5e7eb');
-
+  
   const rainbow =
-    'linear-gradient(135deg, #ef4444 0 25%, #facc15 25% 50%, #22c55e 50% 75%, #3b82f6 75% 100%)';
-  const chosenSolid =
-    card.color && card.color !== 'wild' && COLOR_MAP[card.color]
-      ? `linear-gradient(90deg, ${COLOR_MAP[card.color]} 0 100%)`
-      : null;
+  'linear-gradient(135deg, #ef4444 0 25%, #facc15 25% 50%, #22c55e 50% 75%, #3b82f6 75% 100%)';
+  
 
-  const wildBar = chosenSolid ?? 'linear-gradient(90deg, #ef4444 0 25%, #facc15 25% 50%, #22c55e 50% 75%, #3b82f6 75% 100%)';
-
-  const innerStyle = isWildValue
-    ? isPlusFour
-      ? {
-          backgroundColor: '#111827',
-          backgroundImage: rainbow,
-          backgroundRepeat: 'no-repeat',
-          backgroundSize: '100% 100%',
-          backgroundPosition: 'center',
-        }
-      : {
-          backgroundColor: '#111827',
-          backgroundImage: wildBar,
-          backgroundRepeat: 'no-repeat',
-          backgroundSize: '100% 10px',
-          backgroundPosition: 'top',
-        }
+  const innerStyle = isColorlessSpecial
+    ? {
+        backgroundColor: '#111827',
+        backgroundImage: rainbow,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
+        backgroundPosition: 'center',
+      }
     : {
-        backgroundColor: solidColor,
+        backgroundColor: baseColor || '#111827',
         backgroundImage:
           'linear-gradient(180deg, rgba(255,255,255,0.22), rgba(0,0,0,0.10))',
       };
