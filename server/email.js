@@ -75,6 +75,7 @@ module.exports.enviarEmailCambioPassword = async function (direccion, payloadOrC
       <p>Has solicitado cambiar tu contraseña en <strong>Table Room</strong>.</p>
       <p>Introduce este código para confirmar el cambio:</p>
       <p style="font-size:20px;font-weight:800;letter-spacing:2px;margin:12px 0">${codeStr}</p>
+      <p style="color:#6b7280;font-size:13px;margin-top:8px">Este codigo (y el enlace) expira en ~15 minutos.</p>
       ${resetLink ? `<p>Enlace para restablecer: <a href="${resetLink}" target="_blank">${resetLink}</a></p>` : (APP_URL ? `<p>Volver a la app: <a href="${APP_URL}" target="_blank">${APP_URL}</a></p>` : "")}
       <p style="color:#6b7280;font-size:13px;margin-top:16px">Si no has sido tú, ignora este correo.</p>
     </div>

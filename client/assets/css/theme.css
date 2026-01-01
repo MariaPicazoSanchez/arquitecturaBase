@@ -1,20 +1,23 @@
 :root {
   /* Palette (single primary + accent + neutrals) */
-  --primary: #2D6CDF;
+  --primary: #1D4ED8;
   --accent: #F08A24;
-  --app-bg: #F6F7FB;
+  --bg: #F6F7FB;
+  --app-bg: var(--bg);
   --surface: #FFFFFF;
+  --surface2: #F3F4F6;
   --text: #111827;
   --muted: #6B7280;
   --border: #E5E7EB;
 
   /* Derived */
-  --primary-hover: #285fc4;
+  --primary-hover: #1E40AF;
   --accent-hover: #d37920;
   --radius-card: 14px;
   --radius-control: 10px;
   --shadow-xs: 0 2px 10px rgba(17, 24, 39, 0.06);
   --shadow-sm: 0 10px 25px rgba(17, 24, 39, 0.06);
+  --shadow: var(--shadow-sm);
   --ring-primary: 0 0 0 0.2rem rgba(45, 108, 223, 0.28);
 
   /* Compatibility with existing styles */
@@ -26,13 +29,35 @@
   --input-border: var(--border);
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --primary: #7AA2FF;
+  --accent: #F5A15A;
+
+  --bg: #0B1220;
+  --app-bg: var(--bg);
+  --surface: #0F172A;
+  --surface2: #0B1220;
+  --text: #E5E7EB;
+  --muted: #94A3B8;
+  --border: rgba(148, 163, 184, 0.22);
+
+  --primary-hover: #9BB9FF;
+  --accent-hover: #F7B57A;
+  --shadow-xs: 0 2px 10px rgba(2, 6, 23, 0.55);
+  --shadow-sm: 0 14px 34px rgba(2, 6, 23, 0.6);
+  --shadow: var(--shadow-sm);
+  --ring-primary: 0 0 0 0.2rem rgba(122, 162, 255, 0.22);
+}
+
 html,
 body {
   height: 100%;
 }
 
 body {
-  background: var(--app-bg);
+  background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -95,9 +120,11 @@ a:hover {
 }
 
 .dropdown-menu {
+  background: var(--surface) !important;
+  color: var(--text) !important;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
 }
 .dropdown-item {
   color: var(--text);
@@ -110,6 +137,74 @@ a:hover {
 .dropdown-item:active {
   background: rgba(45, 108, 223, 0.12);
   color: var(--text);
+}
+.dropdown-divider {
+  border-top-color: var(--border) !important;
+}
+
+/* Account dropdown theme switch */
+.dropdown-item.theme-toggle-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+.theme-toggle-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.theme-toggle-icon {
+  width: 18px;
+  text-align: center;
+  flex: 0 0 auto;
+  opacity: 0.95;
+}
+.theme-toggle-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.theme-switch {
+  position: relative;
+  width: 42px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+.theme-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.theme-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.12);
+  border: 1px solid var(--border);
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+:root[data-theme="dark"] .theme-switch-track {
+  background: rgba(226, 232, 240, 0.12);
+}
+.theme-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
+  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+.theme-switch input:checked + .theme-switch-track .theme-switch-thumb {
+  transform: translateX(20px);
 }
 .navbar .nav-item .nav-link-pill {
   border: 1px solid var(--border) !important;
@@ -206,6 +301,33 @@ a:hover {
   transform: translateY(-1px);
 }
 
+/* Auth: ensure strong contrast in light mode */
+.auth-screen .btn-outline-primary {
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #ffffff !important;
+}
+.auth-screen .btn-outline-primary:hover {
+  background-color: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+  color: #ffffff !important;
+}
+
+/* "Continuar con Google" button: consistent Google-like contrast */
+.btn-google {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #d1d5db !important;
+}
+.btn-google span {
+  color: #111827 !important;
+}
+.btn-google:hover {
+  background: #f9fafb !important;
+  color: #111827 !important;
+  border-color: #cbd5e1 !important;
+}
+
 .btn-accent,
 .btn-ignition {
   background-color: var(--accent) !important;
@@ -244,13 +366,48 @@ a:hover {
 
 /* Modals */
 .modal-content {
+  background: var(--surface) !important;
+  color: var(--text) !important;
   border-radius: var(--radius-card);
   border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
 }
 .modal-header,
 .modal-footer {
   border-color: var(--border);
+}
+.modal-header .close {
+  color: var(--text) !important;
+  text-shadow: none !important;
+  opacity: 0.75;
+}
+.modal-header .close:hover {
+  opacity: 1;
+}
+.modal-content .form-control,
+.modal-content .custom-select {
+  background: var(--surface2) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+:root[data-theme="dark"] .modal-content select.form-control,
+:root[data-theme="dark"] .modal-content select.custom-select {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+:root[data-theme="dark"] .modal-content select.form-control option,
+:root[data-theme="dark"] .modal-content select.custom-select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Override legacy fixed modal text color */
+#miModal .modal-content,
+#miModal .modal-title,
+#miModal .modal-body {
+  color: var(--text) !important;
 }
 
 /* Form controls */
@@ -293,7 +450,12 @@ label {
 .table-hover tbody tr:hover {
   background-color: rgba(45, 108, 223, 0.04);
 }
+.list-group {
+  background: transparent;
+}
 .list-group-item {
+  background: var(--surface) !important;
+  color: var(--text) !important;
   border-color: var(--border);
 }
 .list-group-item:hover {

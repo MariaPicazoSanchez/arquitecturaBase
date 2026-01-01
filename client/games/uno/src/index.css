@@ -1,8 +1,26 @@
 /* src/index.css */
 :root {
+  /* Theme tokens (Light/Dark) */
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-2: rgba(255, 255, 255, 0.72);
+  --text: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background-color: #0f172a;
-  color: #e5e7eb;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #020617;
+  --surface: #0b1220;
+  --surface-2: rgba(15, 23, 42, 0.65);
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --border: rgba(148, 163, 184, 0.22);
 }
 
 html,
@@ -42,13 +60,13 @@ h1 {
   border-radius: clamp(14px, 1.6vw, 22px);
   padding: clamp(0.6rem, 1vw, 0.9rem);
 
-  background: linear-gradient(180deg, #0b1220, #020617);
+  background: linear-gradient(180deg, var(--surface), var(--bg));
 
   box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.9);
   display: flex;
   flex-direction: column;
   gap: 0;
-  border: 1px solid rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -86,7 +104,7 @@ h1 {
 
 .unoHeaderStat {
   font-size: 0.82rem;
-  color: #94a3b8;
+  color: var(--muted);
   white-space: nowrap;
 }
 
@@ -106,7 +124,8 @@ h1 {
   flex: 1 1 auto;
   min-width: 0;
   font-size: 0.95rem;
-  color: #cbd5f5;
+  color: var(--text);
+  opacity: 0.9;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -136,8 +155,8 @@ h1 {
   overflow: hidden;
   padding: 0.65rem 0.75rem;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 .unoCenter {
@@ -1180,9 +1199,9 @@ button:disabled {
   border-radius: 26px;
   overflow: visible;
 
-  background: #0b1220;
+  background: var(--surface);
 
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid var(--border);
   box-shadow: inset 0 0 0 1px rgba(2, 6, 23, 0.7);
 }
 

@@ -29,6 +29,21 @@ function ControlWeb() {
         };
     this.juegoActual = null;
 
+    // Theme (Light/Dark): persist + apply via documentElement.dataset.theme
+    this._getTheme = function(){
+        try {
+            const t = localStorage.getItem("theme");
+            if (t === "dark") return "dark";
+        } catch(e) {}
+        return "light";
+    };
+    this._applyTheme = function(theme){
+        const t = theme === "dark" ? "dark" : "light";
+        try { document.documentElement.dataset.theme = t; } catch(e) {}
+        try { localStorage.setItem("theme", t); } catch(e) {}
+        return t;
+    };
+
     this._updateMainVisibility = function(){
         const a = $.trim($("#au").html());
         const r = $.trim($("#registro").html());
@@ -319,6 +334,18 @@ function ControlWeb() {
               <a class="dropdown-item" href="#" id="navGestionarCuenta">Mi cuenta</a>
               <a class="dropdown-item" href="#" id="navActividad">Actividad</a>
               <a class="dropdown-item" href="#" id="navAyuda">Ayuda</a>
+              <button type="button" class="dropdown-item theme-toggle-item" id="navThemeToggle" aria-label="Cambiar tema">
+                <span class="theme-toggle-left">
+                  <span class="theme-toggle-icon" aria-hidden="true" id="navThemeIcon">☀</span>
+                  <span class="theme-toggle-label">Tema</span>
+                </span>
+                <span class="theme-switch">
+                  <input type="checkbox" id="navThemeSwitch" role="switch" aria-label="Tema oscuro">
+                  <span class="theme-switch-track" aria-hidden="true">
+                    <span class="theme-switch-thumb" aria-hidden="true"></span>
+                  </span>
+                </span>
+              </button>
               <div class="dropdown-divider"></div>
               <a class="dropdown-item text-danger" href="#" id="navSalir">Salir</a>
             </div>
@@ -341,6 +368,38 @@ function ControlWeb() {
             e.preventDefault();
             try { window.location.href = "/help"; } catch(ex) {}
         });
+
+        // Theme toggle wiring
+        (function(){
+            const current = cw._applyTheme(cw._getTheme());
+            const $switch = $("#navThemeSwitch");
+            const $icon = $("#navThemeIcon");
+            $switch.prop("checked", current === "dark");
+            $icon.text(current === "dark" ? "☾" : "☀");
+
+            const syncUi = (t) => {
+                $switch.prop("checked", t === "dark");
+                $icon.text(t === "dark" ? "☾" : "☀");
+            };
+
+            $("#navThemeToggle").off("click").on("click", function(e){
+                // keep dropdown open while toggling
+                e.preventDefault();
+                e.stopPropagation();
+                $switch.prop("checked", !$switch.prop("checked"));
+                $switch.trigger("change");
+            });
+
+            $switch.off("click").on("click", function(e){
+                e.stopPropagation();
+            });
+
+            $switch.off("change").on("change", function(){
+                const next = cw._applyTheme($switch.prop("checked") ? "dark" : "light");
+                syncUi(next);
+            });
+        })();
+
         $("#navSalir").off("click").on("click", function(e){
             e.preventDefault();
             cw.salir();

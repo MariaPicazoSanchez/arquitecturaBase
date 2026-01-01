@@ -5,6 +5,17 @@
   <!-- <title>Ignition</title> -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        t = (t === 'dark') ? 'dark' : 'light';
+        localStorage.setItem('theme', t);
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    })();
+  </script>
+
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28'/%3E%3Ctext x='32' y='38' font-size='28' text-anchor='middle' fill='white'%3EA%3C/text%3E%3C/svg%3E">
 
 
@@ -564,10 +575,10 @@
           <div class="form-group">
             <label for="select-match-mode">Modo</label>
             <select id="select-match-mode" class="form-control mb-2">
-              <option value="PVP" selected>Vs jugador</option>
-              <option value="PVBOT">Vs bot</option>
+              <option value="PVP" selected>Contra jugador</option>
+              <option value="PVBOT">Contra bot</option>
             </select>
-            <small class="text-muted d-block mb-3">En vs bot, la partida se inicia autom&aacute;ticamente.</small>
+            <small class="text-muted d-block mb-3">En vs bot, la partida se inicia automáticamente.</small>
             <div id="create-maxplayers-group">
               <label for="select-max-players">Máximo de jugadores</label>
               <select id="select-max-players" class="form-control">
