@@ -29,6 +29,9 @@ function ClienteWS() {
         this.socket.on("connect", function(){
             ws._ensureEmail();
             ws.pedirListaPartidas();
+            if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                cw.renderContinueGamesBar();
+            }
             setTimeout(() => ws.pedirListaPartidas(), 100); // asegurar recepción tras registrar handlers
         });
     };
@@ -96,6 +99,28 @@ function ClienteWS() {
             datos.juego ||
             (window.cw && cw.juegoActual) ||
             "uno";
+
+        // Persist active game ONLY for multiplayer (never for bots)
+        try {
+            const normalizedRaw = String(juego || "uno").trim().toLowerCase();
+            const normalized = normalizedRaw === "checkers" ? "damas" : normalizedRaw;
+            const isBotGame = !!datos.isBotGame;
+            const key =
+                normalized === "uno" ? "activeGame:UNO" :
+                normalized === "damas" ? "activeGame:DAMAS" :
+                null;
+
+            if (key) {
+                if (isBotGame) {
+                    localStorage.removeItem(key);
+                } else {
+                    localStorage.setItem(key, JSON.stringify({ gameId: String(datos.codigo), ts: Date.now() }));
+                }
+            }
+        } catch(e) {}
+        if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
 
         if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
             cw.mostrarJuegoEnApp(juego, datos.codigo);

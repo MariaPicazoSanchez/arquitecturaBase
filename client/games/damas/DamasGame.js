@@ -158,7 +158,28 @@ export class DamasGame {
     this.socket.on("connect", () => {
       this.panel.setError("");
       this.panel.setSubtitle(CONECTADO_ESPERANDO);
-      this.socket.emit("damas_join", { codigo: this.codigo, email: this.email });
+      const join = () => {
+        this.socket.emit("damas_join", { codigo: this.codigo, email: this.email });
+      };
+
+      let settled = false;
+      const t = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        join();
+      }, 1200);
+
+      this.socket.emit(
+        "game:resume",
+        { gameType: "damas", gameId: this.codigo, email: this.email },
+        (res) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(t);
+          if (res && res.ok) return;
+          join();
+        }
+      );
     });
 
     this.socket.on("damas_state", (payload) => {

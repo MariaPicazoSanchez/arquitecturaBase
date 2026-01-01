@@ -60,6 +60,10 @@ function ControlWeb() {
         // Guardamos qué juego estamos mostrando
         this.juegoActual = juego || this.juegoActual || "uno";
 
+        // Track current match for "leave" / resume cleanups
+        this._activeCodigo = codigo || null;
+        this._activeGameType = this.juegoActual;
+
         const nombreBonito =
             this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
@@ -95,6 +99,33 @@ function ControlWeb() {
     };
 
     this.volverDesdeJuego = function(){
+        // Voluntary leave: clear saved resume session and remove player from server match
+        try {
+            const gameType = cw._normalizeResumeGameType(cw._activeGameType || cw.juegoActual);
+            const gameId = String(cw._activeCodigo || (window.ws && ws.codigo) || "").trim();
+            const email =
+                cw.email ||
+                (window.ws && ws.email) ||
+                (window.$ && $.cookie && ($.cookie("email") || $.cookie("nick"))) ||
+                null;
+
+            const key = cw._activeGameStorageKeyFor(gameType);
+            if (key) {
+                try { localStorage.removeItem(key); } catch(e) {}
+            }
+
+            if (window.ws && ws.socket && gameId && email) {
+                ws.socket.emit("game:leave", { gameType, gameId, email }, function(){
+                    if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                        cw.renderContinueGamesBar();
+                    }
+                });
+            }
+        } catch(e) {}
+
+        cw._activeCodigo = null;
+        cw._activeGameType = null;
+
         // Paramos el juego (vaciamos el iframe)
         $("#iframe-juego").attr("src", "");
 
@@ -112,6 +143,9 @@ function ControlWeb() {
         }
 
         this._updateMainVisibility();
+        if (typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
     };
 
 
@@ -228,7 +262,163 @@ function ControlWeb() {
         $("#selector-juegos").show();
 
         cw._updateMainVisibility();
+        if (typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
     };
+
+    this._normalizeResumeGameType = function(gameType){
+        const t = String(gameType || "").trim().toLowerCase();
+        if (t === "checkers") return "damas";
+        return t;
+    };
+
+    this._activeGameStorageKeyFor = function(gameType){
+        const t = cw._normalizeResumeGameType(gameType);
+        if (t === "uno") return "activeGame:UNO";
+        if (t === "damas") return "activeGame:DAMAS";
+        return null;
+    };
+
+    this.renderContinueGamesBar = function(){
+        const $host = $("#continue-games-bar");
+        if (!$host.length) return;
+
+        const email =
+            cw.email ||
+            (window.ws && ws.email) ||
+            (window.$ && $.cookie && ($.cookie("email") || $.cookie("nick"))) ||
+            null;
+
+        if (!email) {
+            $host.hide().empty();
+            return;
+        }
+
+        if (!window.ws || !ws.socket) {
+            setTimeout(() => cw.renderContinueGamesBar(), 150);
+            return;
+        }
+
+        const readSaved = (key) => {
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                const gameId = parsed && (parsed.gameId || parsed.codigo);
+                if (!gameId) return null;
+                return { gameId: String(gameId).trim() };
+            } catch(e){
+                return null;
+            }
+        };
+
+        const candidates = [];
+        const unoSaved = readSaved("activeGame:UNO");
+        const damasSaved = readSaved("activeGame:DAMAS");
+        if (unoSaved?.gameId) candidates.push({ gameType: "uno", key: "activeGame:UNO", gameId: unoSaved.gameId });
+        if (damasSaved?.gameId) candidates.push({ gameType: "damas", key: "activeGame:DAMAS", gameId: damasSaved.gameId });
+
+        if (!candidates.length) {
+            $host.hide().empty();
+            return;
+        }
+
+        $host
+            .show()
+            .html('<div class="text-muted small">Comprobando partidas para continuar…</div>');
+
+        const emitWithTimeout = (event, payload, timeoutMs = 2500) =>
+            new Promise((resolve) => {
+                let done = false;
+                const t = setTimeout(() => {
+                    if (done) return;
+                    done = true;
+                    resolve({ canResume: false, ...payload, reason: "TIMEOUT" });
+                }, timeoutMs);
+
+                try {
+                    ws.socket.emit(event, payload, (res) => {
+                        if (done) return;
+                        done = true;
+                        clearTimeout(t);
+                        resolve(res || { canResume: false, ...payload, reason: "NO_RESPONSE" });
+                    });
+                } catch (e) {
+                    if (done) return;
+                    done = true;
+                    clearTimeout(t);
+                    resolve({ canResume: false, ...payload, reason: "CLIENT_ERROR" });
+                }
+            });
+
+        Promise.all(
+            candidates.map((c) =>
+                emitWithTimeout("game:resumeStatus", {
+                    gameType: c.gameType,
+                    gameId: c.gameId,
+                    email: email,
+                }).then((res) => ({ candidate: c, res }))
+            )
+        ).then((results) => {
+            const resumables = [];
+
+            for (const { candidate, res } of results) {
+                if (res && res.canResume) {
+                    resumables.push({ gameType: candidate.gameType, gameId: candidate.gameId });
+                } else {
+                    const reason = res && res.reason;
+                    if (reason && reason !== "TIMEOUT" && reason !== "NO_RESPONSE") {
+                        try { localStorage.removeItem(candidate.key); } catch(e) {}
+                    }
+                }
+            }
+
+            $host.empty();
+
+            if (!resumables.length) {
+                $host.hide();
+                return;
+            }
+
+            const $card = $('<div class="card shadow-sm"></div>');
+            const $body = $('<div class="card-body py-2"></div>');
+            const $row = $('<div class="d-flex flex-wrap align-items-center justify-content-between"></div>');
+            const $left = $('<div class="text-muted small mb-2 mb-md-0"></div>').text("Continuar partida");
+            const $btns = $('<div class="d-flex flex-wrap align-items-center"></div>');
+
+            for (const r of resumables) {
+                const label = r.gameType === "uno" ? "Continuar partida de UNO" : "Continuar partida de DAMAS";
+                const $btn = $('<button type="button" class="btn btn-outline-primary btn-sm mr-2 mb-2 continue-game-btn"></button>');
+                $btn.attr("data-game-type", r.gameType);
+                $btn.attr("data-game-id", r.gameId);
+                $btn.text(label);
+                $btns.append($btn);
+            }
+
+            $row.append($left);
+            $row.append($btns);
+            $body.append($row);
+            $card.append($body);
+            $host.append($card).show();
+        }).catch(() => {
+            $host.hide().empty();
+        });
+    };
+
+    $(document).on("click", ".continue-game-btn", function(){
+        const gameType = String($(this).data("game-type") || "").trim().toLowerCase();
+        const gameId = String($(this).data("game-id") || "").trim();
+        if (!gameType || !gameId) return;
+
+        if (window.ws){
+            ws.gameType = gameType;
+            ws.codigo = gameId;
+        }
+        if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
+            cw.mostrarJuegoEnApp(gameType, gameId);
+        }
+    });
 
     this.seleccionarJuego = function(juegoId){
         this.juegoActual = juegoId || "uno";

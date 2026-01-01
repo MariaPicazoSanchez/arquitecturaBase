@@ -61,6 +61,11 @@ function ServidorWS() {
   const socketToCheckersPlayerId = {};
   const socketToCheckersCodigo = {};
   const botRunningByCodigo = {};
+  const roomEmptyTimers = {};
+  const ROOM_EMPTY_GRACE_MS = (() => {
+    const parsed = Number.parseInt(process.env.ROOM_EMPTY_GRACE_MS, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 60000;
+  })();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const thinkMs = () => BOT_THINK_MS + Math.floor(Math.random() * 300);
   const botTurnDelayMs = () => {
@@ -86,6 +91,88 @@ function ServidorWS() {
     Array.isArray(b) &&
     a.length === b.length &&
     a.every((v, i) => v === b[i]);
+
+  const getRoomSize = (io, room) => {
+    try {
+      const set = io?.sockets?.adapter?.rooms?.get(room);
+      return set && typeof set.size === "number" ? set.size : 0;
+    } catch (e) {
+      return 0;
+    }
+  };
+
+  const isRoomEmpty = (io, codigo) => getRoomSize(io, codigo) === 0;
+
+  const cancelRoomEmptyTimer = (codigo) => {
+    const t = roomEmptyTimers[codigo];
+    if (t) {
+      clearTimeout(t);
+      delete roomEmptyTimers[codigo];
+    }
+  };
+
+  const isBotMatch = (partida) => {
+    if (!partida) return false;
+    if (partida.vsBot) return true;
+    if (String(partida.mode || "").toUpperCase() === "PVBOT") return true;
+    const jugadores = Array.isArray(partida.jugadores) ? partida.jugadores : [];
+    return jugadores.some((j) => {
+      const id = normalizePlayerId(j?.email);
+      return id === "bot" || id.startsWith("bot@") || j?.isBot === true;
+    });
+  };
+
+  const cleanupCodigoState = (io, codigo) => {
+    if (codigo && estadosUNO[codigo]) {
+      try {
+        clearAllUnoDeadlines(io, codigo, estadosUNO[codigo]);
+      } catch (e) {}
+      delete estadosUNO[codigo];
+    }
+    if (codigo && estados4raya[codigo]) {
+      delete estados4raya[codigo];
+    }
+    if (codigo && rematchVotes4raya[codigo]) {
+      delete rematchVotes4raya[codigo];
+    }
+    if (codigo && estadosCheckers[codigo]) {
+      delete estadosCheckers[codigo];
+    }
+    if (codigo && botRunningByCodigo[codigo]) {
+      delete botRunningByCodigo[codigo];
+    }
+  };
+
+  const scheduleDeleteIfStillEmpty = (io, sistema, codigo) => {
+    if (!codigo) return;
+    if (roomEmptyTimers[codigo]) return;
+    const partida = sistema?.partidas?.[codigo];
+    if (!partida) return;
+
+    roomEmptyTimers[codigo] = setTimeout(() => {
+      try {
+        delete roomEmptyTimers[codigo];
+        if (!isRoomEmpty(io, codigo)) return;
+
+        const partidaNow = sistema?.partidas?.[codigo];
+        if (!partidaNow) return;
+
+        console.log("[RESUME] deleting empty match after grace", {
+          codigo,
+          juego: partidaNow.juego,
+          graceMs: ROOM_EMPTY_GRACE_MS,
+        });
+
+        delete sistema.partidas[codigo];
+        cleanupCodigoState(io, codigo);
+
+        const lista = sistema.obtenerPartidasDisponibles(partidaNow.juego);
+        srv.enviarGlobal(io, "listaPartidas", lista);
+      } catch (e) {
+        console.warn("[RESUME] error deleting empty match:", e?.message || e);
+      }
+    }, ROOM_EMPTY_GRACE_MS);
+  };
 
   const chooseBotColor = (engine, botIndex = 1) => {
     const hand = engine?.players?.[botIndex]?.hand || [];
@@ -925,11 +1012,15 @@ function ServidorWS() {
 
         if (codigo !== -1) {
           socket.join(codigo); // sala de socket.io
+          cancelRoomEmptyTimer(codigo);
         }
 
+        const partidaCreada = codigo !== -1 ? sistema.partidas[codigo] : null;
         srv.enviarAlRemitente(socket, "partidaCreada", {
           codigo: codigo,
           maxPlayers: maxPlayers,
+          juego: partidaCreada?.juego || juego,
+          isBotGame: !!(partidaCreada && isBotMatch(partidaCreada)),
         });
 
         if (
@@ -940,7 +1031,7 @@ function ServidorWS() {
           const contRes = sistema.continuarPartida(datos.email, codigo);
           const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
           if (contCodigo !== -1) {
-            io.to(codigo).emit("partidaContinuada", { codigo, juego });
+            io.to(codigo).emit("partidaContinuada", { codigo, juego, isBotGame: true });
           } else {
             srv.enviarAlRemitente(
               socket,
@@ -961,6 +1052,8 @@ function ServidorWS() {
 
         if (codigo !== -1) {
           socket.join(codigo);
+          cancelRoomEmptyTimer(codigo);
+          cancelRoomEmptyTimer(codigo);
         }
 
         // Si ya hay un engine UNO creado, sincronizarlo con los jugadores reales de la partida.
@@ -1043,6 +1136,7 @@ function ServidorWS() {
           io.to(codigo).emit("partidaContinuada", {
             codigo: codigo,
             juego,
+            isBotGame: !!(partida && isBotMatch(partida)),
           });
 
           // Actualizar la lista para TODO el mundo
@@ -1064,24 +1158,166 @@ function ServidorWS() {
       socket.on("eliminarPartida", function(datos) {
         let codigo = sistema.eliminarPartida(datos.email, datos.codigo);
 
-        if (codigo !== -1 && estadosUNO[codigo]) {
-          clearAllUnoDeadlines(io, codigo, estadosUNO[codigo]);
-          delete estadosUNO[codigo];
-          delete botRunningByCodigo[codigo];
-        }
-
-        if (codigo !== -1 && estados4raya[codigo]) {
-          delete estados4raya[codigo];
-        }
-
-        if (codigo !== -1 && rematchVotes4raya[codigo]) {
-          delete rematchVotes4raya[codigo];
+        if (codigo !== -1 && !sistema.partidas[codigo]) {
+          cleanupCodigoState(io, codigo);
         }
 
         srv.enviarAlRemitente(socket, "partidaEliminada", { codigo: codigo });
 
         let lista = sistema.obtenerPartidasDisponibles(datos.juego);
         srv.enviarGlobal(io, "listaPartidas", lista);
+      });
+
+      // ==========================
+      //  RESUME (UNO / DAMAS)
+      // ==========================
+
+      socket.on("game:resumeStatus", function(datos, ack) {
+        const gameType = String(datos?.gameType || "").trim().toLowerCase();
+        const gameId = String(datos?.gameId || datos?.codigo || "").trim();
+        const email = datos?.email;
+        const playerId = normalizePlayerId(email);
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("game:resumeStatus", payload);
+        };
+
+        if (!gameType || !gameId || !playerId) {
+          return respond({ canResume: false, gameType, gameId, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[gameId] || null;
+        if (!partida) {
+          return respond({ canResume: false, gameType, gameId, reason: "GAME_NOT_FOUND" });
+        }
+
+        if (isRoomEmpty(io, gameId)) {
+          return respond({ canResume: false, gameType, gameId, reason: "GAME_EMPTY" });
+        }
+
+        const partidaGame = String(partida.juego || "").trim().toLowerCase();
+        const normalizedType = gameType === "checkers" ? "damas" : gameType;
+        const partidaType = partidaGame === "checkers" ? "damas" : partidaGame;
+        if (normalizedType !== partidaType) {
+          return respond({ canResume: false, gameType: normalizedType, gameId, reason: "GAME_MISMATCH" });
+        }
+
+        if (isBotMatch(partida)) {
+          return respond({ canResume: false, gameType: normalizedType, gameId, reason: "BOT_MATCH" });
+        }
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) {
+          return respond({ canResume: false, gameType: normalizedType, gameId, reason: "NOT_ALLOWED" });
+        }
+
+        return respond({ canResume: true, gameType: normalizedType, gameId });
+      });
+
+      socket.on("game:leave", function(datos, ack) {
+        const codigo = String(datos?.gameId || datos?.codigo || "").trim();
+        const email = datos?.email;
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("game:leave", payload);
+        };
+
+        if (!codigo || !email) {
+          return respond({ ok: false, codigo, reason: "INVALID_REQUEST" });
+        }
+
+        const before = sistema.partidas?.[codigo] || null;
+        const res = sistema.eliminarPartida(email, codigo);
+        const deleted = !!before && !sistema.partidas?.[codigo];
+
+        try {
+          socket.leave(codigo);
+        } catch (e) {}
+
+        if (deleted) {
+          cleanupCodigoState(io, codigo);
+        }
+
+        if (isRoomEmpty(io, codigo) && sistema.partidas?.[codigo]) {
+          const partidaNow = sistema.partidas[codigo];
+          delete sistema.partidas[codigo];
+          cleanupCodigoState(io, codigo);
+          const lista = sistema.obtenerPartidasDisponibles(partidaNow.juego);
+          srv.enviarGlobal(io, "listaPartidas", lista);
+        }
+
+        return respond({ ok: true, codigo: res && typeof res === "object" ? res.codigo : res, deleted });
+      });
+
+      socket.on("game:resume", function(datos, ack) {
+        const gameTypeRaw = String(datos?.gameType || "").trim().toLowerCase();
+        const codigo = String(datos?.gameId || datos?.codigo || "").trim();
+        const email = datos?.email;
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("game:resume", payload);
+        };
+
+        if (!codigo || !email || !gameTypeRaw) {
+          return respond({ ok: false, codigo, gameType: gameTypeRaw, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[codigo] || null;
+        if (!partida) return respond({ ok: false, codigo, gameType: gameTypeRaw, reason: "GAME_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, codigo, gameType: gameTypeRaw, reason: "BOT_MATCH" });
+
+        if (isRoomEmpty(io, codigo)) {
+          return respond({ ok: false, codigo, gameType: gameTypeRaw, reason: "GAME_EMPTY" });
+        }
+
+        const playerId = normalizePlayerId(email);
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+        if (!belongs) return respond({ ok: false, codigo, gameType: gameTypeRaw, reason: "NOT_ALLOWED" });
+
+        cancelRoomEmptyTimer(codigo);
+
+        const normalizedType = gameTypeRaw === "checkers" ? "damas" : gameTypeRaw;
+        const partidaGame = String(partida.juego || "").trim().toLowerCase();
+        const partidaType = partidaGame === "checkers" ? "damas" : partidaGame;
+        if (normalizedType !== partidaType) {
+          return respond({ ok: false, codigo, gameType: normalizedType, reason: "GAME_MISMATCH" });
+        }
+
+        if (normalizedType === "uno") {
+          // Resume UNO by reusing the server subscription handler.
+          // (Important: do NOT socket.emit("uno:suscribirse") here, that would only emit to the client.)
+          Promise.resolve()
+            .then(() => handleUnoSubscribe({ codigo, email }))
+            .then(() => {
+              console.log("[RESUME] ok", { gameType: "uno", codigo, email });
+              respond({ ok: true, codigo, gameType: "uno" });
+            })
+            .catch((e) => {
+              console.warn("[RESUME] error UNO", codigo, e?.message || e);
+              respond({ ok: false, codigo, gameType: "uno", reason: "ERROR" });
+            });
+          return;
+        }
+
+        if (normalizedType === "damas") {
+          try {
+            handleDamasJoin({ codigo, email });
+            console.log("[RESUME] ok", { gameType: "damas", codigo, email });
+            return respond({ ok: true, codigo, gameType: "damas" });
+          } catch (e) {
+            console.warn("[RESUME] error DAMAS", codigo, e?.message || e);
+            return respond({ ok: false, codigo, gameType: "damas", reason: "ERROR" });
+          }
+        }
+
+        return respond({ ok: false, codigo, gameType: normalizedType, reason: "UNKNOWN_GAME" });
       });
       // ==========================
       //  UNO MULTIJUGADOR (WS)
@@ -1343,13 +1579,14 @@ function ServidorWS() {
       });
 
       // Cuando el juego UNO (en /uno) se conecta
-      socket.on("uno:suscribirse", async function(datos) {
+      async function handleUnoSubscribe(datos) {
         const codigo = datos && datos.codigo;
         const email  = datos && datos.email;
         if (!codigo || !email) {
           console.warn("[UNO] suscribirse sin codigo o email");
           return;
         }
+        cancelRoomEmptyTimer(codigo);
 
         const partida = sistema.partidas[codigo];
         if (!partida) {
@@ -1455,7 +1692,9 @@ function ServidorWS() {
         } catch (e) {
           console.warn("[UNO] error reenviando uno_required al suscribir", e?.message || e);
         }
-      });
+      }
+
+      socket.on("uno:suscribirse", handleUnoSubscribe);
 
       // Cuando un jugador realiza una acción en el UNO
       socket.on("uno:rematch_ready", async function(datos) {
@@ -1770,10 +2009,11 @@ function ServidorWS() {
         try { socket.emit("checkers_error", payload); } catch {}
       };
 
-      const onDamasJoin = function (datos) {
+      function handleDamasJoin(datos) {
         const codigo = datos && datos.codigo;
         const email = datos && datos.email;
         if (!codigo || !email) return;
+        cancelRoomEmptyTimer(codigo);
 
         const partida = sistema.partidas[codigo];
         if (!partida) return;
@@ -1817,10 +2057,10 @@ function ServidorWS() {
 
         socket.join(codigo);
         emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
-      };
+      }
 
-      socket.on("damas_join", onDamasJoin);
-      socket.on("checkers_join", onDamasJoin);
+      socket.on("damas_join", handleDamasJoin);
+      socket.on("checkers_join", handleDamasJoin);
 
       const onDamasMove = function (datos) {
         const codigo = datos && datos.codigo;
@@ -2245,6 +2485,19 @@ function ServidorWS() {
         delete socketTo4RayaPlayerId[socket.id];
         delete socketToCheckersCodigo[socket.id];
         delete socketToCheckersPlayerId[socket.id];
+
+        // If any match rooms became empty due to this disconnect, delete after grace.
+        try {
+          const rooms = Array.from(socket.rooms || []);
+          for (const codigo of rooms) {
+            if (!codigo || codigo === socket.id) continue;
+            const partida = sistema.partidas?.[codigo];
+            if (!partida) continue;
+            if (isRoomEmpty(io, codigo)) {
+              scheduleDeleteIfStillEmpty(io, sistema, codigo);
+            }
+          }
+        } catch (e) {}
       });
 
     });

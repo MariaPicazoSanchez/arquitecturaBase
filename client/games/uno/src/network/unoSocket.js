@@ -34,8 +34,25 @@ export function createUnoSocket({
 
   socket.on("connect", () => {
     console.log("[UNO] conectado al WS", socket.id);
-    socket.emit("uno:suscribirse", { codigo, email });
-    socket.emit("uno_get_state", { codigo, email });
+    const subscribe = () => {
+      socket.emit("uno:suscribirse", { codigo, email });
+      socket.emit("uno_get_state", { codigo, email });
+    };
+
+    let settled = false;
+    const t = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      subscribe();
+    }, 1200);
+
+    socket.emit("game:resume", { gameType: "uno", gameId: codigo, email }, (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(t);
+      if (res && res.ok) return;
+      subscribe();
+    });
   });
 
   socket.on("uno_state", (estado) => {
