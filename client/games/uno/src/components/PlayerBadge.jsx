@@ -39,9 +39,12 @@ export default function PlayerBadge({
         </div>
 
         <div className="playerBadgeMeta">
-          <div className="playerBadgeName">
-            {player?.name ?? 'Jugador'}
-            {!isLocal && <span className="playerBadgeCountInline"> ({displayCount})</span>}
+          {/* split name + count so count never gets ellipsized */}
+          <div className="playerBadgeTopRow">
+            <span className="playerBadgeName">{player?.name ?? 'Jugador'}</span>
+            {!isLocal && (
+              <span className="playerBadgeCountInline">({displayCount})</span>
+            )}
             {isLocal && <span className="playerBadgeYou">{youLabel}</span>}
           </div>
         </div>

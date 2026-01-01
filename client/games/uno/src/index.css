@@ -133,7 +133,7 @@ h1 {
 .unoSideLeft {
   grid-area: left;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 0.65rem 0.75rem;
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.65);
@@ -166,10 +166,11 @@ h1 {
   .unoSideLeft {
     max-height: 210px;
   }
+  /* remove global mobile translateY on .uno-card to avoid hand clipping */
   .uno-card {
     width: clamp(50px, 4vw, 70px); 
     height: clamp(80px, 6.5vw, 110px);
-    transform: translateY(-25px);
+    transform: none;
   }
 }
 
@@ -316,7 +317,7 @@ h1 {
   margin: 0;
   padding: 0;
   max-height: 110px;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -377,7 +378,7 @@ h1 {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 0.5rem;
   max-height: 165px;
-  overflow: auto;
+  overflow: hidden;
   padding-right: 0.2rem;
 }
 
@@ -1197,10 +1198,9 @@ button:disabled {
     bottom: 14px;
   }
 
-  /* 2) Solo el anillo de jugadores (para que no se corte tu "turno") */
+  /* 2) Solo el anillo de jugadores */
   .uno-table-seats {
-    transform: translateY(-2%) scale(0.92);
-    transform-origin: 50% 50%;
+    transform: none;
   }
 
   /* 3) (Opcional) si aún falta espacio, recorta un poco la zona de la mano */
@@ -1212,7 +1212,9 @@ button:disabled {
 .uno-table-seats {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  /* ensure seats always render above discard/center */
+  z-index: 5;
+  pointer-events: none;
 }
 
 .uno-seat-pos {
@@ -1220,6 +1222,7 @@ button:disabled {
   transform: translate(-50%, -50%);
   width: clamp(120px, 20vw, 240px);
   max-width: 66vw;
+  pointer-events: auto;
 }
 
 .uno-seat {
@@ -1441,16 +1444,22 @@ button:disabled {
   min-width: 0;
 }
 
-.playerBadgeName {
-  font-size: 0.92rem;
-  font-weight: 900;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 140px;
+.playerBadgeTopRow {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  min-width: 0;
+}
+
+.playerBadgeName {
+  font-size: 0.92rem;
+  font-weight: 900;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: none;
 }
 
 .playerBadgeCountInline {
@@ -1458,6 +1467,8 @@ button:disabled {
   font-weight: 800;
   color: #e5e7eb;
   opacity: 0.9;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .playerBadge.inactive .playerBadgeName {
@@ -1513,6 +1524,41 @@ button:disabled {
   background: rgba(245, 158, 11, 0.12);
   border-color: rgba(245, 158, 11, 0.45);
   color: #fde68a;
+}
+
+@media (max-width: 900px), (max-height: 720px) {
+  .playerBadgeAvatar {
+    display: none !important;
+  }
+
+  .uno-seat,
+  .playerBadge {
+    padding: 0.32rem 0.45rem !important;
+    border-radius: 12px !important;
+  }
+
+  .playerBadgeName,
+  .playerBadgeCountInline {
+    font-size: 0.72rem !important;
+  }
+
+  .playerBadgeChip {
+    padding: 0.12rem 0.4rem;
+    font-size: 0.58rem;
+  }
+
+  .playerBadgeRow {
+    gap: 0.4rem;
+  }
+
+  .playerBadgeChips {
+    gap: 0.25rem;
+  }
+
+  .uno-seat-pos {
+    width: clamp(104px, 22vw, 200px);
+    max-width: 62vw;
+  }
 }
 
 
@@ -1764,15 +1810,14 @@ button:disabled {
     transform: translateY(-14px) scale(0.92);
   }
 
-  /* El anillo de jugadores para que no se corte el "turno" */
+  /* El anillo de jugadores */
   .uno-table-seats {
-    transform: translateY(-10px) scale(0.94);
-    transform-origin: 50% 50%;
+    transform: none;
   }
 
   /* Libera altura: baja un poco la mano */
   .unoHand.uno-zone--player {
-    height: clamp(115px, 16vh, 175px);
+    height: clamp(155px, 22vh, 210px);
   }
   .uno-table-center{
     padding-bottom: 100%;
@@ -1785,8 +1830,64 @@ button:disabled {
 
 @media (max-height: 760px) {
   .centerPiles { transform: translateY(-22px) scale(0.86); }
-  .uno-table-seats { transform: translateY(-14px) scale(0.90); }
+  .uno-table-seats { transform: none; }
   .unoHand.uno-zone--player { height: clamp(100px, 14vh, 155px); }
+}
+
+@media (min-width: 901px) and (min-height: 721px) {
+  .uno-handWrap--player {
+    padding-top: 14px;
+    padding-bottom: 6px;
+  }
+
+  .unoHand.uno-zone--player {
+    height: clamp(165px, 24vh, 240px);
+    overflow: visible;
+  }
+}
+
+/* small-height layout adjustments for player hand */
+@media (max-height: 720px) {
+  .unoHand.uno-zone--player {
+    height: clamp(110px, 17vh, 160px);
+  }
+
+  .uno-handWrap--player {
+    padding: 4px 8px 2px;
+    overflow: visible;
+  }
+
+  .uno-handRow--player .uno-card {
+    transform: none !important;
+    width: clamp(54px, 7vh, 72px);
+    height: clamp(84px, 10.5vh, 112px);
+  }
+
+  /* lower center pile on small screens */
+  .centerPiles {
+    transform: translateY(10px) scale(0.92) !important;
+    transform-origin: 50% 50%;
+  }
+  .uno-discard-card-wrapper--top {
+    bottom: 0 !important;
+  }
+  .uno-discard-stack {
+    transform: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  /* lower center pile on small screens */
+  .centerPiles {
+    transform: translateY(10px) scale(0.92) !important;
+    transform-origin: 50% 50%;
+  }
+  .uno-discard-card-wrapper--top {
+    bottom: 0 !important;
+  }
+  .uno-discard-stack {
+    transform: none !important;
+  }
 }
 
 
