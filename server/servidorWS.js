@@ -77,6 +77,23 @@ function ServidorWS() {
   const normalizePlayerId = (value) =>
     (value || "").toString().trim().toLowerCase();
 
+  const ALLOWED_REACTION_ICONS = new Set([
+    "👍",
+    "👎",
+    "👏",
+    "😂",
+    "😭",
+    "😮",
+    "😤",
+    "😎",
+    "🙏",
+    "🤝",
+    "❤️",
+    "💀",
+    "🧠",
+    "🥲",
+  ]);
+
   const pickDisplayName = (partida, playerId, fallback) => {
     if (!partida || !Array.isArray(partida.jugadores)) return fallback;
     const found = partida.jugadores.find(
@@ -1323,6 +1340,59 @@ function ServidorWS() {
       //  UNO MULTIJUGADOR (WS)
       // ==========================
 
+      socket.on("reaction:send", function (payload, ack) {
+        const respond = (res) => {
+          if (typeof ack === "function") return ack(res);
+          socket.emit("reaction:send", res);
+        };
+
+        const gameId = String(payload?.gameId || "").trim();
+        const toPlayerId = String(payload?.toPlayerId || "").trim().toLowerCase();
+        const icon = String(payload?.icon || "").trim();
+
+        if (!gameId || !toPlayerId || !icon) {
+          return respond({ ok: false, error: "INVALID_REQUEST" });
+        }
+        if (!ALLOWED_REACTION_ICONS.has(icon)) {
+          return respond({ ok: false, error: "INVALID_ICON" });
+        }
+
+        const partida = sistema.partidas?.[gameId] || null;
+        if (!partida || String(partida.juego || "").trim().toLowerCase() !== "uno") {
+          return respond({ ok: false, error: "GAME_NOT_FOUND" });
+        }
+
+        const datosUNO = estadosUNO?.[gameId] || null;
+        const fromPlayerIdRaw = datosUNO?.socketToPlayerId?.[socket.id] || null;
+        const fromPlayerId = fromPlayerIdRaw == null ? "" : String(fromPlayerIdRaw).trim().toLowerCase();
+        if (!datosUNO || !fromPlayerId) {
+          return respond({ ok: false, error: "NOT_SUBSCRIBED" });
+        }
+        if (fromPlayerId === toPlayerId) {
+          return respond({ ok: false, error: "CANNOT_SELF" });
+        }
+
+        const humanIds = Array.isArray(datosUNO.humanIds) ? datosUNO.humanIds : [];
+        if (!humanIds.includes(fromPlayerId) || !humanIds.includes(toPlayerId)) {
+          return respond({ ok: false, error: "NOT_ALLOWED" });
+        }
+
+        const destSocketId = datosUNO.playerIdToSocketId?.[toPlayerId] || null;
+        if (!destSocketId) {
+          return respond({ ok: false, error: "PLAYER_OFFLINE" });
+        }
+
+        const fromName = pickDisplayName(partida, fromPlayerId, fromPlayerId);
+        io.to(destSocketId).emit("reaction:receive", {
+          fromPlayerId: isNaN(Number(fromPlayerId)) ? fromPlayerId : Number(fromPlayerId),
+          fromName,
+          icon,
+          ts: Date.now(),
+        });
+
+        return respond({ ok: true });
+      });
+
       socket.on("uno_get_state", async function (datos) {
         const codigo = (datos && (datos.codigo || datos.codigoPartida)) || null;
         const email = datos && datos.email;
@@ -1346,11 +1416,13 @@ function ServidorWS() {
             humanIds: [],
             humanNames: [],
             socketToPlayerId: {},
+            playerIdToSocketId: {},
           };
         }
 
         const datosUNO = estadosUNO[codigo];
         datosUNO.socketToPlayerId[socket.id] = playerId;
+        datosUNO.playerIdToSocketId[playerId] = socket.id;
 
         const partidaHumanIds = [];
         const partidaHumanNames = [];
@@ -2461,8 +2533,13 @@ function ServidorWS() {
       socket.on("disconnect", function() {
         // Evitar leaks de mapeo socket->playerId
         for (const [codigo, datosUNO] of Object.entries(estadosUNO)) {
-          if (datosUNO?.socketToPlayerId?.[socket.id]) {
-            delete datosUNO.socketToPlayerId[socket.id];
+          const raw = datosUNO?.socketToPlayerId?.[socket.id] || null;
+          if (!raw) continue;
+          delete datosUNO.socketToPlayerId[socket.id];
+
+          const playerId = String(raw).trim().toLowerCase();
+          if (playerId && datosUNO?.playerIdToSocketId?.[playerId] === socket.id) {
+            delete datosUNO.playerIdToSocketId[playerId];
           }
         }
 

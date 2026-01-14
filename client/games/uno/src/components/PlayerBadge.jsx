@@ -42,9 +42,7 @@ export default function PlayerBadge({
           {/* split name + count so count never gets ellipsized */}
           <div className="playerBadgeTopRow">
             <span className="playerBadgeName">{player?.name ?? 'Jugador'}</span>
-            {!isLocal && (
-              <span className="playerBadgeCountInline">({displayCount})</span>
-            )}
+            <span className="playerBadgeCountInline">({displayCount})</span>
             {isLocal && <span className="playerBadgeYou">{youLabel}</span>}
           </div>
         </div>

@@ -3,6 +3,7 @@ import Card from './Card';
 import GameResultModal from './GameResultModal';
 import TableRing from './TableRing';
 import ActionOverlay from './ActionOverlay';
+import ReactionOverlay from './ReactionOverlay';
 import { createUnoSocket } from '../network/unoSocket';
 import {
   initSfxFromStorage,
@@ -65,6 +66,8 @@ export default function UnoGame() {
     totalCount: 0,
   }));
   const [tableState, setTableState] = useState(null);
+  const [reactionQueue, setReactionQueue] = useState([]);
+  const [activeReaction, setActiveReaction] = useState(null);
   const prevUiStatusRef = useRef(null);
   const prevEngineRef = useRef(null);
   const prevEngineForRulesRef = useRef(null);
@@ -527,6 +530,41 @@ export default function UnoGame() {
     api.sendAction(action);
   };
 
+  const sendReactionToPlayer = useCallback(
+    (toPlayerId, icon) => {
+      const api = unoNetRef.current;
+      if (!isMultiplayer || !api || typeof api.sendReaction !== 'function') return;
+      api.sendReaction({ gameId: codigoFromUrl, toPlayerId, icon }).then((ack) => {
+        if (ack && ack.ok) return;
+        if (import.meta?.env?.DEV) {
+          console.warn('[UNO] reacción rechazada', ack);
+        }
+      });
+    },
+    [codigoFromUrl, isMultiplayer],
+  );
+
+  const enqueueReaction = useCallback((payload) => {
+    const icon = String(payload?.icon ?? '').trim();
+    const fromName = String(payload?.fromName ?? 'Jugador').trim() || 'Jugador';
+    if (!icon) return;
+    setReactionQueue((prev) => [...prev, { icon, fromName, ts: payload?.ts ?? Date.now() }]);
+  }, []);
+
+  useEffect(() => {
+    if (activeReaction) return;
+    if (!Array.isArray(reactionQueue) || reactionQueue.length === 0) return;
+    const [next, ...rest] = reactionQueue;
+    setReactionQueue(rest);
+    setActiveReaction(next);
+  }, [activeReaction, reactionQueue]);
+
+  useEffect(() => {
+    if (!activeReaction) return undefined;
+    const t = setTimeout(() => setActiveReaction(null), 1200);
+    return () => clearTimeout(t);
+  }, [activeReaction]);
+
   const sendUnoCall = () => {
     const api = unoNetRef.current;
     if (!api) return;
@@ -854,6 +892,7 @@ export default function UnoGame() {
           message: 'Esperando a que todos los jugadores estén listos...',
         }));
       },
+      onReactionReceive: enqueueReaction,
       onError: (err) => {
         console.error('[UNO] error WS', err);
         setGame((prev) => ({
@@ -2131,6 +2170,13 @@ export default function UnoGame() {
           </aside>
           <section className="unoCenter">
             <TableRing
+              onSendReaction={sendReactionToPlayer}
+              reactionOverlay={
+                <ReactionOverlay
+                  key={activeReaction?.ts ?? activeReaction?.icon ?? 'reaction'}
+                  reaction={activeReaction}
+                />
+              }
         gameState={
           tableState
             ? {
@@ -2150,11 +2196,12 @@ export default function UnoGame() {
                 direction: tableState.direction === -1 ? -1 : 1,
                 myPlayerId: tableState.myPlayerId ?? null,
               }
-            : {
-                players: (engine.players ?? []).map((p) => ({
+             : {
+                players: (engine.players ?? []).map((p, idx) => ({
                   id: p.id,
                   name: p.name,
                   handCount: p.handCount ?? p.hand?.length ?? 0,
+                  isBot: idx !== 0,
                 })),
                 turnIndex: engine.currentPlayerIndex ?? 0,
                 turnPlayerId: String(engine.players?.[engine.currentPlayerIndex]?.id ?? ''),

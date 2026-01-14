@@ -26,6 +26,7 @@ export function createUnoSocket({
   onUnoError,
   onRematchStatus,
   onRematchStart,
+  onReactionReceive,
 } = {}) {
   const socket = io(resolveServerUrl(), {
     path: "/socket.io",
@@ -98,6 +99,10 @@ export function createUnoSocket({
     if (typeof onRematchStart === "function") onRematchStart(payload);
   });
 
+  socket.on("reaction:receive", (payload) => {
+    if (typeof onReactionReceive === "function") onReactionReceive(payload);
+  });
+
   socket.on("connect_error", (err) => {
     console.error("[UNO] error de conexión:", err);
     if (typeof onError === "function") onError(err);
@@ -123,9 +128,18 @@ export function createUnoSocket({
     socket.emit("uno:rematch_ready", { codigo, email });
   }
 
+  function sendReaction({ gameId, toPlayerId, icon } = {}) {
+    const resolvedGameId = String(gameId || codigo || "").trim();
+    return new Promise((resolve) => {
+      socket.emit("reaction:send", { gameId: resolvedGameId, toPlayerId, icon }, (ack) => {
+        resolve(ack);
+      });
+    });
+  }
+
   function disconnect() {
     socket.disconnect();
   }
 
-  return { socket, sendAction, reloadDeck, callUno, getLog, rematchReady, disconnect };
+  return { socket, sendAction, reloadDeck, callUno, getLog, rematchReady, sendReaction, disconnect };
 }
