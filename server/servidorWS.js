@@ -77,7 +77,24 @@ function ServidorWS() {
   const normalizePlayerId = (value) =>
     (value || "").toString().trim().toLowerCase();
 
-  const ALLOWED_REACTION_ICONS = new Set([
+  const ALLOWED_REACTION_EMOJIS = new Set([
+    "\u{1F44D}", // 👍
+    "\u{1F44E}", // 👎
+    "\u{1F44F}", // 👏
+    "\u{1F602}", // 😂
+    "\u{1F62D}", // 😭
+    "\u{1F62E}", // 😮
+    "\u{1F624}", // 😤
+    "\u{1F60E}", // 😎
+    "\u{1F64F}", // 🙏
+    "\u{1F91D}", // 🤝
+    "\u{2764}\u{FE0F}", // ❤️
+    "\u{1F480}", // 💀
+    "\u{1F9E0}", // 🧠
+    "\u{1F972}", // 🥲
+  ]);
+
+  /* const ALLOWED_REACTION_ICONS = new Set([
     "👍",
     "👎",
     "👏",
@@ -92,7 +109,7 @@ function ServidorWS() {
     "💀",
     "🧠",
     "🥲",
-  ]);
+  ]); */
 
   const pickDisplayName = (partida, playerId, fallback) => {
     if (!partida || !Array.isArray(partida.jugadores)) return fallback;
@@ -1255,6 +1272,48 @@ function ServidorWS() {
           socket.leave(codigo);
         } catch (e) {}
 
+        // Notificar abandono + cancelar rematch si estaba en votación (UNO).
+        try {
+          const juego = String(before?.juego || "").trim().toLowerCase();
+          if (!deleted && codigo && juego === "uno") {
+            const datosUNO = estadosUNO?.[codigo] || null;
+            const humanId = normalizePlayerId(email);
+            const humanIds = Array.isArray(datosUNO?.humanIds) ? datosUNO.humanIds : [];
+            const playerIndex = humanId ? humanIds.indexOf(humanId) : -1;
+            const playerName =
+              (playerIndex >= 0
+                ? String(datosUNO?.engine?.players?.[playerIndex]?.name || "").trim()
+                : "") ||
+              pickDisplayName(before, humanId, humanId || "Jugador") ||
+              "Jugador";
+
+            io.to(codigo).emit("player:left", {
+              gameId: codigo,
+              gameType: "uno",
+              playerId: playerIndex >= 0 ? playerIndex : humanId,
+              playerName,
+              ts: Date.now(),
+            });
+
+            const rematch = datosUNO?.rematch || null;
+            const readyBy = rematch?.readyByPlayerId || null;
+            const hasVotes = readyBy && typeof readyBy === "object" && Object.keys(readyBy).length > 0;
+            const inFinished = String(datosUNO?.engine?.status || "") === "finished";
+            if (inFinished && hasVotes && !rematch?.inProgress) {
+              rematch.readyByPlayerId = {};
+              rematch.inProgress = false;
+              io.to(codigo).emit("rematch:cancelled", {
+                gameId: codigo,
+                gameType: "uno",
+                reason: "PLAYER_LEFT",
+                playerName,
+                ts: Date.now(),
+              });
+              emitRematchStatus(io, codigo, datosUNO);
+            }
+          }
+        } catch (e) {}
+
         if (deleted) {
           cleanupCodigoState(io, codigo);
         }
@@ -1347,14 +1406,14 @@ function ServidorWS() {
         };
 
         const gameId = String(payload?.gameId || "").trim();
-        const toPlayerId = String(payload?.toPlayerId || "").trim().toLowerCase();
-        const icon = String(payload?.icon || "").trim();
+        const toPlayerId = String(payload?.toPlayerId ?? "").trim();
+        const emoji = String(payload?.emoji ?? payload?.icon ?? "").trim();
 
-        if (!gameId || !toPlayerId || !icon) {
+        if (!gameId || !toPlayerId || !emoji) {
           return respond({ ok: false, error: "INVALID_REQUEST" });
         }
-        if (!ALLOWED_REACTION_ICONS.has(icon)) {
-          return respond({ ok: false, error: "INVALID_ICON" });
+        if (!ALLOWED_REACTION_EMOJIS.has(emoji)) {
+          return respond({ ok: false, error: "INVALID_EMOJI" });
         }
 
         const partida = sistema.partidas?.[gameId] || null;
@@ -1363,31 +1422,69 @@ function ServidorWS() {
         }
 
         const datosUNO = estadosUNO?.[gameId] || null;
-        const fromPlayerIdRaw = datosUNO?.socketToPlayerId?.[socket.id] || null;
-        const fromPlayerId = fromPlayerIdRaw == null ? "" : String(fromPlayerIdRaw).trim().toLowerCase();
-        if (!datosUNO || !fromPlayerId) {
+        const fromHumanIdRaw = datosUNO?.socketToPlayerId?.[socket.id] || null;
+        const fromHumanId =
+          fromHumanIdRaw == null ? "" : String(fromHumanIdRaw).trim().toLowerCase();
+        if (!datosUNO || !fromHumanId || !datosUNO.engine) {
           return respond({ ok: false, error: "NOT_SUBSCRIBED" });
         }
-        if (fromPlayerId === toPlayerId) {
-          return respond({ ok: false, error: "CANNOT_SELF" });
-        }
+
+        try {
+          if (!socket?.rooms?.has?.(gameId)) {
+            return respond({ ok: false, error: "NOT_IN_ROOM" });
+          }
+        } catch (e) {}
 
         const humanIds = Array.isArray(datosUNO.humanIds) ? datosUNO.humanIds : [];
-        if (!humanIds.includes(fromPlayerId) || !humanIds.includes(toPlayerId)) {
+        const fromPlayerIndex = humanIds.indexOf(fromHumanId);
+        if (fromPlayerIndex < 0) {
           return respond({ ok: false, error: "NOT_ALLOWED" });
         }
 
-        const destSocketId = datosUNO.playerIdToSocketId?.[toPlayerId] || null;
-        if (!destSocketId) {
-          return respond({ ok: false, error: "PLAYER_OFFLINE" });
+        const toPlayerIndex = Number.parseInt(String(toPlayerId), 10);
+        if (!Number.isInteger(toPlayerIndex)) {
+          return respond({ ok: false, error: "INVALID_TARGET" });
         }
 
-        const fromName = pickDisplayName(partida, fromPlayerId, fromPlayerId);
-        io.to(destSocketId).emit("reaction:receive", {
-          fromPlayerId: isNaN(Number(fromPlayerId)) ? fromPlayerId : Number(fromPlayerId),
+        const playerCount = Array.isArray(datosUNO.engine?.players) ? datosUNO.engine.players.length : 0;
+        if (toPlayerIndex < 0 || toPlayerIndex >= playerCount) {
+          return respond({ ok: false, error: "INVALID_TARGET" });
+        }
+
+        // No reactions hacia bots (si existe bot, su índice no tiene humanId).
+        const toHumanId = humanIds[toPlayerIndex] || null;
+        if (!toHumanId) {
+          return respond({ ok: false, error: "INVALID_TARGET" });
+        }
+
+        if (toPlayerIndex === fromPlayerIndex) {
+          return respond({ ok: false, error: "CANNOT_SELF" });
+        }
+
+        // Rate-limit por socket (defensa adicional; el cliente también aplica cooldown).
+        const now = Date.now();
+        const lastTs = Number(socket?.data?.lastReactionSendTs || 0) || 0;
+        const COOLDOWN_MS = 1000;
+        if (now - lastTs < COOLDOWN_MS) {
+          return respond({ ok: false, error: "RATE_LIMIT" });
+        }
+        try {
+          socket.data.lastReactionSendTs = now;
+        } catch (e) {}
+
+        const fromName =
+          String(datosUNO.engine?.players?.[fromPlayerIndex]?.name || "").trim() ||
+          pickDisplayName(partida, fromHumanId, fromHumanId);
+
+        io.to(gameId).emit("reaction:show", {
+          id: `${now}-${Math.random().toString(16).slice(2)}`,
+          gameId,
+          toPlayerId: String(toPlayerIndex),
+          emoji,
+          fromPlayerId: fromPlayerIndex,
           fromName,
-          icon,
-          ts: Date.now(),
+          durationMs: 7000,
+          ts: now,
         });
 
         return respond({ ok: true });
@@ -2538,6 +2635,48 @@ function ServidorWS() {
           delete datosUNO.socketToPlayerId[socket.id];
 
           const playerId = String(raw).trim().toLowerCase();
+
+          // Informar al resto de la room (UNO) y cancelar rematch si estaba en votación.
+          try {
+            const partida = sistema.partidas?.[codigo] || null;
+            if (partida && String(partida.juego || "").trim().toLowerCase() === "uno") {
+              const humanIds = Array.isArray(datosUNO?.humanIds) ? datosUNO.humanIds : [];
+              const playerIndex = playerId ? humanIds.indexOf(playerId) : -1;
+              const playerName =
+                (playerIndex >= 0
+                  ? String(datosUNO?.engine?.players?.[playerIndex]?.name || "").trim()
+                  : "") ||
+                pickDisplayName(partida, playerId, playerId || "Jugador") ||
+                "Jugador";
+
+              io.to(codigo).emit("player:left", {
+                gameId: codigo,
+                gameType: "uno",
+                playerId: playerIndex >= 0 ? playerIndex : playerId,
+                playerName,
+                ts: Date.now(),
+              });
+
+              const rematch = datosUNO?.rematch || null;
+              const readyBy = rematch?.readyByPlayerId || null;
+              const hasVotes =
+                readyBy && typeof readyBy === "object" && Object.keys(readyBy).length > 0;
+              const inFinished = String(datosUNO?.engine?.status || "") === "finished";
+              if (inFinished && hasVotes && !rematch?.inProgress) {
+                rematch.readyByPlayerId = {};
+                rematch.inProgress = false;
+                io.to(codigo).emit("rematch:cancelled", {
+                  gameId: codigo,
+                  gameType: "uno",
+                  reason: "PLAYER_LEFT",
+                  playerName,
+                  ts: Date.now(),
+                });
+                emitRematchStatus(io, codigo, datosUNO);
+              }
+            }
+          } catch (e) {}
+
           if (playerId && datosUNO?.playerIdToSocketId?.[playerId] === socket.id) {
             delete datosUNO.playerIdToSocketId[playerId];
           }

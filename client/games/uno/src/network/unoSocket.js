@@ -26,7 +26,9 @@ export function createUnoSocket({
   onUnoError,
   onRematchStatus,
   onRematchStart,
-  onReactionReceive,
+  onReactionShow,
+  onPlayerLeft,
+  onRematchCancelled,
 } = {}) {
   const socket = io(resolveServerUrl(), {
     path: "/socket.io",
@@ -99,8 +101,21 @@ export function createUnoSocket({
     if (typeof onRematchStart === "function") onRematchStart(payload);
   });
 
+  socket.on("reaction:show", (payload) => {
+    if (typeof onReactionShow === "function") onReactionShow(payload);
+  });
+
+  // Backwards compat (older servers).
   socket.on("reaction:receive", (payload) => {
-    if (typeof onReactionReceive === "function") onReactionReceive(payload);
+    if (typeof onReactionShow === "function") onReactionShow(payload);
+  });
+
+  socket.on("player:left", (payload) => {
+    if (typeof onPlayerLeft === "function") onPlayerLeft(payload);
+  });
+
+  socket.on("rematch:cancelled", (payload) => {
+    if (typeof onRematchCancelled === "function") onRematchCancelled(payload);
   });
 
   socket.on("connect_error", (err) => {
@@ -128,12 +143,16 @@ export function createUnoSocket({
     socket.emit("uno:rematch_ready", { codigo, email });
   }
 
-  function sendReaction({ gameId, toPlayerId, icon } = {}) {
+  function sendReaction({ gameId, toPlayerId, emoji, icon } = {}) {
     const resolvedGameId = String(gameId || codigo || "").trim();
     return new Promise((resolve) => {
-      socket.emit("reaction:send", { gameId: resolvedGameId, toPlayerId, icon }, (ack) => {
-        resolve(ack);
-      });
+      socket.emit(
+        "reaction:send",
+        { gameId: resolvedGameId, toPlayerId, emoji: emoji ?? icon ?? "" },
+        (ack) => {
+          resolve(ack);
+        },
+      );
     });
   }
 

@@ -219,6 +219,38 @@ h1 {
   }
 }
 
+@media (min-width: 1200px) and (min-height: 800px) {
+  /* Pantalla grande: la mesa crece en altura para aprovechar el espacio entre header y mano */
+  .unoCenter {
+    padding-bottom: 0;
+  }
+
+  .unoCenter .uno-table-area {
+    min-height: clamp(420px, 52vh, 780px);
+  }
+
+  .uno-table-area {
+    box-sizing: border-box;
+    min-height: clamp(420px, 52vh, 780px);
+  }
+
+  /* Evitar subir el centro en pantallas grandes: que el crecimiento sea hacia abajo */
+  .centerPiles {
+    --uno-center-piles-y: 0px;
+    gap: clamp(12px, min(2.4vw, 2.4vh), 44px);
+  }
+
+  .uno-discard-stack {
+    width: clamp(160px, 18vh, 280px);
+    height: clamp(240px, 30vh, 420px);
+  }
+
+  .uno-card--large {
+    width: clamp(130px, 14vh, 220px);
+    height: clamp(200px, 22vh, 340px);
+  }
+}
+
 .unoHand.uno-zone--player {
   flex: 0 0 auto;
   height: clamp(150px, 22vh, 220px);
@@ -1248,15 +1280,29 @@ button:disabled {
 .uno-seat-pos {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: clamp(116px, min(18vw, 20vh), 240px);
+  width: calc(clamp(116px, min(18vw, 20vh), 240px) + var(--uno-reaction-btn-size) + var(--uno-reaction-gap));
   max-width: 66vw;
   pointer-events: auto;
   --uno-reaction-gap: 8px;
   --uno-reaction-btn-size: 26px;
 }
 
+@media (min-width: 1200px) and (min-height: 800px) {
+  /* Fullscreen: seats un poco más anchos para que el contador nunca se corte */
+  .uno-seat-pos {
+    width: calc(clamp(140px, min(20vw, 22vh), 280px) + var(--uno-reaction-btn-size) + var(--uno-reaction-gap));
+  }
+}
+
+.uno-seat-pos .playerBadge {
+  width: calc(100% - var(--uno-reaction-btn-size) - var(--uno-reaction-gap));
+}
+
 .uno-reaction-btn {
   position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   width: var(--uno-reaction-btn-size);
   height: var(--uno-reaction-btn-size);
   border-radius: 9999px;
@@ -1268,11 +1314,20 @@ button:disabled {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 18;
+  z-index: 40;
 }
 
 .uno-reaction-btn:hover {
   background: rgba(2, 6, 23, 0.85);
+}
+
+.uno-reaction-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.uno-reaction-btn:disabled:hover {
+  background: rgba(2, 6, 23, 0.72);
 }
 
 .uno-reaction-btn:focus-visible {
@@ -1280,33 +1335,11 @@ button:disabled {
   outline-offset: 2px;
 }
 
-.uno-seat-pos[data-reaction-side="left"] .uno-reaction-btn {
-  right: calc(100% + var(--uno-reaction-gap));
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.uno-seat-pos[data-reaction-side="right"] .uno-reaction-btn {
-  left: calc(100% + var(--uno-reaction-gap));
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.uno-seat-pos[data-reaction-side="top"] .uno-reaction-btn {
-  bottom: calc(100% + var(--uno-reaction-gap));
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.uno-seat-pos[data-reaction-side="bottom"] .uno-reaction-btn {
-  top: calc(100% + var(--uno-reaction-gap));
-  left: 50%;
-  transform: translateX(-50%);
-}
-
 .uno-reaction-popover {
-  position: absolute;
-  z-index: 30;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9999;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 6px;
@@ -1316,30 +1349,7 @@ button:disabled {
   border: 1px solid rgba(148, 163, 184, 0.22);
   box-shadow: 0 18px 38px rgba(2, 6, 23, 0.65);
   backdrop-filter: blur(8px);
-}
-
-.uno-seat-pos[data-reaction-side="left"] .uno-reaction-popover {
-  right: calc(100% + var(--uno-reaction-gap) + var(--uno-reaction-btn-size) + 6px);
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.uno-seat-pos[data-reaction-side="right"] .uno-reaction-popover {
-  left: calc(100% + var(--uno-reaction-gap) + var(--uno-reaction-btn-size) + 6px);
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.uno-seat-pos[data-reaction-side="top"] .uno-reaction-popover {
-  bottom: calc(100% + var(--uno-reaction-gap) + var(--uno-reaction-btn-size) + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.uno-seat-pos[data-reaction-side="bottom"] .uno-reaction-popover {
-  top: calc(100% + var(--uno-reaction-gap) + var(--uno-reaction-btn-size) + 6px);
-  left: 50%;
-  transform: translateX(-50%);
+  pointer-events: auto;
 }
 
 .uno-reaction-item {
@@ -1564,6 +1574,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  min-width: 0;
 }
 
 .playerBadgeAvatar {
@@ -1583,6 +1594,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .playerBadgeTopRow {
@@ -1641,6 +1653,10 @@ button:disabled {
   margin-left: auto;
   display: flex;
   gap: 0.35rem;
+  flex: 0 0 auto;
+  max-width: 46%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .playerBadgeChip {
@@ -2048,69 +2064,71 @@ button:disabled {
 
 /* Ensure "Robar" label stays centered when stack resizes */
 .uno-draw-label {
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) rotate(-12deg);
+  left: 40%;
+  top: 25%;
+  margin-left: 0;
+  margin-bottom: 0;
+}
+/* Ensure "Robar" label stays centered when stack resizes */
+.uno-draw-label {
+  left: 40%;
+  top: 25%;
   margin-left: 0;
   margin-bottom: 0;
 }
 
+@media (min-width: 1200px) and (min-height: 900px) {
+  .uno-draw-label {
+    left: 50%;
+    top: 90%;
+    /* transform: translateX(-50%) translateY(-50%); */
+  }
+}
 .uno-reaction-overlay {
   position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
   pointer-events: none;
-  z-index: 22;
-}
-
-.uno-reaction-bubble {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  border-radius: 18px;
-  background: rgba(2, 6, 23, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.65);
-  backdrop-filter: blur(10px);
-  animation: uno-reaction-pop 1200ms ease-out forwards;
 }
 
-.uno-reaction-icon {
-  font-size: clamp(44px, min(7vw, 9vh), 68px);
+.uno-reaction-emoji {
+  font-size: clamp(24px, 3vw, 42px);
+  animation: pop 220ms ease-out, pulse 700ms ease-in-out 220ms infinite alternate;
   line-height: 1;
   filter: drop-shadow(0 10px 24px rgba(2, 6, 23, 0.65));
 }
 
 .uno-reaction-from {
-  font-size: 0.9rem;
-  font-weight: 900;
-  color: #e5e7eb;
-  text-shadow: 0 2px 8px rgba(2, 6, 23, 0.85);
-  max-width: min(520px, 80vw);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  opacity: 0.95;
+  text-align: center;
   white-space: nowrap;
 }
 
-@keyframes uno-reaction-pop {
+@keyframes pop {
   0% {
-    transform: translateY(10px) scale(0.65);
-    opacity: 0;
-  }
-  22% {
-    transform: translateY(0) scale(1.08);
-    opacity: 1;
+    transform: scale(0.6);
   }
   60% {
-    transform: translateY(0) scale(1);
-    opacity: 1;
+    transform: scale(1.2);
   }
   100% {
-    transform: translateY(-12px) scale(0.92);
-    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.08);
   }
 }

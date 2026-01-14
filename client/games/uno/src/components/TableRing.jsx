@@ -1,5 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import PlayerBadge from './PlayerBadge';
+import ReactionOverlay from './ReactionOverlay';
 
 const TWO_PI = Math.PI * 2;
 const BASE_ANGLE = Math.PI / 2; // seat 0 (local) at bottom
@@ -7,21 +9,21 @@ const SEAT_EDGE_PADDING_PX = 14;
 const DEFAULT_SEAT_W = 200;
 const DEFAULT_SEAT_H = 78;
 
-const REACTION_ICONS = [
-  '👍',
-  '👎',
-  '👏',
-  '😂',
-  '😭',
-  '😮',
-  '😤',
-  '😎',
-  '🙏',
-  '🤝',
-  '❤️',
-  '💀',
-  '🧠',
-  '🥲',
+const REACTION_EMOJIS = [
+  '\u{1F44D}', // 👍
+  '\u{1F44E}', // 👎
+  '\u{1F44F}', // 👏
+  '\u{1F602}', // 😂
+  '\u{1F62D}', // 😭
+  '\u{1F62E}', // 😮
+  '\u{1F624}', // 😤
+  '\u{1F60E}', // 😎
+  '\u{1F64F}', // 🙏
+  '\u{1F91D}', // 🤝
+  '\u{2764}\u{FE0F}', // ❤️
+  '\u{1F480}', // 💀
+  '\u{1F9E0}', // 🧠
+  '\u{1F972}', // 🥲
 ];
 
 function resolveInboardSide(dx, dy) {
@@ -42,10 +44,94 @@ function buildSeats(players, myPlayerId) {
   return indexed.slice(shift).concat(indexed.slice(0, shift));
 }
 
-export default function TableRing({ gameState, children, onSendReaction, reactionOverlay }) {
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function computePopoverPosition({ anchorRect, popoverRect, side, gap = 10, padding = 10 }) {
+  const cx = anchorRect.left + anchorRect.width / 2;
+  const cy = anchorRect.top + anchorRect.height / 2;
+
+  let left = cx - popoverRect.width / 2;
+  let top = cy - popoverRect.height / 2;
+
+  if (side === 'left') {
+    left = anchorRect.left - gap - popoverRect.width;
+    top = cy - popoverRect.height / 2;
+  } else if (side === 'right') {
+    left = anchorRect.right + gap;
+    top = cy - popoverRect.height / 2;
+  } else if (side === 'top') {
+    left = cx - popoverRect.width / 2;
+    top = anchorRect.top - gap - popoverRect.height;
+  } else if (side === 'bottom') {
+    left = cx - popoverRect.width / 2;
+    top = anchorRect.bottom + gap;
+  }
+
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 0;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 0;
+  if (vw > 0) left = clamp(left, padding, Math.max(padding, vw - popoverRect.width - padding));
+  if (vh > 0) top = clamp(top, padding, Math.max(padding, vh - popoverRect.height - padding));
+
+  return { left, top };
+}
+
+function ReactionPopover({ anchorRect, side, disabled = false, onSelect }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !anchorRect) return;
+    const popoverRect = el.getBoundingClientRect();
+    setPos(computePopoverPosition({ anchorRect, popoverRect, side }));
+  }, [anchorRect, side]);
+
+  if (!anchorRect) return null;
+
+  const content = (
+    <div
+      ref={ref}
+      className="uno-reaction-popover"
+      role="menu"
+      aria-label="Reacciones"
+      style={pos ? { left: `${pos.left}px`, top: `${pos.top}px` } : undefined}
+    >
+      {REACTION_EMOJIS.map((emoji) => (
+        <button
+          key={emoji}
+          type="button"
+          className="uno-reaction-item"
+          role="menuitem"
+          aria-label={`Enviar ${emoji}`}
+          disabled={disabled}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (disabled) return;
+            onSelect?.(emoji);
+          }}
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
+
+  return createPortal(content, document.body);
+}
+
+export default function TableRing({
+  gameState,
+  children,
+  onSendReaction,
+  reactionsByPlayerId,
+  isReactionCooldownActive = false,
+}) {
   const areaRef = useRef(null);
   const [metrics, setMetrics] = useState({ width: 0, height: 0, seatWidth: 0, seatHeight: 0 });
-  const [openReactionForPlayerId, setOpenReactionForPlayerId] = useState(null);
+  const reactionBtnElsRef = useRef({});
+  const [openReaction, setOpenReaction] = useState(null); // { playerId, side, anchorRect }
 
   const players = gameState?.players ?? [];
   const myPlayerId = gameState?.myPlayerId ?? null;
@@ -54,18 +140,18 @@ export default function TableRing({ gameState, children, onSendReaction, reactio
   const direction = gameState?.direction === -1 ? -1 : 1;
 
   useEffect(() => {
-    if (!openReactionForPlayerId) return undefined;
+    if (!openReaction?.playerId) return undefined;
 
     const onPointerDownCapture = (e) => {
       const target = e?.target;
       if (target && target.closest) {
         if (target.closest('.uno-reaction-popover') || target.closest('.uno-reaction-btn')) return;
       }
-      setOpenReactionForPlayerId(null);
+      setOpenReaction(null);
     };
 
     const onKeyDown = (e) => {
-      if (e?.key === 'Escape') setOpenReactionForPlayerId(null);
+      if (e?.key === 'Escape') setOpenReaction(null);
     };
 
     document.addEventListener('pointerdown', onPointerDownCapture, true);
@@ -74,7 +160,29 @@ export default function TableRing({ gameState, children, onSendReaction, reactio
       document.removeEventListener('pointerdown', onPointerDownCapture, true);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [openReactionForPlayerId]);
+  }, [openReaction?.playerId]);
+
+  useLayoutEffect(() => {
+    const playerId = openReaction?.playerId;
+    if (!playerId) return undefined;
+    const el = reactionBtnElsRef.current?.[playerId] || null;
+    if (!el) return undefined;
+
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      setOpenReaction((prev) =>
+        prev && prev.playerId === playerId ? { ...prev, anchorRect: rect } : prev,
+      );
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [openReaction?.playerId]);
 
   useLayoutEffect(() => {
     const el = areaRef.current;
@@ -115,9 +223,7 @@ export default function TableRing({ gameState, children, onSendReaction, reactio
   const seats = useMemo(() => {
     const resolvedTurnIndex = (() => {
       if (turnPlayerId == null || turnPlayerId === '') return turnIndexRaw;
-      const idx = players.findIndex(
-        (p) => String(p?.id ?? '') === String(turnPlayerId),
-      );
+      const idx = players.findIndex((p) => String(p?.id ?? '') === String(turnPlayerId));
       return idx >= 0 ? idx : turnIndexRaw;
     })();
 
@@ -130,7 +236,6 @@ export default function TableRing({ gameState, children, onSendReaction, reactio
     const seatWidth = metrics.seatWidth > 0 ? metrics.seatWidth : DEFAULT_SEAT_W;
     const seatHeight = metrics.seatHeight > 0 ? metrics.seatHeight : DEFAULT_SEAT_H;
 
-    // Keep each seat fully inside the table bounds (accounts for real seat box size).
     const radiusX = hasSize
       ? Math.max(0, metrics.width / 2 - seatWidth / 2 - SEAT_EDGE_PADDING_PX)
       : n >= 7
@@ -146,12 +251,8 @@ export default function TableRing({ gameState, children, onSendReaction, reactio
       const angle = BASE_ANGLE + seatIndex * step;
       const dx = Math.cos(angle);
       const dy = Math.sin(angle);
-      const left = hasSize
-        ? metrics.width / 2 + dx * radiusX
-        : 50 + dx * radiusX;
-      const top = hasSize
-        ? metrics.height / 2 + dy * radiusY
-        : 50 + dy * radiusY;
+      const left = hasSize ? metrics.width / 2 + dx * radiusX : 50 + dx * radiusX;
+      const top = hasSize ? metrics.height / 2 + dy * radiusY : 50 + dy * radiusY;
 
       return {
         key: player?.id ?? `${seatIndex}`,
@@ -178,74 +279,75 @@ export default function TableRing({ gameState, children, onSendReaction, reactio
 
   return (
     <div ref={areaRef} className="uno-table-area">
-      {reactionOverlay}
       <div className="uno-table-seats" aria-label="Mesa">
-        {seats.map((seat) => (
-          <div
-            key={seat.key}
-            className="uno-seat-pos seat"
-            style={seat.style}
-            data-reaction-side={seat.reactionSide}
-          >
-            <PlayerBadge
-              player={seat.player}
-              cardCount={seat.cardCount}
-              isTurn={seat.isTurn}
-              isNext={seat.isNext}
-              isLocal={seat.isLocal}
-            />
+        {seats.map((seat) => {
+          const playerId = seat.player?.id == null ? '' : String(seat.player.id);
+          const reaction = playerId ? reactionsByPlayerId?.[playerId] ?? null : null;
 
-            {typeof onSendReaction === 'function' &&
-              !!seat.player &&
-              !seat.isLocal &&
-              !seat.player?.isBot && (
-                <>
-                  <button
-                    type="button"
-                    className="uno-reaction-btn"
-                    aria-label={`Enviar reacción a ${seat.player?.name ?? 'Jugador'}`}
-                    title="Reaccionar"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const id = seat.player?.id == null ? null : String(seat.player.id);
-                      if (!id) return;
-                      setOpenReactionForPlayerId((prev) => (prev === id ? null : id));
-                    }}
-                  >
-                    🙂
-                  </button>
+          return (
+            <div
+              key={seat.key}
+              className="uno-seat-pos seat"
+              style={seat.style}
+              data-reaction-side={seat.reactionSide}
+            >
+              <ReactionOverlay reaction={reaction} />
 
-                  {openReactionForPlayerId != null &&
-                    String(openReactionForPlayerId) === String(seat.player?.id ?? '') && (
-                      <div
-                        className="uno-reaction-popover"
-                        role="menu"
-                        aria-label={`Reacciones para ${seat.player?.name ?? 'Jugador'}`}
-                      >
-                        {REACTION_ICONS.map((icon) => (
-                          <button
-                            key={icon}
-                            type="button"
-                            className="uno-reaction-item"
-                            role="menuitem"
-                            aria-label={`Enviar ${icon}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const id = seat.player?.id == null ? null : String(seat.player.id);
-                              if (!id) return;
-                              onSendReaction(id, icon);
-                              setOpenReactionForPlayerId(null);
-                            }}
-                          >
-                            {icon}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                </>
-              )}
-          </div>
-        ))}
+              <PlayerBadge
+                player={seat.player}
+                cardCount={seat.cardCount}
+                isTurn={seat.isTurn}
+                isNext={seat.isNext}
+                isLocal={seat.isLocal}
+              />
+
+              {typeof onSendReaction === 'function' &&
+                !!seat.player &&
+                !seat.isLocal &&
+                !seat.player?.isBot && (
+                  <>
+                    <button
+                      type="button"
+                      className="uno-reaction-btn"
+                      aria-label={`Enviar reacción a ${seat.player?.name ?? 'Jugador'}`}
+                      title="Reaccionar"
+                      disabled={isReactionCooldownActive}
+                      ref={(el) => {
+                        if (!playerId) return;
+                        if (el) reactionBtnElsRef.current[playerId] = el;
+                        else delete reactionBtnElsRef.current[playerId];
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!playerId) return;
+                        const anchorRect = e.currentTarget.getBoundingClientRect();
+                        setOpenReaction((prev) =>
+                          prev?.playerId === playerId
+                            ? null
+                            : { playerId, side: seat.reactionSide, anchorRect },
+                        );
+                      }}
+                    >
+                      {'\u{1F642}'}
+                    </button>
+
+                    {openReaction?.playerId != null &&
+                      openReaction.playerId === playerId && (
+                        <ReactionPopover
+                          anchorRect={openReaction.anchorRect}
+                          side={openReaction.side}
+                          disabled={isReactionCooldownActive}
+                          onSelect={(emoji) => {
+                            onSendReaction(playerId, emoji);
+                            setOpenReaction(null);
+                          }}
+                        />
+                      )}
+                  </>
+                )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="uno-table-center">
@@ -254,3 +356,4 @@ export default function TableRing({ gameState, children, onSendReaction, reactio
     </div>
   );
 }
+

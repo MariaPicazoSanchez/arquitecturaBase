@@ -3,7 +3,6 @@ import Card from './Card';
 import GameResultModal from './GameResultModal';
 import TableRing from './TableRing';
 import ActionOverlay from './ActionOverlay';
-import ReactionOverlay from './ReactionOverlay';
 import { createUnoSocket } from '../network/unoSocket';
 import {
   initSfxFromStorage,
@@ -66,8 +65,10 @@ export default function UnoGame() {
     totalCount: 0,
   }));
   const [tableState, setTableState] = useState(null);
-  const [reactionQueue, setReactionQueue] = useState([]);
-  const [activeReaction, setActiveReaction] = useState(null);
+  const [reactionsByPlayerId, setReactionsByPlayerId] = useState({});
+  const reactionTimeoutsRef = useRef({});
+  const [isReactionCooldownActive, setIsReactionCooldownActive] = useState(false);
+  const reactionCooldownTimerRef = useRef(null);
   const prevUiStatusRef = useRef(null);
   const prevEngineRef = useRef(null);
   const prevEngineForRulesRef = useRef(null);
@@ -531,39 +532,78 @@ export default function UnoGame() {
   };
 
   const sendReactionToPlayer = useCallback(
-    (toPlayerId, icon) => {
+    (toPlayerId, emoji) => {
       const api = unoNetRef.current;
       if (!isMultiplayer || !api || typeof api.sendReaction !== 'function') return;
-      api.sendReaction({ gameId: codigoFromUrl, toPlayerId, icon }).then((ack) => {
+      if (isReactionCooldownActive) return;
+
+      setIsReactionCooldownActive(true);
+      if (reactionCooldownTimerRef.current) {
+        clearTimeout(reactionCooldownTimerRef.current);
+        reactionCooldownTimerRef.current = null;
+      }
+      reactionCooldownTimerRef.current = setTimeout(() => {
+        setIsReactionCooldownActive(false);
+        reactionCooldownTimerRef.current = null;
+      }, 1000);
+
+      api.sendReaction({ gameId: codigoFromUrl, toPlayerId, emoji }).then((ack) => {
         if (ack && ack.ok) return;
         if (import.meta?.env?.DEV) {
           console.warn('[UNO] reacción rechazada', ack);
         }
       });
     },
-    [codigoFromUrl, isMultiplayer],
+    [codigoFromUrl, isMultiplayer, isReactionCooldownActive],
   );
 
-  const enqueueReaction = useCallback((payload) => {
-    const icon = String(payload?.icon ?? '').trim();
+  const handleReactionShow = useCallback((payload) => {
+    const toPlayerId = String(payload?.toPlayerId ?? '').trim();
+    const emoji = String(payload?.emoji ?? payload?.icon ?? '').trim();
+    if (!toPlayerId || !emoji) return;
+
+    const id = String(payload?.id ?? `${Date.now()}-${Math.random()}`);
     const fromName = String(payload?.fromName ?? 'Jugador').trim() || 'Jugador';
-    if (!icon) return;
-    setReactionQueue((prev) => [...prev, { icon, fromName, ts: payload?.ts ?? Date.now() }]);
+    const durationMsRaw = Number(payload?.durationMs);
+    const durationMs =
+      Number.isFinite(durationMsRaw) && durationMsRaw > 0 ? durationMsRaw : 7000;
+    const expiresAt = Date.now() + durationMs;
+
+    const prevTimeout = reactionTimeoutsRef.current?.[toPlayerId] ?? null;
+    if (prevTimeout) {
+      clearTimeout(prevTimeout);
+      delete reactionTimeoutsRef.current[toPlayerId];
+    }
+
+    setReactionsByPlayerId((prev) => ({
+      ...(prev || {}),
+      [toPlayerId]: { id, emoji, fromName, expiresAt },
+    }));
+
+    reactionTimeoutsRef.current[toPlayerId] = setTimeout(() => {
+      setReactionsByPlayerId((prev) => {
+        const current = prev?.[toPlayerId];
+        if (!current || current.id !== id) return prev;
+        const next = { ...(prev || {}) };
+        delete next[toPlayerId];
+        return next;
+      });
+      delete reactionTimeoutsRef.current[toPlayerId];
+    }, durationMs);
   }, []);
 
   useEffect(() => {
-    if (activeReaction) return;
-    if (!Array.isArray(reactionQueue) || reactionQueue.length === 0) return;
-    const [next, ...rest] = reactionQueue;
-    setReactionQueue(rest);
-    setActiveReaction(next);
-  }, [activeReaction, reactionQueue]);
-
-  useEffect(() => {
-    if (!activeReaction) return undefined;
-    const t = setTimeout(() => setActiveReaction(null), 1200);
-    return () => clearTimeout(t);
-  }, [activeReaction]);
+    return () => {
+      if (reactionCooldownTimerRef.current) {
+        clearTimeout(reactionCooldownTimerRef.current);
+        reactionCooldownTimerRef.current = null;
+      }
+      for (const key of Object.keys(reactionTimeoutsRef.current || {})) {
+        clearTimeout(reactionTimeoutsRef.current[key]);
+        delete reactionTimeoutsRef.current[key];
+      }
+    };
+  }, []);
 
   const sendUnoCall = () => {
     const api = unoNetRef.current;
@@ -645,6 +685,16 @@ export default function UnoGame() {
     setLostPlayerIds([]);
     setUnoCallPending(false);
     setIsLocallyEliminated(false);
+    setReactionsByPlayerId({});
+    setIsReactionCooldownActive(false);
+    if (reactionCooldownTimerRef.current) {
+      clearTimeout(reactionCooldownTimerRef.current);
+      reactionCooldownTimerRef.current = null;
+    }
+    for (const key of Object.keys(reactionTimeoutsRef.current || {})) {
+      clearTimeout(reactionTimeoutsRef.current[key]);
+      delete reactionTimeoutsRef.current[key];
+    }
 
     setTimeout(() => {
       setGame((prev) => ({
@@ -884,6 +934,11 @@ export default function UnoGame() {
         setLostPlayerIds([]);
         setUnoCallPending(false);
         setIsLocallyEliminated(false);
+        setReactionsByPlayerId({});
+        for (const key of Object.keys(reactionTimeoutsRef.current || {})) {
+          clearTimeout(reactionTimeoutsRef.current[key]);
+          delete reactionTimeoutsRef.current[key];
+        }
         setEvents([]);
         setRematch({ isReady: false, readyCount: 0, totalCount: 0 });
         setGame((prev) => ({
@@ -892,7 +947,30 @@ export default function UnoGame() {
           message: 'Esperando a que todos los jugadores estén listos...',
         }));
       },
-      onReactionReceive: enqueueReaction,
+      onReactionShow: handleReactionShow,
+      onPlayerLeft: (payload) => {
+        const gameId = String(payload?.gameId ?? payload?.codigo ?? '').trim();
+        const gameType = String(payload?.gameType ?? '').trim().toLowerCase();
+        if (gameId && gameId !== String(codigo).trim()) return;
+        if (gameType && gameType !== 'uno') return;
+        const name = String(payload?.playerName ?? payload?.name ?? 'Jugador').trim() || 'Jugador';
+        pushEvent(`${name} abandonó la partida.`);
+        setGame((prev) => ({ ...prev, message: `${name} abandonó la partida.` }));
+      },
+      onRematchCancelled: (payload) => {
+        const gameId = String(payload?.gameId ?? payload?.codigo ?? '').trim();
+        const gameType = String(payload?.gameType ?? '').trim().toLowerCase();
+        if (gameId && gameId !== String(codigo).trim()) return;
+        if (gameType && gameType !== 'uno') return;
+        const name = String(payload?.playerName ?? payload?.name ?? 'Jugador').trim() || 'Jugador';
+        pushEvent(`${name} abandonó: revancha cancelada.`);
+        setGame((prev) => ({ ...prev, message: `${name} abandonó: revancha cancelada.` }));
+        setRematch((prev) => ({
+          ...prev,
+          isReady: false,
+          readyCount: 0,
+        }));
+      },
       onError: (err) => {
         console.error('[UNO] error WS', err);
         setGame((prev) => ({
@@ -2171,12 +2249,8 @@ export default function UnoGame() {
           <section className="unoCenter">
             <TableRing
               onSendReaction={sendReactionToPlayer}
-              reactionOverlay={
-                <ReactionOverlay
-                  key={activeReaction?.ts ?? activeReaction?.icon ?? 'reaction'}
-                  reaction={activeReaction}
-                />
-              }
+              reactionsByPlayerId={reactionsByPlayerId}
+              isReactionCooldownActive={isReactionCooldownActive}
         gameState={
           tableState
             ? {
