@@ -1,12 +1,128 @@
 /* src/index.css */
 :root {
   /* Theme tokens (Light/Dark) */
-  --bg: #f6f7fb;
+  --bg: #f1f5f9;
   --surface: #ffffff;
-  --surface-2: rgba(255, 255, 255, 0.72);
-  --text: #111827;
-  --muted: #6b7280;
-  --border: #e5e7eb;
+  --surface-2: #f8fafc;
+  --panel-darkish: #223047;
+  --text: #0f172a;
+  --muted: #475569;
+  --border: #cbd5e1;
+  --shadow: 0 18px 48px rgba(2, 6, 23, 0.08);
+  --accent: #f97316;
+  --table-bg: #e2e8f0;
+
+  /* Dialog tokens */
+  --dialog-bg: #eef2f7;
+  --dialog-text: #0f172a;
+  --dialog-muted: #334155;
+  --dialog-border: #cbd5e1;
+  --dialog-shadow: 0 22px 55px rgba(2, 6, 23, 0.18);
+  --dialog-btn-bg: #ffffff;
+  --dialog-btn-text: #0f172a;
+  --dialog-btn-border: #94a3b8;
+  --dialog-btn-hover-bg: #e2e8f0;
+  --dialog-backdrop: rgba(2, 6, 23, 0.35);
+
+  /* UNO UI tokens */
+  --divider: rgba(2, 6, 23, 0.12);
+  --panel-bg: var(--surface);
+  --panel-border: var(--border);
+  --panel-shadow: var(--shadow);
+  --panel-title: var(--muted);
+
+  --events-bg: var(--surface);
+  --events-border: var(--border);
+  --events-title: var(--muted);
+  --events-item: var(--text);
+  --events-shadow: var(--shadow);
+  --soft-text: var(--muted);
+
+  --player-tile-bg: var(--surface);
+  --player-tile-border: var(--border);
+
+  --tile-shadow: 0 10px 20px rgba(2, 6, 23, 0.08);
+
+  --seat-bg: rgba(248, 250, 252, 0.92);
+  --seat-border: rgba(15, 23, 42, 0.14);
+  --seat-shadow: 0 12px 24px rgba(2, 6, 23, 0.1);
+  --seat-active-border: color-mix(in srgb, var(--accent), black 15%);
+  --seat-active-ring: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 72%);
+  --seat-active-glow: 0 18px 40px color-mix(in srgb, var(--accent), transparent 82%);
+  --seat-arrow: color-mix(in srgb, #22c55e, black 10%);
+
+  --table-shadow: 0 18px 50px rgba(2, 6, 23, 0.1);
+  --table-inset-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.9);
+
+  --btn-primary-bg: linear-gradient(135deg, #16a34a, #22c55e);
+  --btn-primary-text: #052e22;
+  --btn-primary-shadow: 0 10px 22px rgba(16, 185, 129, 0.28);
+  --btn-hover-shadow: 0 14px 28px rgba(16, 185, 129, 0.32);
+  --btn-secondary-bg: linear-gradient(135deg, #0ea5e9, #6366f1);
+  --btn-secondary-text: #eff6ff;
+  --btn-secondary-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
+  --btn-disabled-bg: rgba(148, 163, 184, 0.35);
+  --btn-disabled-text: color-mix(in srgb, var(--muted), var(--text) 10%);
+
+  --chip-bg: rgba(15, 23, 42, 0.06);
+  --chip-bg-hover: rgba(15, 23, 42, 0.1);
+  --chip-border: rgba(15, 23, 42, 0.14);
+  --chip-text: var(--text);
+  --chip-shadow: 0 10px 22px rgba(2, 6, 23, 0.12);
+
+  --chip-accent-bg: rgba(249, 115, 22, 0.18);
+  --chip-accent-border: rgba(249, 115, 22, 0.55);
+  --chip-accent-ring: rgba(249, 115, 22, 0.18);
+  --chip-accent-text: var(--text);
+
+  /* Status panel (Light) */
+  --status-bg: var(--panel-darkish);
+  --status-border: rgba(255, 255, 255, 0.14);
+  --status-text: #f8fafc;
+  --status-muted: rgba(248, 250, 252, 0.78);
+  --status-strong: #ffffff;
+  --status-shadow: 0 10px 24px rgba(2, 6, 23, 0.18);
+  --status-chip-bg: rgba(255, 255, 255, 0.08);
+  --status-chip-border: rgba(255, 255, 255, 0.16);
+  --status-chip-text: #e5e7eb;
+
+  --turn-badge-you-bg: rgba(34, 197, 94, 0.18);
+  --turn-badge-you-border: rgba(34, 197, 94, 0.45);
+  --turn-badge-you-text: #065f46;
+  --turn-badge-bot-bg: rgba(59, 130, 246, 0.14);
+  --turn-badge-bot-border: rgba(59, 130, 246, 0.38);
+  --turn-badge-bot-text: #1d4ed8;
+
+  --seat-turn-bg: rgba(34, 197, 94, 0.18);
+  --seat-turn-border: rgba(34, 197, 94, 0.45);
+  --seat-turn-text: #065f46;
+
+  --badge-count: var(--text);
+  --badge-count-opacity: 1;
+  --badge-inactive: var(--muted);
+  --badge-you-bg: var(--panel-darkish);
+  --badge-you-border: rgba(255, 255, 255, 0.14);
+  --badge-you-text: #ffffff;
+  --badge-chip-bg: rgba(15, 23, 42, 0.06);
+  --badge-chip-border: rgba(15, 23, 42, 0.14);
+  --badge-chip-text: var(--text);
+  --badge-chip-turn-bg: rgba(34, 197, 94, 0.18);
+  --badge-chip-turn-border: rgba(34, 197, 94, 0.45);
+  --badge-chip-turn-text: #065f46;
+  --badge-chip-next-bg: rgba(249, 115, 22, 0.18);
+  --badge-chip-next-border: rgba(249, 115, 22, 0.45);
+  --badge-chip-next-text: #7c2d12;
+
+  --popover-bg: rgba(255, 255, 255, 0.92);
+  --popover-shadow: var(--shadow);
+  --reaction-item-bg: rgba(2, 6, 23, 0.04);
+  --reaction-item-bg-hover: rgba(2, 6, 23, 0.08);
+  --reaction-item-border: rgba(2, 6, 23, 0.14);
+
+  --zone-bot-border: rgba(29, 78, 216, 0.38);
+  --zone-player-border: rgba(34, 197, 94, 0.38);
+  --zone-bot-bg: var(--surface);
+  --zone-player-bg: var(--surface);
 
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background-color: var(--bg);
@@ -18,9 +134,124 @@
   --bg: #020617;
   --surface: #0b1220;
   --surface-2: rgba(15, 23, 42, 0.65);
+  --panel-darkish: rgba(15, 23, 42, 0.65);
   --text: #e5e7eb;
   --muted: #94a3b8;
   --border: rgba(148, 163, 184, 0.22);
+  --shadow: 0 18px 48px rgba(2, 6, 23, 0.6);
+  --accent: #f97316;
+  --table-bg: var(--surface);
+
+  --dialog-bg: #0b1220;
+  --dialog-text: #e5e7eb;
+  --dialog-muted: #cbd5e1;
+  --dialog-border: rgba(148, 163, 184, 0.25);
+  --dialog-shadow: 0 26px 60px rgba(2, 6, 23, 0.75);
+  --dialog-btn-bg: rgba(2, 6, 23, 0.55);
+  --dialog-btn-text: #e5e7eb;
+  --dialog-btn-border: rgba(148, 163, 184, 0.35);
+  --dialog-btn-hover-bg: rgba(148, 163, 184, 0.18);
+  --dialog-backdrop: rgba(0, 0, 0, 0.55);
+
+  /* UNO UI tokens (keep existing dark look) */
+  --divider: rgba(255, 255, 255, 0.08);
+  --panel-bg: rgba(15, 23, 42, 0.65);
+  --panel-border: rgba(148, 163, 184, 0.28);
+  --panel-shadow: none;
+  --panel-title: #9ca3af;
+
+  --events-bg: rgba(2, 6, 23, 0.45);
+  --events-border: rgba(148, 163, 184, 0.22);
+  --events-title: #9ca3af;
+  --events-item: #e5e7eb;
+  --events-shadow: none;
+  --soft-text: #cbd5f5;
+
+  --player-tile-bg: rgba(2, 6, 23, 0.55);
+  --player-tile-border: rgba(148, 163, 184, 0.28);
+
+  --tile-shadow: none;
+
+  --seat-bg: rgba(2, 6, 23, 0.55);
+  --seat-border: rgba(148, 163, 184, 0.22);
+  --seat-shadow: 0 12px 24px rgba(2, 6, 23, 0.55);
+  --seat-active-border: rgba(249, 115, 22, 0.8);
+  --seat-active-ring: 0 0 0 3px rgba(249, 115, 22, 0.25);
+  --seat-active-glow: 0 18px 40px rgba(249, 115, 22, 0.18);
+  --seat-arrow: rgba(34, 197, 94, 0.95);
+
+  --table-shadow: none;
+  --table-inset-shadow: inset 0 0 0 1px rgba(2, 6, 23, 0.7);
+
+  --btn-primary-bg: linear-gradient(135deg, #22c55e, #16a34a);
+  --btn-primary-text: #022c22;
+  --btn-primary-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
+  --btn-hover-shadow: 0 12px 22px rgba(16, 185, 129, 0.7);
+  --btn-secondary-bg: linear-gradient(135deg, #0ea5e9, #6366f1);
+  --btn-secondary-text: #eff6ff;
+  --btn-secondary-shadow: 0 6px 16px rgba(37, 99, 235, 0.5);
+  --btn-disabled-bg: #4b5563;
+  --btn-disabled-text: #9ca3af;
+
+  --chip-bg: rgba(2, 6, 23, 0.72);
+  --chip-bg-hover: rgba(2, 6, 23, 0.85);
+  --chip-border: rgba(148, 163, 184, 0.25);
+  --chip-text: #e5e7eb;
+  --chip-shadow: 0 10px 22px rgba(2, 6, 23, 0.55);
+
+  --chip-accent-bg: rgba(2, 6, 23, 0.25);
+  --chip-accent-border: #f08a24;
+  --chip-accent-ring: rgba(240, 138, 36, 0.25);
+  --chip-accent-text: #e5e7eb;
+
+  /* Status panel (Dark - keep current look) */
+  --status-bg: rgba(15, 23, 42, 0.65);
+  --status-border: rgba(148, 163, 184, 0.22);
+  --status-text: var(--text);
+  --status-muted: rgba(148, 163, 184, 0.92);
+  --status-strong: #ffffff;
+  --status-shadow: none;
+  --status-chip-bg: rgba(255, 255, 255, 0.06);
+  --status-chip-border: rgba(148, 163, 184, 0.22);
+  --status-chip-text: #e5e7eb;
+
+  --turn-badge-you-bg: rgba(34, 197, 94, 0.12);
+  --turn-badge-you-border: rgba(34, 197, 94, 0.6);
+  --turn-badge-you-text: #bbf7d0;
+  --turn-badge-bot-bg: rgba(59, 130, 246, 0.12);
+  --turn-badge-bot-border: rgba(59, 130, 246, 0.6);
+  --turn-badge-bot-text: #bfdbfe;
+
+  --seat-turn-bg: rgba(34, 197, 94, 0.14);
+  --seat-turn-border: rgba(34, 197, 94, 0.55);
+  --seat-turn-text: #bbf7d0;
+
+  --badge-count: rgba(229, 231, 235, 0.9);
+  --badge-count-opacity: 0.9;
+  --badge-inactive: #9ca3af;
+  --badge-you-bg: rgba(59, 130, 246, 0.14);
+  --badge-you-border: rgba(59, 130, 246, 0.5);
+  --badge-you-text: #bfdbfe;
+  --badge-chip-bg: rgba(2, 6, 23, 0.45);
+  --badge-chip-border: rgba(148, 163, 184, 0.22);
+  --badge-chip-text: #e5e7eb;
+  --badge-chip-turn-bg: rgba(34, 197, 94, 0.14);
+  --badge-chip-turn-border: rgba(34, 197, 94, 0.55);
+  --badge-chip-turn-text: #bbf7d0;
+  --badge-chip-next-bg: rgba(245, 158, 11, 0.12);
+  --badge-chip-next-border: rgba(245, 158, 11, 0.45);
+  --badge-chip-next-text: #fde68a;
+
+  --popover-bg: rgba(2, 6, 23, 0.92);
+  --popover-shadow: 0 18px 38px rgba(2, 6, 23, 0.65);
+  --reaction-item-bg: rgba(255, 255, 255, 0.06);
+  --reaction-item-bg-hover: rgba(255, 255, 255, 0.12);
+  --reaction-item-border: rgba(148, 163, 184, 0.18);
+
+  --zone-bot-border: rgba(30, 64, 175, 0.6);
+  --zone-player-border: rgba(16, 185, 129, 0.6);
+  --zone-bot-bg: rgba(15, 23, 42, 0.75);
+  --zone-player-bg: rgba(15, 23, 42, 0.7);
 }
 
 html,
@@ -92,6 +323,36 @@ h1 {
   padding: 0.35rem 0.2rem 0.2rem;
 }
 
+.unoStatusPanel {
+  width: 100%;
+}
+
+:root:not([data-theme='dark']) .unoStatusPanel {
+  background: var(--status-bg);
+  border: 1px solid var(--status-border);
+  border-radius: 16px;
+  padding: 10px 12px;
+  box-shadow: var(--status-shadow);
+  --chip-bg: var(--status-chip-bg);
+  --chip-bg-hover: rgba(255, 255, 255, 0.12);
+  --chip-border: var(--status-chip-border);
+  --chip-text: var(--status-chip-text);
+}
+
+:root:not([data-theme='dark']) .unoStatusPanel .unoHeaderBar {
+  padding: 0;
+}
+
+:root:not([data-theme='dark']) .unoStatusPanel .unoHeaderMessage {
+  color: var(--status-text);
+  opacity: 1;
+}
+
+:root:not([data-theme='dark']) .unoStatusPanel .unoHeaderStat {
+  color: var(--status-muted);
+  opacity: 1;
+}
+
 .unoHeaderActions {
   display: flex;
   align-items: center;
@@ -157,6 +418,7 @@ h1 {
   border-radius: 14px;
   background: var(--surface-2);
   border: 1px solid var(--border);
+  box-shadow: var(--panel-shadow);
 }
 
 .unoCenter {
@@ -256,7 +518,7 @@ h1 {
   padding: 0;
   box-sizing: border-box;
   border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--divider);
   background: transparent;
   border-radius: 0;
 }
@@ -277,9 +539,9 @@ h1 {
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
-  color: #022c22;
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  box-shadow: var(--btn-primary-shadow);
   transition:
     transform 0.12s ease,
     box-shadow 0.12s ease,
@@ -288,28 +550,28 @@ h1 {
 
 .uno-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 12px 22px rgba(16, 185, 129, 0.7);
+  box-shadow: var(--btn-hover-shadow);
   filter: brightness(1.05);
 }
 
 .uno-btn:disabled {
-  background: #4b5563;
-  color: #9ca3af;
+  background: var(--btn-disabled-bg);
+  color: var(--btn-disabled-text);
   box-shadow: none;
   cursor: default;
 }
 
 .uno-btn--secondary {
-  background: linear-gradient(135deg, #0ea5e9, #6366f1);
-  color: #eff6ff;
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.5);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  box-shadow: var(--btn-secondary-shadow);
 }
 
 .uno-status {
   position: relative;
   text-align: center;
   font-size: 0.95rem;
-  color: #cbd5f5;
+  color: var(--soft-text);
 }
 
 .uno-deck-row {
@@ -326,9 +588,9 @@ h1 {
 
 .uno-reload-button {
   border-radius: 9999px;
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  background: rgba(2, 6, 23, 0.2);
-  color: #e5e7eb;
+  border: 1px solid var(--chip-border);
+  background: var(--chip-bg);
+  color: var(--chip-text);
   padding: 0.22rem 0.7rem;
   font-size: 0.75rem;
   font-weight: 700;
@@ -342,7 +604,7 @@ h1 {
 .uno-reload-button:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: brightness(1.08);
-  background: rgba(15, 23, 42, 0.55);
+  background: var(--chip-bg-hover);
 }
 
 .uno-reload-button:disabled {
@@ -354,13 +616,14 @@ h1 {
   margin-top: 0.6rem;
   padding: 0.5rem 0.6rem;
   border-radius: 14px;
-  background: rgba(2, 6, 23, 0.45);
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--events-bg);
+  border: 1px solid var(--events-border);
+  box-shadow: var(--events-shadow);
 }
 
 .uno-events-title {
   font-size: 0.75rem;
-  color: #9ca3af;
+  color: var(--events-title);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   margin-bottom: 0.35rem;
@@ -379,7 +642,7 @@ h1 {
 
 .uno-events-item {
   font-size: 0.85rem;
-  color: #e5e7eb;
+  color: var(--events-item);
   opacity: 0.95;
 }
 
@@ -387,9 +650,9 @@ h1 {
   position: absolute;
   top: 0;
   right: 0;
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  background: rgba(15, 23, 42, 0.65);
-  color: #e5e7eb;
+  border: 1px solid var(--chip-border);
+  background: var(--chip-bg);
+  color: var(--chip-text);
   border-radius: 9999px;
   padding: 0.2rem 0.6rem;
   font-size: 0.75rem;
@@ -415,14 +678,15 @@ h1 {
 .uno-players-panel {
   padding: 0.6rem 0.8rem;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
 }
 
 .uno-players-title {
   margin: 0 0 0.45rem;
   font-size: 0.75rem;
-  color: #9ca3af;
+  color: var(--panel-title);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -443,8 +707,9 @@ h1 {
   gap: 0.6rem;
   padding: 0.45rem 0.6rem;
   border-radius: 14px;
-  background: rgba(2, 6, 23, 0.55);
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: var(--player-tile-bg);
+  border: 1px solid var(--player-tile-border);
+  box-shadow: var(--tile-shadow);
 }
 
 .uno-player-tile--active {
@@ -468,7 +733,7 @@ h1 {
 
 .uno-player-count {
   font-size: 0.8rem;
-  color: #cbd5f5;
+  color: var(--soft-text);
   opacity: 0.9;
   white-space: nowrap;
 }
@@ -481,13 +746,13 @@ h1 {
 }
 
 .uno-zone--bot {
-  background: rgba(15, 23, 42, 0.75);     /* banda oscura, cartas negras destacan */
-  border: 1px solid rgba(30, 64, 175, 0.6);
+  background: var(--zone-bot-bg); /* banda para contrastar */
+  border: 1px solid var(--zone-bot-border);
 }
 
 .uno-zone--player {
-  background: rgba(15, 23, 42, 0.7);      /* similar pero ligeramente distinta */
-  border: 1px solid rgba(16, 185, 129, 0.6);
+  background: var(--zone-player-bg); /* similar pero ligeramente distinta */
+  border: 1px solid var(--zone-player-border);
 }
 
 /* Zona donde van descarte + mazo */
@@ -987,6 +1252,79 @@ button:disabled {
   border: 1px solid rgba(148, 163, 184, 0.4);
 }
 
+.uno-dialog-backdrop {
+  background: var(--dialog-backdrop);
+  padding: 1.25rem;
+  box-sizing: border-box;
+  backdrop-filter: blur(8px);
+}
+
+.uno-dialog {
+  background: var(--dialog-bg);
+  background-image: none;
+  color: var(--dialog-text);
+  border: 1px solid var(--dialog-border);
+  box-shadow: var(--dialog-shadow);
+}
+
+.uno-dialog-title {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 1.6rem;
+  color: var(--dialog-text);
+}
+
+.uno-dialog-text,
+.uno-dialog p {
+  margin: 0.2rem 0 1rem;
+  font-size: 0.95rem;
+  color: var(--dialog-muted);
+}
+
+.uno-dialog-option {
+  background: var(--dialog-btn-bg);
+  color: var(--dialog-btn-text);
+  border: 1px solid var(--dialog-btn-border);
+  box-shadow: none;
+  font-weight: 750;
+  font-size: 0.9rem;
+  min-height: 38px;
+  padding: 0.45rem 0.95rem;
+}
+
+.uno-dialog-option:hover:not(:disabled) {
+  background: var(--dialog-btn-hover-bg);
+  filter: none;
+  box-shadow: none;
+}
+
+.uno-dialog-option:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent), transparent 55%);
+  outline-offset: 3px;
+}
+
+.uno-dialog-cancel {
+  font-weight: 850;
+}
+
+.uno-dialog .uno-wild-picker-buttons {
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+}
+
+.uno-dialog .uno-color-btn {
+  border-color: var(--dialog-btn-border);
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.22);
+}
+
+:root[data-theme='dark'] .uno-dialog .uno-color-btn {
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.65);
+}
+
+.uno-dialog .uno-color-btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent), transparent 45%);
+  outline-offset: 4px;
+}
+
 .uno-modal__emoji {
   font-size: 2.5rem;
   margin-bottom: 0.5rem;
@@ -1025,6 +1363,15 @@ button:disabled {
   color: #cbd5f5;
 }
 
+.uno-modal.uno-dialog p {
+  color: var(--dialog-muted);
+}
+
+.uno-modal.uno-dialog .uno-modal__outcome {
+  background: color-mix(in srgb, var(--dialog-bg), var(--dialog-text) 6%);
+  border-color: color-mix(in srgb, var(--dialog-border), var(--dialog-text) 8%);
+}
+
 .uno-modal button {
   width: 100%;
 }
@@ -1036,7 +1383,7 @@ button:disabled {
   justify-content: center;
   gap: 0.4rem;
   font-size: 0.8rem;
-  color: #9ca3af;
+  color: var(--muted);
 }
 
 .uno-turn-badge {
@@ -1049,16 +1396,20 @@ button:disabled {
   gap: 0.3rem;
 }
 
+:root:not([data-theme='dark']) .uno-turn-badge {
+  font-weight: 800;
+}
+
 .uno-turn-badge--you {
-  background: rgba(34, 197, 94, 0.12);
-  color: #bbf7d0;
-  border: 1px solid rgba(34, 197, 94, 0.6);
+  background: var(--turn-badge-you-bg);
+  color: var(--turn-badge-you-text);
+  border: 1px solid var(--turn-badge-you-border);
 }
 
 .uno-turn-badge--bot {
-  background: rgba(59, 130, 246, 0.12);
-  color: #bfdbfe;
-  border: 1px solid rgba(59, 130, 246, 0.6);
+  background: var(--turn-badge-bot-bg);
+  color: var(--turn-badge-bot-text);
+  border: 1px solid var(--turn-badge-bot-border);
 }
 
 .uno-turn-order {
@@ -1069,7 +1420,7 @@ button:disabled {
   gap: 0.45rem;
   flex-wrap: wrap;
   font-size: 0.78rem;
-  color: #9ca3af;
+  color: var(--muted);
 }
 
 .uno-turn-order-chips {
@@ -1083,24 +1434,26 @@ button:disabled {
 .turnChip {
   padding: 0.25rem 0.6rem;
   border-radius: 9999px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--chip-border);
   font-weight: 700;
-  background: rgba(2, 6, 23, 0.25);
-  color: #e5e7eb;
+  background: var(--chip-bg);
+  color: var(--chip-text);
 }
 
 .turnChip.active {
-  border-color: #f08a24;
-  box-shadow: 0 0 0 3px rgba(240, 138, 36, 0.25);
+  background: var(--chip-accent-bg);
+  border-color: var(--chip-accent-border);
+  color: var(--chip-accent-text);
+  box-shadow: 0 0 0 3px var(--chip-accent-ring);
 }
 
 .turnChip.inactive {
-  color: #9ca3af;
+  color: var(--muted);
 }
 
 .turnArrow {
-  color: #6b7280;
-  opacity: 0.85;
+  color: var(--muted);
+  opacity: 1;
 }
 
 /* Cartas jugables con brillo */
@@ -1204,9 +1557,10 @@ button:disabled {
 .uno-lastaction {
   margin-top: 0.2rem;
   font-size: 0.8rem;
-  color: #9ca3af;
+  color: var(--events-title);
   font-style: italic;
 }
+
 /* Animación carta recién jugada (carta central) */
 
 .uno-card--last-played {
@@ -1238,10 +1592,9 @@ button:disabled {
   border-radius: 26px;
   overflow: hidden;
 
-  background: var(--surface);
-
+  background: var(--table-bg);
   border: 1px solid var(--border);
-  box-shadow: inset 0 0 0 1px rgba(2, 6, 23, 0.7);
+  box-shadow: var(--table-shadow), var(--table-inset-shadow);
 }
 
 @media (max-height: 780px) {
@@ -1296,10 +1649,10 @@ button:disabled {
   width: var(--uno-reaction-btn-size);
   height: var(--uno-reaction-btn-size);
   border-radius: 9999px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: rgba(2, 6, 23, 0.72);
-  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.55);
-  color: #e5e7eb;
+  border: 1px solid var(--chip-border);
+  background: var(--chip-bg);
+  box-shadow: var(--chip-shadow);
+  color: var(--chip-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1322,7 +1675,7 @@ button:disabled {
 }
 
 .uno-reaction-btn:hover {
-  background: rgba(2, 6, 23, 0.85);
+  background: var(--chip-bg-hover);
 }
 
 .uno-reaction-btn:disabled {
@@ -1331,7 +1684,7 @@ button:disabled {
 }
 
 .uno-reaction-btn:disabled:hover {
-  background: rgba(2, 6, 23, 0.72);
+  background: var(--chip-bg);
 }
 
 .uno-reaction-btn:focus-visible {
@@ -1349,9 +1702,9 @@ button:disabled {
   gap: 6px;
   padding: 8px;
   border-radius: 14px;
-  background: rgba(2, 6, 23, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 18px 38px rgba(2, 6, 23, 0.65);
+  background: var(--popover-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--popover-shadow);
   backdrop-filter: blur(8px);
   pointer-events: auto;
 }
@@ -1369,9 +1722,9 @@ button:disabled {
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(255, 255, 255, 0.06);
-  color: #e5e7eb;
+  border: 1px solid var(--reaction-item-border);
+  background: var(--reaction-item-bg);
+  color: var(--chip-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1381,24 +1734,24 @@ button:disabled {
 }
 
 .uno-reaction-item:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--reaction-item-bg-hover);
 }
 
 .uno-seat {
   position: relative;
   padding: clamp(0.35rem, 1vw, 0.6rem) clamp(0.4rem, 1vw, 0.6rem);
   border-radius: clamp(12px, 2vw, 18px);
-  background: rgba(2, 6, 23, 0.55);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 12px 24px rgba(2, 6, 23, 0.55);
+  background: var(--seat-bg);
+  border: 1px solid var(--seat-border);
+  box-shadow: var(--seat-shadow);
   backdrop-filter: blur(6px);
 }
 
 .uno-seat--active {
-  border-color: rgba(249, 115, 22, 0.8);
+  border-color: var(--seat-active-border);
   box-shadow:
-    0 0 0 3px rgba(249, 115, 22, 0.25),
-    0 18px 40px rgba(249, 115, 22, 0.18);
+    var(--seat-active-ring),
+    var(--seat-active-glow);
   animation: uno-seat-glow 0.95s ease-in-out infinite alternate;
 }
 
@@ -1425,7 +1778,7 @@ button:disabled {
   height: 0;
   border-left: 9px solid transparent;
   border-right: 9px solid transparent;
-  border-bottom: 14px solid rgba(34, 197, 94, 0.95);
+  border-bottom: 14px solid var(--seat-arrow);
   filter: drop-shadow(0 6px 10px rgba(16, 185, 129, 0.4));
   animation: uno-seat-arrow 0.8s ease-in-out infinite alternate;
 }
@@ -1476,7 +1829,7 @@ button:disabled {
 
 .uno-seat-count {
   font-size: 0.75rem;
-  color: #cbd5f5;
+  color: var(--soft-text);
   opacity: 0.9;
 }
 
@@ -1487,9 +1840,9 @@ button:disabled {
   font-size: 0.65rem;
   font-weight: 900;
   letter-spacing: 0.08em;
-  background: rgba(34, 197, 94, 0.14);
-  border: 1px solid rgba(34, 197, 94, 0.55);
-  color: #bbf7d0;
+  background: var(--seat-turn-bg);
+  border: 1px solid var(--seat-turn-border);
+  color: var(--seat-turn-text);
 }
 
 .uno-seat-cards {
@@ -1631,19 +1984,19 @@ button:disabled {
 .playerBadgeCountInline {
   font-size: 0.85rem;
   font-weight: 800;
-  color: #e5e7eb;
-  opacity: 0.9;
+  color: var(--badge-count);
+  opacity: var(--badge-count-opacity);
   flex: 0 0 auto;
   white-space: nowrap;
 }
 
 .playerBadge.inactive .playerBadgeName {
-  color: #9ca3af;
+  color: var(--badge-inactive);
 }
 
 .playerBadge.inactive .playerBadgeCountInline {
-  color: #9ca3af;
-  opacity: 0.9;
+  color: var(--badge-inactive);
+  opacity: var(--badge-count-opacity);
 }
 
 .playerBadge.inactive .playerBadgeAvatar {
@@ -1657,9 +2010,9 @@ button:disabled {
   font-size: 0.62rem;
   font-weight: 900;
   letter-spacing: 0.06em;
-  background: rgba(59, 130, 246, 0.14);
-  border: 1px solid rgba(59, 130, 246, 0.5);
-  color: #bfdbfe;
+  background: var(--badge-you-bg);
+  border: 1px solid var(--badge-you-border);
+  color: var(--badge-you-text);
 }
 
 .playerBadgeChips {
@@ -1678,22 +2031,22 @@ button:disabled {
   font-size: 0.62rem;
   font-weight: 900;
   letter-spacing: 0.08em;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(2, 6, 23, 0.45);
-  color: #e5e7eb;
+  border: 1px solid var(--badge-chip-border);
+  background: var(--badge-chip-bg);
+  color: var(--badge-chip-text);
   white-space: nowrap;
 }
 
 .playerBadgeChip--turn {
-  background: rgba(34, 197, 94, 0.14);
-  border-color: rgba(34, 197, 94, 0.55);
-  color: #bbf7d0;
+  background: var(--badge-chip-turn-bg);
+  border-color: var(--badge-chip-turn-border);
+  color: var(--badge-chip-turn-text);
 }
 
 .playerBadgeChip--next {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.45);
-  color: #fde68a;
+  background: var(--badge-chip-next-bg);
+  border-color: var(--badge-chip-next-border);
+  color: var(--badge-chip-next-text);
 }
 
 @media (max-width: 900px), (max-height: 720px) {

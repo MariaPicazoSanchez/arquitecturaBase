@@ -2116,9 +2116,10 @@ export default function UnoGame() {
     <div className="uno-game" onPointerDown={handleUserGesture}>
       <div className="unoPage">
         <header className="unoHeader">
-          <div className="unoHeaderBar">
-            <p className="unoHeaderMessage">{game.message}</p>
-            <div className="unoHeaderActions">
+          <div className="unoStatusPanel">
+            <div className="unoHeaderBar">
+              <p className="unoHeaderMessage">{game.message}</p>
+              <div className="unoHeaderActions">
               {engine?.drawPile?.length != null && (
                 <span className="unoHeaderStat">Mazo: {engine.drawPile.length}</span>
               )}
@@ -2210,6 +2211,7 @@ export default function UnoGame() {
               >
                 {isMuted ? '🔇' : '🔊'}
               </button>
+              </div>
             </div>
           </div>
         </header>
@@ -2464,12 +2466,17 @@ export default function UnoGame() {
       </div>
 
       {(showColorPicker || showTargetPicker) && pendingWild && isPlaying && (
-        <div className="uno-modal-backdrop" onClick={handleCancelPendingWild}>
-          <div className="uno-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="uno-modal-backdrop uno-dialog-backdrop"
+          onClick={handleCancelPendingWild}
+        >
+          <div className="uno-modal uno-dialog" onClick={(e) => e.stopPropagation()}>
             {showTargetPicker && pendingWild?.value === 'swap' ? (
               <>
-                <h2>Elegir rival</h2>
-                <p>Selecciona el jugador con el que quieres hacer SWAP.</p>
+                <h2 className="uno-dialog-title">Elegir rival</h2>
+                <p className="uno-dialog-text">
+                  Selecciona el jugador con el que quieres hacer SWAP.
+                </p>
                 <div className="uno-wild-picker-buttons">
                   {(engine.players || [])
                     .filter((_, idx) => idx !== 0)
@@ -2484,7 +2491,7 @@ export default function UnoGame() {
                         <button
                           key={p.id}
                           type="button"
-                          className="uno-reload-button"
+                          className="uno-reload-button uno-dialog-option"
                           onClick={() => handleChooseSwapTarget(p.id)}
                         >
                           {(p?.name ?? 'Jugador') + ` (${handCount})`}
@@ -2493,7 +2500,7 @@ export default function UnoGame() {
                     })}
                   <button
                     type="button"
-                    className="uno-reload-button"
+                    className="uno-reload-button uno-dialog-option uno-dialog-cancel"
                     onClick={handleCancelPendingWild}
                   >
                     Cancelar
@@ -2502,40 +2509,40 @@ export default function UnoGame() {
               </>
             ) : (
               <>
-                <h2>Elegir color</h2>
+                <h2 className="uno-dialog-title">Elegir color</h2>
                 <p>Selecciona el color para el comodín.</p>
-                <div className="uno-wild-picker-buttons">
+                <div className="uno-wild-picker-buttons uno-color-picker">
                   <button
                     type="button"
-                    className="uno-wild-color uno-wild-color--red"
+                    className="uno-wild-color uno-wild-color--red uno-color-btn uno-dialog-option"
                     onClick={() => handleChooseWildColor('red')}
                     aria-label="Rojo"
                     title="Rojo"
                   />
                   <button
                     type="button"
-                    className="uno-wild-color uno-wild-color--yellow"
+                    className="uno-wild-color uno-wild-color--yellow uno-color-btn uno-dialog-option"
                     onClick={() => handleChooseWildColor('yellow')}
                     aria-label="Amarillo"
                     title="Amarillo"
                   />
                   <button
                     type="button"
-                    className="uno-wild-color uno-wild-color--green"
+                    className="uno-wild-color uno-wild-color--green uno-color-btn uno-dialog-option"
                     onClick={() => handleChooseWildColor('green')}
                     aria-label="Verde"
                     title="Verde"
                   />
                   <button
                     type="button"
-                    className="uno-wild-color uno-wild-color--blue"
+                    className="uno-wild-color uno-wild-color--blue uno-color-btn uno-dialog-option"
                     onClick={() => handleChooseWildColor('blue')}
                     aria-label="Azul"
                     title="Azul"
                   />
                   <button
                     type="button"
-                    className="uno-reload-button"
+                    className="uno-reload-button uno-dialog-option uno-dialog-cancel"
                     onClick={handleCancelPendingWild}
                   >
                     Cancelar

@@ -51,10 +51,10 @@ export default function GameResultModal({
 
 
   return (
-    <div className="uno-modal-backdrop">
-      <div className="uno-modal">
-        <h2>{title}</h2>
-        <p>{subtitle}</p>
+    <div className="uno-modal-backdrop uno-dialog-backdrop">
+      <div className="uno-modal uno-dialog">
+        <h2 className="uno-dialog-title">{title}</h2>
+        <p className="uno-dialog-text">{subtitle}</p>
 
         {winnerNames.length > 0 && (
           <div className="uno-modal__outcome">
