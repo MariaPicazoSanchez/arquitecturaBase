@@ -1444,8 +1444,8 @@ function ControlWeb() {
             const playerList = Array.isArray(p.players)
                 ? p.players.filter((pl) => pl && !pl.isBot).map((pl) => String(pl.displayName || "").trim()).filter(Boolean)
                 : [];
-            const playerListMarkup = playerList.length && juego === 'uno'
-                ? `<div class="text-muted small mb-1">Jugadores: ${playerList.join(", ")}</div>`
+            const playerListMarkup = playerList.length
+                ? `<div class="text-muted small mb-1">Participantes: ${playerList.join(", ")}</div>`
                 : '';
 
             const card = `

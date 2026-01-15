@@ -2176,6 +2176,23 @@ function ServidorWS() {
           trackMatchPresence(codigo, datos.email, socket);
         }
 
+        // Guardar nick en la membresía de la partida (si el cliente lo envía) para listar participantes por nick en el lobby.
+        try {
+          const nick = datos && typeof datos.nick === "string" ? String(datos.nick).trim() : "";
+          if (nick && !looksLikeEmail(nick)) {
+            const partidaNow = codigo !== -1 ? sistema.partidas?.[codigo] : null;
+            const jugadores = Array.isArray(partidaNow?.jugadores) ? partidaNow.jugadores : null;
+            if (jugadores) {
+              const emailId = normalizePlayerId(datos.email);
+              const jugador = jugadores.find((j) => normalizePlayerId(j?.email) === emailId);
+              if (jugador) {
+                const currentNick = String(jugador.nick || jugador.displayName || "").trim();
+                if (!currentNick || looksLikeEmail(currentNick)) jugador.nick = nick;
+              }
+            }
+          }
+        } catch (e) {}
+
         try {
           const partidaNow = codigo !== -1 ? sistema.partidas?.[codigo] : null;
           try { if (partidaNow) partidaNow.phase = "lobby"; } catch (e2) {}
