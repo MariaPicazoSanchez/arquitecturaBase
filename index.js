@@ -13,6 +13,56 @@ const IN_PROD = process.env.NODE_ENV === 'production';
 const passport=require("passport");
 const session = require('express-session');
 
+function looksLikeEmail(value) {
+  const t = String(value || "").trim();
+  return !!t && t.includes("@");
+}
+
+function normalizePublicNick(value, fallback = "Usuario") {
+  const t = String(value || "").trim();
+  if (!t || looksLikeEmail(t)) return String(fallback || "Usuario");
+  return t;
+}
+
+function publicUserIdFromEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) return "";
+  let hash = 5381;
+  for (let i = 0; i < e.length; i += 1) {
+    hash = ((hash << 5) + hash + e.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function authCookieOptions() {
+  return {
+    path: '/',
+    httpOnly: false,
+    sameSite: 'lax',
+    secure: IN_PROD,
+    maxAge: 24 * 60 * 60 * 1000,
+  };
+}
+
+function setAuthCookies(res, email, nick) {
+  const opts = authCookieOptions();
+  try {
+    if (email) res.cookie('email', String(email).trim().toLowerCase(), opts);
+  } catch (e) {}
+  try {
+    if (nick) res.cookie('nick', normalizePublicNick(nick, 'Usuario'), opts);
+  } catch (e) {}
+  try {
+    if (email) res.cookie('uid', publicUserIdFromEmail(email), opts);
+  } catch (e) {}
+}
+
+function clearAuthCookies(res) {
+  try { res.clearCookie('email', { path: '/' }); } catch (e) {}
+  try { res.clearCookie('nick', { path: '/' }); } catch (e) {}
+  try { res.clearCookie('uid', { path: '/' }); } catch (e) {}
+}
+
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] uncaughtException:', err && err.stack ? err.stack : err);
   process.exitCode = 1;
@@ -258,10 +308,10 @@ app.get("/good", function(req, res) {
       } catch(e) {
         console.warn("[/good] session.user error:", e && e.message);
       }
-      const nickToSet = obj.nick || email;
+      const nickToSet = normalizePublicNick(obj.nick || obj.displayName || displayName, "Usuario");
       console.log("[/good] nick final:", nickToSet);
-      // cookie `nick` se usa como identificador (email) para compatibilidad con WS/clienteRest
-      res.cookie('nick', email);
+      // Cookies: `email` (identidad interna) + `nick` (nombre visible, nunca email)
+      setAuthCookies(res, email, nickToSet);
       res.redirect('/');
     });
   });
@@ -315,14 +365,14 @@ app.get('/salir', function(req, res){
     req.session.destroy(function(err){
       if (err) console.warn('[/salir] error destruyendo sesión:', err && err.message);
       // Borrar cookie de sesión y cookie 'nick'
-      res.clearCookie('nick');
+      clearAuthCookies(res);
       // Responder según tipo de petición
       const acceptsJson = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') !== -1);
       if (acceptsJson) return res.json({ ok: true });
       return res.redirect('/');
     });
   } else {
-    res.clearCookie('nick');
+    clearAuthCookies(res);
     const acceptsJson = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') !== -1);
     if (acceptsJson) return res.json({ ok: true });
     return res.redirect('/');
@@ -375,8 +425,8 @@ app.post('/oneTap/callback', (req, res, next) => {
         }
         try {
           req.session.user = { email };
-          // cookie `nick` se usa como identificador (email) para compatibilidad con WS/clienteRest
-          res.cookie('nick', email);
+          const nickToSet = normalizePublicNick(obj.nick || obj.displayName || displayName, "Usuario");
+          setAuthCookies(res, email, nickToSet);
         } catch (e) {
           console.warn('[oneTap] cookie error:', e.message);
         }
@@ -429,7 +479,7 @@ app.post("/registrarUsuario", function(req, res){
     sistema.registrarUsuario(req.body, function(out){
       console.log("[/registrarUsuario] callback del modelo:", out);
       if (out && out.email && out.email !== -1){
-        return send(201, { nick: out.email });
+        return send(201, { ok: true });
       } else {
         // Devolver reason si existe para mejor feedback al cliente
         const reason = (out && out.reason) || "unknown";
@@ -437,20 +487,20 @@ app.post("/registrarUsuario", function(req, res){
                         reason === "nick_ya_registrado" ? "El nick ya está en uso" :
                         reason === "nick_vacio" ? "El nick no puede estar vacío" :
                         "No se ha podido registrar el usuario";
-        return send(409, { nick: -1, reason, error: errorMsg });
+        return send(409, { ok: false, reason, error: errorMsg });
       }
     });
 
     setTimeout(() => {
       if (!responded){
         console.warn("[/registrarUsuario] SIN RESPUESTA tras 10s (posible cuelgue en modelo/CAD)");
-        send(504, { nick: -1, reason: "timeout", error: "Tiempo de respuesta agotado" });
+        send(504, { ok: false, reason: "timeout", error: "Tiempo de respuesta agotado" });
       }
     }, 10000);
 
   } catch (err) {
     console.error("[/registrarUsuario] EXCEPCIÓN sin capturar:", err);
-    send(500, { nick: -1, error: "Error interno del servidor" });
+    send(500, { ok: false, error: "Error interno del servidor" });
   }
 });
 
@@ -466,14 +516,7 @@ app.get("/confirmarUsuario/:email/:key", (req, res) => {
     if (usr && usr.email && usr.email !== -1) {
       console.log("[/confirmarUsuario] confirmación exitosa para:", usr.email);
       req.session.user = { email: usr.email };
-      // res.cookie('nick', usr.email);
-      res.cookie('nick', usr.email, {
-        path: '/',
-        httpOnly: false,
-        sameSite: 'lax',
-        secure: IN_PROD,
-        maxAge: 24 * 60 * 60 * 1000
-      });
+      setAuthCookies(res, usr.email, usr.nick || usr.displayName || "Usuario");
     } else {
       console.log("[/confirmarUsuario] confirmación fallida:", usr);
     }
@@ -509,9 +552,10 @@ app.post('/loginUsuario', function(req, res){
   sistema.loginUsuario(req.body, function(out){
     if (out && out.email && out.email !== -1){
       req.session.user = { email: out.email };
-      res.send({ nick: out.email });
+      setAuthCookies(res, out.email, out.nick || out.displayName || "Usuario");
+      res.send({ ok: true, email: out.email, nick: out.nick || out.displayName || "Usuario" });
     } else {
-      res.status(401).send({ nick: -1 });
+      res.status(401).send({ ok: false });
     }
   });
 });
@@ -553,6 +597,8 @@ function clearAuthSession(req, res, done) {
 
   const finish = () => {
     try { res.clearCookie('nick'); } catch (e) {}
+    try { res.clearCookie('email'); } catch (e) {}
+    try { res.clearCookie('uid'); } catch (e) {}
     if (typeof done === 'function') done();
   };
 

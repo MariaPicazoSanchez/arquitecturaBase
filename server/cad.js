@@ -457,14 +457,19 @@ function buscarOCrear(coleccion, criterio, callback) {
 }
 
 function buscar(col, criterio, cb) {
-  console.log("[cad.buscar] criterio:", criterio, "col?", !!col);
+  try {
+    const keys = criterio && typeof criterio === "object" ? Object.keys(criterio) : [];
+    console.log("[cad.buscar] criterio(keys):", keys, "col?", !!col);
+  } catch (e) {
+    console.log("[cad.buscar] criterio(keys):", [], "col?", !!col);
+  }
   if (!col) {
     cb(undefined);
     return;
   }
   col.findOne(criterio, { maxTimeMS: 4000, projection: { _id: 1, email: 1, password: 1 } })
     .then((doc) => {
-      console.log("[cad.buscar] resultado:", doc ? { _id: doc._id, email: doc.email } : undefined);
+      console.log("[cad.buscar] resultado:", doc ? { _id: doc._id } : undefined);
       cb(doc);
     })
     .catch((err) => {

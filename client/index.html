@@ -115,10 +115,12 @@
         setTimeout(initGIS, 100);
         return;
       }
-      // Evitar mostrar One Tap si ya hay cookie 'nick' (usuario ya logueado)
+      // Evitar mostrar One Tap si ya hay cookies de sesi\u00f3n (usuario ya logueado)
       try {
-        const hasNick = (window.jQuery && $.cookie && $.cookie('nick')) || document.cookie.split(';').map(s=>s.trim()).some(s=>s.indexOf('nick=')===0);
-        if (hasNick) return;
+        const hasAuthCookie =
+          (window.jQuery && $.cookie && ($.cookie('email') || ($.cookie('nick') && String($.cookie('nick')).includes('@')))) ||
+          document.cookie.split(';').map(s=>s.trim()).some(s=>s.indexOf('email=')===0);
+        if (hasAuthCookie) return;
       } catch(e) {}
       // Evitar inicializar/mostrar prompt más de una vez
       if (window._oneTapInitialized) return;
@@ -255,6 +257,13 @@
         console.log('[UI] Click en Unirse, código:', codigo);
         if (ws && ws.unirAPartida) {
           ws.unirAPartida(codigo);
+        }
+      });
+
+      $('#tbody-partidas').on('click', '.btn-abandonar', function() {
+        const codigo = $(this).data('codigo');
+        if (ws && ws.eliminarPartida) {
+          ws.eliminarPartida(codigo);
         }
       });
 

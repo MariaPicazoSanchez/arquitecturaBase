@@ -1,31 +1,25 @@
-    // Verifica si el usuario tiene una partida activa
+    // Verifica si el usuario tiene una partida activa (no usar email en UI).
     this.tienePartidaPropia = function(lista) {
         const norm = (v) => String(v || "").trim().toLowerCase();
-        const myKeys = [
-            norm($.cookie && $.cookie("email")),
-            norm($.cookie && $.cookie("nick")),
-            norm(this.email),
-            norm(window.ws && window.ws.email),
-        ].filter(Boolean);
-        return Array.isArray(lista) && lista.some(p => {
-            const ownerKeys = [norm(p && p.propietarioEmail), norm(p && p.propietario)].filter(Boolean);
-            return ownerKeys.some(k => myKeys.includes(k));
-        });
+        const myUserId = norm($.cookie && $.cookie("uid"));
+        const myNick = norm($.cookie && $.cookie("nick"));
+        if (!myUserId && !myNick) return false;
+        return Array.isArray(lista) && lista.some(p =>
+            (myUserId && norm(p && p.hostUserId) === myUserId) ||
+            (!myUserId && myNick && norm(p && p.propietario) === myNick)
+        );
     };
 function ControlWeb() {
         // Verifica si el usuario tiene una partida activa
         this.tienePartidaPropia = function(lista) {
             const norm = (v) => String(v || "").trim().toLowerCase();
-            const myKeys = [
-                norm($.cookie && $.cookie("email")),
-                norm($.cookie && $.cookie("nick")),
-                norm(this.email),
-                norm(window.ws && window.ws.email),
-            ].filter(Boolean);
-            return Array.isArray(lista) && lista.some(p => {
-                const ownerKeys = [norm(p && p.propietarioEmail), norm(p && p.propietario)].filter(Boolean);
-                return ownerKeys.some(k => myKeys.includes(k));
-            });
+            const myUserId = norm($.cookie && $.cookie("uid"));
+            const myNick = norm($.cookie && $.cookie("nick"));
+            if (!myUserId && !myNick) return false;
+            return Array.isArray(lista) && lista.some(p =>
+                (myUserId && norm(p && p.hostUserId) === myUserId) ||
+                (!myUserId && myNick && norm(p && p.propietario) === myNick)
+            );
         };
     this.juegoActual = null;
 
@@ -106,7 +100,7 @@ function ControlWeb() {
             const email =
                 cw.email ||
                 (window.ws && ws.email) ||
-                (window.$ && $.cookie && ($.cookie("email") || $.cookie("nick"))) ||
+                (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
                 null;
 
             const key = cw._activeGameStorageKeyFor(gameType);
@@ -186,11 +180,14 @@ function ControlWeb() {
     };
 
     this.comprobarSesion=function(){
-        let nick=$.cookie("nick");
-        if (nick){
-            cw.email = nick;
+        let email = $.cookie("email");
+        let nick = $.cookie("nick");
+        // Compatibilidad: antes `nick` guardaba el email. Si parece email y no hay cookie `email`, usarlo como legacy.
+        if (!email && nick && String(nick).includes("@")) email = nick;
+        if (email){
+            cw.email = String(email).toLowerCase();
             if (window.ws){
-                ws.email = nick;
+                ws.email = cw.email;
                 // if (ws.pedirListaPartidas){
                 //     ws.pedirListaPartidas();
                 // }
@@ -199,7 +196,22 @@ function ControlWeb() {
             if (window.userService && typeof userService.getMe === "function"){
                 userService.getMe()
                     .done(function(me){
-                        const label = (me && me.nick) || nick;
+                        const label = (me && me.nick) || (nick && !String(nick).includes("@") ? nick : "Usuario");
+                        try {
+                            // Autoupgrade cookies legacy: antes `nick` pod\u00eda ser el email.
+                            if (window.jQuery && $.cookie){
+                                if (!$.cookie("email") && cw.email) $.cookie("email", cw.email);
+                                if (me && me.nick && !String(me.nick).includes("@")) $.cookie("nick", me.nick);
+                                if (!$.cookie("uid") && cw.email) {
+                                    const e = String(cw.email || "").trim().toLowerCase();
+                                    let hash = 5381;
+                                    for (let i = 0; i < e.length; i += 1) {
+                                        hash = ((hash << 5) + hash + e.charCodeAt(i)) | 0;
+                                    }
+                                    $.cookie("uid", (hash >>> 0).toString(36));
+                                }
+                            }
+                        } catch(e2) {}
                         cw._setNavToLogout();
                         cw._setNavUserLabel(label);
                         cw.mostrarSelectorJuegos();
@@ -211,6 +223,8 @@ function ControlWeb() {
                     .fail(function(xhr){
                         if (xhr && xhr.status === 401){
                             try { $.removeCookie('nick'); } catch(e) {}
+                            try { $.removeCookie('email'); } catch(e) {}
+                            try { $.removeCookie('uid'); } catch(e) {}
                             cw.email = null;
                             if (window.ws){ try { ws.email = null; } catch(e) {} }
                             cw._setNavToLogin();
@@ -229,7 +243,7 @@ function ControlWeb() {
             cw.mostrarSelectorJuegos();
             if (!sessionStorage.getItem("bienvenidaMostrada")){
                 sessionStorage.setItem("bienvenidaMostrada","1");
-                cw.mostrarMensaje("Bienvenido a Table Room, "+nick, "success");
+                cw.mostrarMensaje("Bienvenido a Table Room, "+((nick && !String(nick).includes("@")) ? nick : "Usuario"), "success");
             } else {
                 cw._setNavToLogout();
             }
@@ -287,7 +301,7 @@ function ControlWeb() {
         const email =
             cw.email ||
             (window.ws && ws.email) ||
-            (window.$ && $.cookie && ($.cookie("email") || $.cookie("nick"))) ||
+            (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
             null;
 
         if (!email) {
@@ -651,7 +665,7 @@ function ControlWeb() {
             this._updateMainVisibility();
             return;
         }
-        const email = ($.cookie('nick') || this.email || '').toLowerCase();
+        const email = ($.cookie('email') || (((($.cookie('nick') || '') + '').includes('@')) ? $.cookie('nick') : '') || this.email || '').toLowerCase();
         if (!email){
             this.mostrarAviso('Debes iniciar sesión para ver la actividad', 'error');
             return;
@@ -755,8 +769,6 @@ function ControlWeb() {
                     try {
                         if (user && user.nick){
                             if (window.jQuery && $.cookie) $.cookie("nick", user.nick);
-                            cw.email = user.nick;
-                            if (window.ws){ ws.email = user.nick; }
                         }
                     } catch(e2) {}
                     cw._renderCuenta(user);
@@ -937,7 +949,7 @@ function ControlWeb() {
                 let email = $("#email").val().trim();
                 let pwd   = $("#pwd").val().trim();
                 let nick = $("#nick").val().trim();
-                console.log("[UI] Click Registrar:", { email, tienePwd: !!pwd, nick });
+                // No loggear emails.
                 
                 // Validación individual de campos
                 if (!email) {
@@ -1137,48 +1149,31 @@ function ControlWeb() {
         }
 
         const norm = (v) => String(v || "").trim().toLowerCase();
-        const myKeys = new Set(
-            [
-                norm($.cookie && $.cookie("email")),
-                norm($.cookie && $.cookie("nick")),
-                norm(cw.email),
-                norm(window.ws && window.ws.email),
-            ].filter(Boolean),
-        );
+        const myNick = norm($.cookie && $.cookie("nick"));
+        const myUserId = norm($.cookie && $.cookie("uid"));
 
         // Usar tarjetas visuales en vez de filas de tabla
         listaFiltrada.forEach(function(p){
-            const jugadores = Array.isArray(p.jugadores)
-                ? p.jugadores.length
-                : (typeof p.jugadores === 'number'
-                    ? p.jugadores
-                    : (p.numJugadores || 0));
+            const players = Array.isArray(p.players) ? p.players : [];
+            const jugadores = players.length > 0
+                ? players.length
+                : (Array.isArray(p.jugadores)
+                    ? p.jugadores.length
+                    : (typeof p.jugadores === 'number'
+                        ? p.jugadores
+                        : (p.numJugadores || 0)));
             const maxPlayers = (typeof p.maxPlayers === 'number')
                 ? p.maxPlayers
                 : ((typeof p.maxJug === 'number') ? p.maxJug : 2);
             const status = (typeof p.status === 'string')
                 ? p.status
                 : (jugadores >= maxPlayers ? 'FULL' : 'OPEN');
-            const partidaCompleta = (status === 'FULL' || status === 'STARTED' || jugadores >= maxPlayers);
-
-            const ownerKeys = [norm(p && p.propietarioEmail), norm(p && p.propietario)].filter(Boolean);
-            const esPropia = ownerKeys.some((k) => myKeys.has(k));
-
-            const yaEstoy = Array.isArray(p.jugadores) && p.jugadores.some(j => {
-                const k = norm(j && (j.email || j.nick));
-                return k && myKeys.has(k);
-            });
-            const puedeUnirse = !partidaCompleta && !yaEstoy;
-            let textoBoton;
-            if (yaEstoy) {
-                textoBoton = 'Esperando...';
-            } else if (status === 'STARTED') {
-                textoBoton = 'En curso';
-            } else if (partidaCompleta) {
-                textoBoton = 'Completa';
-            } else {
-                textoBoton = 'Unirse';
-            }
+            const started = !!p.started || status === 'STARTED';
+            const isFull = jugadores === maxPlayers;
+            const joined = !!myUserId && players.some(pl => norm(pl && pl.userId) === myUserId);
+            const isHost =
+                (!!myUserId && norm(p && p.hostUserId) === myUserId) ||
+                (!myUserId && !!myNick && norm(p && p.propietario) === myNick);
             const juego = p.juego || juegoActual || 'uno';
             const nombreJuego =
                 juego === 'uno'    ? 'Última carta' :
@@ -1191,21 +1186,27 @@ function ControlWeb() {
                 status === 'OPEN' ? 'status-pending' :
                 'status-finished';
             let acciones = '';
-            if (esPropia){
-                const minPlayers = (p && p.vsBot && juego === "uno") ? 1 : 2;
-                const puedeIniciar = (status === "STARTED") || (jugadores >= minPlayers);
-                const startDisabled = (status !== "STARTED") && !puedeIniciar;
-                const startTitle = startDisabled ? "Falta jugador" : "";
+            if (isHost){
+                const startLabel = "Jugar";
+                const startDisabled = started || !isFull;
+                const startTitle = startDisabled ? "La sala debe estar completa para jugar" : "";
                 acciones += `
-                  <button class="btn btn-jugar btn-continuar" data-codigo="${p.codigo}" ${startDisabled ? 'disabled' : ''} ${startTitle ? 'title="' + startTitle + '"' : ''}>Jugar</button>
+                  <button class="btn btn-jugar btn-continuar" data-codigo="${p.codigo}" ${startDisabled ? 'disabled' : ''} ${startTitle ? 'title="' + startTitle + '"' : ''}>${startLabel}</button>
                   <button class="btn btn-eliminar btn-eliminar" data-codigo="${p.codigo}">Eliminar</button>
                 `;
-            } else {
+            } else if (joined) {
                 acciones += `
-                  <button class="btn btn-primary btn-unirse" data-codigo="${p.codigo}" ${puedeUnirse ? '' : 'disabled'}>${textoBoton}</button>
+                  <span class="text-muted small mr-2">Unido</span>
+                  <button class="btn btn-outline-secondary btn-abandonar" data-codigo="${p.codigo}">Abandonar</button>
+                `;
+            } else {
+                const joinDisabled = started || isFull;
+                acciones += `
+                  <button class="btn btn-primary btn-unirse" data-codigo="${p.codigo}" ${joinDisabled ? 'disabled' : ''}>Unirse</button>
                 `;
             }
-            const propietarioTexto = p.propietario || 'Desconocido';
+            let propietarioTexto = p.propietario || 'Anfitrión';
+            if (propietarioTexto.includes('@')) propietarioTexto = 'Anfitrión';
             const card = `
               <tr><td colspan="2" style="padding:0; border:none; background:transparent;">
                 <div class="partida-card-row">

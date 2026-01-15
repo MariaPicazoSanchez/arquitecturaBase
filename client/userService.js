@@ -1,4 +1,27 @@
 (function(global){
+  // Helper de nombre p\u00fablico (UI): NUNCA devolver emails (solo se muestran en "Mi cuenta").
+  function looksLikeEmail(value){
+    try { return String(value || "").includes("@"); } catch (e) { return false; }
+  }
+
+  function getPublicName(entity, fallback){
+    const fb = String(fallback || "Usuario").trim() || "Usuario";
+    if (!entity) return fb;
+    const candidates = [
+      entity.displayName,
+      entity.nickname,
+      entity.nick,
+      entity.name,
+    ];
+    for (const c of candidates){
+      const t = String(c || "").trim();
+      if (!t) continue;
+      if (looksLikeEmail(t)) continue;
+      return t;
+    }
+    return fb;
+  }
+
   function getApiBaseUrl(){
     try {
       const cfg = global.APP_CONFIG || {};
@@ -31,6 +54,8 @@
 
   function handle401(){
     try { if (global.$ && $.removeCookie) $.removeCookie('nick'); } catch(e) {}
+    try { if (global.$ && $.removeCookie) $.removeCookie('email'); } catch(e) {}
+    try { if (global.$ && $.removeCookie) $.removeCookie('uid'); } catch(e) {}
     try { global.location.href = '/'; } catch(e) {}
   }
 
@@ -110,5 +135,10 @@
     requestPasswordChange: requestPasswordChange,
     confirmPasswordChange: confirmPasswordChange,
     deleteMe: deleteMe
+  };
+
+  global.publicName = {
+    getPublicName: getPublicName,
+    looksLikeEmail: looksLikeEmail,
   };
 })(window);

@@ -3,6 +3,28 @@ const correo = require("./email.js");
 const datos = require("./cad.js");
 const crypto = require("node:crypto");
 
+const looksLikeEmail = (value) => {
+  const t = String(value || "").trim();
+  return !!t && t.includes("@");
+};
+
+const fallbackPublicNick = (email) => {
+  // Fallback p\u00fablico: nunca usar email ni c\u00f3digos/hash visibles.
+  // Asigna un "Invitado N" estable por email durante la vida del proceso.
+  const e = String(email || "").trim().toLowerCase();
+  if (!fallbackPublicNick._byEmail) fallbackPublicNick._byEmail = new Map();
+  if (!fallbackPublicNick._seq) fallbackPublicNick._seq = 0;
+
+  if (e) {
+    const existing = fallbackPublicNick._byEmail.get(e);
+    if (existing) return existing;
+  }
+
+  const nick = `Invitado ${++fallbackPublicNick._seq}`;
+  if (e) fallbackPublicNick._byEmail.set(e, nick);
+  return nick;
+};
+
 function Sistema() {
   this.usuarios = {};
   this.usuariosLocales = {};
@@ -79,8 +101,8 @@ function Sistema() {
       return null;
     }
     if (!this.usuarios[e]) {
-      // Si no se proporciona nick, intentar obtenerlo de la BD o usar el email
-      const nickFinal = nick || e;
+      // Si no se proporciona nick, usar fallback seguro (nunca email).
+      const nickFinal = (nick && String(nick).trim()) || fallbackPublicNick(e);
       this.usuarios[e] = new Usuario(e, nickFinal);
       
       // Si no se proporcionó nick, intentar buscarlo en BD de forma asíncrona
@@ -90,6 +112,12 @@ function Sistema() {
             this.usuarios[e].nick = usr.nick;
           }
         });
+      }
+    } else {
+      // Si llega un nick v\u00e1lido (no email), actualizar para que el lobby muestre siempre el nombre correcto.
+      const n = (nick && String(nick).trim()) || "";
+      if (n && !looksLikeEmail(n)) {
+        this.usuarios[e].nick = n;
       }
     }
     return this.usuarios[e];
@@ -118,7 +146,9 @@ function Sistema() {
   };
   this.crearPartida = function(email, juego, maxPlayers, opts) {
     email = normalizarEmail(email);
-    let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
+    const nickFromOpts =
+      opts && typeof opts === "object" && typeof opts.nick === "string" ? opts.nick : undefined;
+    let usuario = this._obtenerOcrearUsuarioEnMemoria(email, nickFromOpts);
     if (!usuario) {
       console.log("Usuario no encontrado");
       this.registrarActividad("crearPartidaFallido", email);
@@ -150,8 +180,8 @@ function Sistema() {
 
     let codigo = this.obtenerCodigo();
 
-    // Usar el nick del usuario como propietario (si no disponible, caer a email)
-    let propietarioVisible = usuario.nick || email;
+    // Usar un nombre visible estable (no email) para el propietario.
+    const propietarioVisible = (nickFromOpts && String(nickFromOpts).trim()) || usuario.nick || "Anfitrión";
     const normalizedJuego = juego || "uno";
     const isBotMode =
       !!vsBotRequested &&
@@ -240,7 +270,7 @@ function Sistema() {
     const maxPlayers = obtenerMaxPlayers(partida);
     if (partida.jugadores.length >= maxPlayers && !partida.jugadores.some(j => j.email === usuario.email)) {
       console.log("Partida llena");
-      console.log("Jugadores:", partida.jugadores.length, "MaxPlayers:", maxPlayers, partida.jugadores.map(j => j.email));
+      console.log("Jugadores:", partida.jugadores.length, "MaxPlayers:", maxPlayers);
       this.registrarActividad("unirAPartidaFallido", email);
       return { codigo: -1, reason: "FULL", message: "La partida está llena" };
     }
@@ -278,6 +308,17 @@ function Sistema() {
     }
 
     recalcularEstadoPartida(partida);
+    const maxPlayers = obtenerMaxPlayers(partida);
+    const playersNow = (partida.playersCount || partida.jugadores.length);
+    // Regla de lobby: solo iniciar cuando la sala est\u00e1 completa (salvo que ya est\u00e9 STARTED).
+    if (partida.estado === "pendiente" && playersNow < maxPlayers) {
+      this.registrarActividad("continuarPartidaFallido", email);
+      return {
+        codigo: -1,
+        reason: "NOT_FULL",
+        message: `La partida debe estar completa (${playersNow}/${maxPlayers}) para iniciar.`,
+      };
+    }
     const minPlayers =
       (partida.mode === "PVBOT" &&
         ((partida.juego || "uno") === "uno" ||
@@ -321,11 +362,11 @@ function Sistema() {
       this.registrarActividad("eliminarPartidaFallido", email);
       return -1;
     }
-    const propietarioNorm = normalizarEmail(partida.propietario);
-    const esPropietario = propietarioNorm && propietarioNorm === email;
+    const propietarioEmail = normalizarEmail(partida.propietarioEmail || "");
+    const esPropietario = propietarioEmail && propietarioEmail === email;
     const esJugador = partida.jugadores.some(j => normalizarEmail(j.email) === email);
 
-    if (esPropietario || (!email && propietarioNorm && !esJugador)) {
+    if (esPropietario || (!email && propietarioEmail && !esJugador)) {
       delete this.partidas[codigo];
       this.registrarActividad("eliminarPartida", email, { partida: codigo });
       return codigo;
@@ -462,9 +503,9 @@ function Sistema() {
 
     // Comprobar duplicados por email
     this.cad.buscarUsuario({ email: obj.email }, function (usr) {
-      console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr);
+      console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr ? { _id: usr._id } : null);
       if (usr) {
-        console.warn("[modelo.registrarUsuario] duplicado:", obj.email);
+        console.warn("[modelo.registrarUsuario] duplicado (email)");
         modelo.registrarActividad("registrarUsuarioFallido", obj.email);
         callback({ email: -1, reason: "email_ya_registrado" });
         return;
@@ -531,7 +572,7 @@ function Sistema() {
     this.cad.buscarUsuario(
       { email: obj.email, key: obj.key, confirmada: false },
       function (usr) {
-        console.log("[modelo.confirmarUsuario] usuario encontrado:", usr ? { email: usr.email, _id: usr._id } : null);
+        console.log("[modelo.confirmarUsuario] usuario encontrado:", usr ? { _id: usr._id } : null);
         if (!usr) {
           modelo.registrarActividad("confirmarUsuarioFallido", obj.email);
           return finish({ email: -1 });
@@ -539,7 +580,15 @@ function Sistema() {
 
         usr.confirmada = true;
         modelo.cad.actualizarUsuario(usr, function (res) {
-          callback(res && res.email ? { email: res.email } : { email: -1 });
+          if (res && res.email) {
+            modelo._obtenerOcrearUsuarioEnMemoria(usr.email, usr.nick);
+            return finish({
+              email: usr.email,
+              nick: usr.nick,
+              displayName: usr.displayName ? String(usr.displayName).trim() : "",
+            });
+          }
+          return finish({ email: -1 });
         });
         modelo.registrarActividad("confirmarUsuario", usr.email);
       }
@@ -551,7 +600,7 @@ function Sistema() {
   // ===========================
   this.loginUsuario = function (obj, callback) {
     let modelo = this;
-    console.log("[modelo.loginUsuario] entrada:", obj);
+    console.log("[modelo.loginUsuario] entrada (sin imprimir email)");
     if (!obj || !obj.email || !obj.password) {
       console.warn("[modelo.loginUsuario] datos inválidos");
       modelo.registrarActividad("loginUsuarioFallido", obj ? obj.email : null);
@@ -662,7 +711,7 @@ function Sistema() {
       return;
     }
     const body = payload && typeof payload === "object" ? payload : {};
-    console.log("[modelo.actualizarUsuarioSeguro] email:", e, "body:", body);
+    console.log("[modelo.actualizarUsuarioSeguro] actualizar usuario (sin imprimir email)");
 
     let displayNameCheck = { ok: true, value: undefined };
     if (Object.prototype.hasOwnProperty.call(body, "displayName")) {
@@ -1192,7 +1241,8 @@ function getMaxJugPorJuego(juego) {
 
 function Usuario(email, nick) {
   this.email = email;
-  this.nick = nick || email;
+  const base = (nick && String(nick).trim()) || String(email || "").trim();
+  this.nick = looksLikeEmail(base) ? fallbackPublicNick(email) : base;
 }
 
 function Partida(codigo, propietario, juego, maxJug) {

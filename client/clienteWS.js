@@ -6,7 +6,14 @@ function ClienteWS() {
 
     this._ensureEmail = function(){
         if (window.$ && $.cookie){
-            this.email = $.cookie("email") || $.cookie("nick") || this.email;
+            const emailCookie = $.cookie("email");
+            const nickCookie = $.cookie("nick");
+            // Identificador interno para WS: email (nunca se muestra en UI).
+            // Compatibilidad: si solo existe cookie "nick" y parece email, usarla como legacy.
+            this.email =
+              (emailCookie && String(emailCookie).trim()) ||
+              ((nickCookie && String(nickCookie).includes("@")) ? String(nickCookie).trim() : "") ||
+              this.email;
         }
         return this.email;
     };
@@ -40,7 +47,8 @@ function ClienteWS() {
       let ws = this;
 
       this.socket.on("listaPartidas", function(lista){
-        console.log("Lista de partidas recibida:", lista);
+        // Evitar logs con datos sensibles (emails). Si hace falta debug, usar solo counts.
+        // console.log("Lista de partidas recibida:", Array.isArray(lista) ? lista.length : 0);
         if (window.cw && cw.pintarPartidas){
             cw.pintarPartidas(lista);
         }
@@ -156,8 +164,12 @@ function ClienteWS() {
     const modeRaw = opts.mode;
     const mode = String(modeRaw || "").trim().toUpperCase();
     const vsBot = mode === "PVBOT" || !!opts.vsBot;
+    const nickCookieRaw =
+      (window.$ && $.cookie && $.cookie("nick")) ? String($.cookie("nick")).trim() : "";
+    const nickCookie = nickCookieRaw && !nickCookieRaw.includes("@") ? nickCookieRaw : "";
     this.socket.emit("crearPartida", { 
         email: this.email,
+        nick: nickCookie || undefined,
         juego: this.gameType,
         maxPlayers: maxPlayers,
         vsBot: vsBot,
@@ -177,19 +189,23 @@ function ClienteWS() {
       });
   };
 
-  this.unirAPartida = function(codigo){
+  this.unirAPartida = function(codigo, ack){
       if (!this._ensureEmail()){
           console.warn("No hay email en ws, no se puede unir a partida.");
           return;
       }
+      const nickCookieRaw =
+        (window.$ && $.cookie && $.cookie("nick")) ? String($.cookie("nick")).trim() : "";
+      const nickCookie = nickCookieRaw && !nickCookieRaw.includes("@") ? nickCookieRaw : "";
       this.socket.emit("unirAPartida", {
         email: this.email,
+        nick: nickCookie || undefined,
         codigo: codigo,
         juego: this.gameType
-      });
+      }, typeof ack === "function" ? ack : undefined);
   };
 
-  this.eliminarPartida = function(codigo){
+  this.eliminarPartida = function(codigo, ack){
       if (!this._ensureEmail()){
           console.warn("No hay email en ws, no se puede eliminar partida.");
           return;
@@ -198,7 +214,7 @@ function ClienteWS() {
         email: this.email,
         codigo: codigo,
         juego: this.gameType
-      });
+      }, typeof ack === "function" ? ack : undefined);
   };
 
   this.ini();

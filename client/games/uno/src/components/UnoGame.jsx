@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Card from './Card';
 import GameResultModal from './GameResultModal';
 import TableRing from './TableRing';
@@ -67,6 +67,7 @@ export default function UnoGame() {
   const [tableState, setTableState] = useState(null);
   const [reactionsByPlayerId, setReactionsByPlayerId] = useState({});
   const reactionTimeoutsRef = useRef({});
+  const reactionLastIdByPlayerRef = useRef({});
   const [isReactionCooldownActive, setIsReactionCooldownActive] = useState(false);
   const reactionCooldownTimerRef = useRef(null);
   const prevUiStatusRef = useRef(null);
@@ -506,17 +507,20 @@ export default function UnoGame() {
 
   const resolveNickOrEmail = () => {
     const localCookie = typeof document !== 'undefined' ? document.cookie : '';
-    const direct =
-      getCookieValue(localCookie, 'nick') || getCookieValue(localCookie, 'email');
-    if (direct) return direct;
+    const email = getCookieValue(localCookie, 'email');
+    if (email) return email;
+
+    // Back-compat: antes la cookie `nick` podÍa guardar el email.
+    const legacyNick = getCookieValue(localCookie, 'nick');
+    if (legacyNick && legacyNick.includes('@')) return legacyNick;
 
     try {
       const parentCookie = window.parent?.document?.cookie || '';
-      return (
-        getCookieValue(parentCookie, 'nick') ||
-        getCookieValue(parentCookie, 'email') ||
-        null
-      );
+      const parentEmail = getCookieValue(parentCookie, 'email');
+      if (parentEmail) return parentEmail;
+      const parentNick = getCookieValue(parentCookie, 'nick');
+      if (parentNick && parentNick.includes('@')) return parentNick;
+      return null;
     } catch {
       return null;
     }
@@ -545,17 +549,43 @@ export default function UnoGame() {
       reactionCooldownTimerRef.current = setTimeout(() => {
         setIsReactionCooldownActive(false);
         reactionCooldownTimerRef.current = null;
-      }, 1000);
+      }, 2000);
 
-      api.sendReaction({ gameId: codigoFromUrl, toPlayerId, emoji }).then((ack) => {
+      if (import.meta?.env?.DEV) {
+        console.log('[UNO][client][DBG] reaction send', { toPlayerId, emoji });
+      }
+
+      const localFromPlayerId = tableState?.myPlayerId ?? null;
+      const localFromName =
+        (localFromPlayerId != null
+          ? engine?.players?.find((p) => String(p?.id) === String(localFromPlayerId))
+              ?.name
+          : null) ?? null;
+
+      api.sendReaction({
+        gameId: codigoFromUrl,
+        toPlayerId,
+        emoji,
+        fromPlayerId: localFromPlayerId,
+        fromName: localFromName,
+        ts: Date.now(),
+      }).then((ack) => {
         if (ack && ack.ok) return;
         if (import.meta?.env?.DEV) {
           console.warn('[UNO] reacción rechazada', ack);
         }
       });
     },
-    [codigoFromUrl, isMultiplayer, isReactionCooldownActive],
+    [codigoFromUrl, isMultiplayer, isReactionCooldownActive, tableState?.myPlayerId, engine?.players],
   );
+
+  const canShowSeatReactions = useMemo(() => {
+    if (!isMultiplayer) return false;
+    const playersPublic = tableState?.playersPublic ?? null;
+    if (!Array.isArray(playersPublic)) return false;
+    const humanCount = playersPublic.filter((p) => !p?.isBot).length;
+    return humanCount >= 2;
+  }, [isMultiplayer, tableState?.playersPublic]);
 
   const handleReactionShow = useCallback((payload) => {
     const toPlayerId = String(payload?.toPlayerId ?? '').trim();
@@ -563,11 +593,18 @@ export default function UnoGame() {
     if (!toPlayerId || !emoji) return;
 
     const id = String(payload?.id ?? `${Date.now()}-${Math.random()}`);
+    if ((reactionLastIdByPlayerRef.current?.[toPlayerId] ?? null) === id) return;
+    reactionLastIdByPlayerRef.current[toPlayerId] = id;
+
     const fromName = String(payload?.fromName ?? 'Jugador').trim() || 'Jugador';
     const durationMsRaw = Number(payload?.durationMs);
     const durationMs =
       Number.isFinite(durationMsRaw) && durationMsRaw > 0 ? durationMsRaw : 7000;
     const expiresAt = Date.now() + durationMs;
+
+    if (import.meta?.env?.DEV) {
+      console.log('[UNO][client][DBG] reaction show', { id, toPlayerId, emoji, fromName, durationMs });
+    }
 
     const prevTimeout = reactionTimeoutsRef.current?.[toPlayerId] ?? null;
     if (prevTimeout) {
@@ -589,6 +626,9 @@ export default function UnoGame() {
         return next;
       });
       delete reactionTimeoutsRef.current[toPlayerId];
+      if (reactionLastIdByPlayerRef.current?.[toPlayerId] === id) {
+        delete reactionLastIdByPlayerRef.current[toPlayerId];
+      }
     }, durationMs);
   }, []);
 
@@ -675,11 +715,7 @@ export default function UnoGame() {
     const email = resolveNickOrEmail();
     const localPlayerKey = String(email || '').trim().toLowerCase();
 
-    console.log('[UNO][client][DBG] multiplayer init', {
-      codigo,
-      email,
-      cookie: typeof document !== 'undefined' ? document.cookie : null,
-    });
+    // console.log('[UNO] multiplayer init', { codigo });
 
     setUnoDeadlinesByPlayerId({});
     setLostPlayerIds([]);
@@ -910,6 +946,12 @@ export default function UnoGame() {
         setIsReloadingDeck(false);
         const msg = payload?.message || payload?.reason || 'Error.';
         pushEvent(`Error: ${msg}`);
+        setGame((prev) => {
+          if (prev?.uiStatus === 'waiting' && !prev?.engine) {
+            return { ...prev, message: `Error: ${msg}` };
+          }
+          return prev;
+        });
       },
       onRematchStatus: (payload) => {
         const totalCount =
@@ -2249,6 +2291,7 @@ export default function UnoGame() {
           <section className="unoCenter">
             <TableRing
               onSendReaction={sendReactionToPlayer}
+              canShowReactions={canShowSeatReactions}
               reactionsByPlayerId={reactionsByPlayerId}
               isReactionCooldownActive={isReactionCooldownActive}
         gameState={
@@ -2270,18 +2313,19 @@ export default function UnoGame() {
                 direction: tableState.direction === -1 ? -1 : 1,
                 myPlayerId: tableState.myPlayerId ?? null,
               }
-             : {
-                players: (engine.players ?? []).map((p, idx) => ({
-                  id: p.id,
-                  name: p.name,
-                  handCount: p.handCount ?? p.hand?.length ?? 0,
-                  isBot: idx !== 0,
-                })),
-                turnIndex: engine.currentPlayerIndex ?? 0,
-                turnPlayerId: String(engine.players?.[engine.currentPlayerIndex]?.id ?? ''),
-                direction: engine.direction === -1 ? -1 : 1,
-                myPlayerId: player.id,
-              }
+              : {
+                 players: (engine.players ?? []).map((p, idx) => ({
+                   id: p.id,
+                   name: p.name,
+                   handCount: p.handCount ?? p.hand?.length ?? 0,
+                   // Local (vs bot) only. In multiplayer, bots are explicitly flagged by the server.
+                   isBot: !isMultiplayer && idx !== 0,
+                 })),
+                 turnIndex: engine.currentPlayerIndex ?? 0,
+                 turnPlayerId: String(engine.players?.[engine.currentPlayerIndex]?.id ?? ''),
+                 direction: engine.direction === -1 ? -1 : 1,
+                 myPlayerId: player.id,
+               }
         }
       >
         <ActionOverlay effect={actionEffect} key={actionEffect?._id ?? 'x'} />

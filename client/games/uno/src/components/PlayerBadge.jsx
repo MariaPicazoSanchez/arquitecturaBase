@@ -13,6 +13,9 @@ export default function PlayerBadge({
   isNext = false,
   isLocal = false,
 }) {
+  const rawName = player?.name ?? 'Jugador';
+  const safeName = String(rawName).includes('@') ? 'Jugador' : rawName;
+
   const classes = [
     'playerBadge',
     'uno-seat',
@@ -35,13 +38,15 @@ export default function PlayerBadge({
     <div className={classes}>
       <div className="playerBadgeRow">
         <div className="playerBadgeAvatar" aria-hidden="true">
-          {getInitial(player?.name)}
+          {getInitial(safeName)}
         </div>
 
         <div className="playerBadgeMeta">
           {/* split name + count so count never gets ellipsized */}
           <div className="playerBadgeTopRow">
-            <span className="playerBadgeName">{player?.name ?? 'Jugador'}</span>
+            <span className="playerBadgeName" title={safeName}>
+              {safeName}
+            </span>
             <span className="playerBadgeCountInline">({displayCount})</span>
             {isLocal && <span className="playerBadgeYou">{youLabel}</span>}
           </div>

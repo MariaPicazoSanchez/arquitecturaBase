@@ -38,8 +38,14 @@ export function createUnoSocket({
   socket.on("connect", () => {
     console.log("[UNO] conectado al WS", socket.id);
     const subscribe = () => {
-      socket.emit("uno:suscribirse", { codigo, email });
-      socket.emit("uno_get_state", { codigo, email });
+      socket.emit("uno:suscribirse", { codigo, email }, (ack) => {
+        if (ack && ack.ok === false) {
+          const msg = ack.message || ack.reason || "Suscripción rechazada.";
+          if (typeof onUnoError === "function") onUnoError({ reason: ack.reason, message: msg });
+          return;
+        }
+        socket.emit("uno_get_state", { codigo, email });
+      });
     };
 
     let settled = false;
@@ -101,7 +107,16 @@ export function createUnoSocket({
     if (typeof onRematchStart === "function") onRematchStart(payload);
   });
 
+  // Reacciones UNO (evento canonical + compat).
+  socket.on("reaction:received", (payload) => {
+    if (typeof onReactionShow === "function") onReactionShow(payload);
+  });
+
   socket.on("reaction:show", (payload) => {
+    if (typeof onReactionShow === "function") onReactionShow(payload);
+  });
+
+  socket.on("uno:reaction", (payload) => {
     if (typeof onReactionShow === "function") onReactionShow(payload);
   });
 
@@ -143,16 +158,25 @@ export function createUnoSocket({
     socket.emit("uno:rematch_ready", { codigo, email });
   }
 
-  function sendReaction({ gameId, toPlayerId, emoji, icon } = {}) {
+  function sendReaction({ gameId, toPlayerId, emoji, icon, ...rest } = {}) {
     const resolvedGameId = String(gameId || codigo || "").trim();
     return new Promise((resolve) => {
-      socket.emit(
-        "reaction:send",
-        { gameId: resolvedGameId, toPlayerId, emoji: emoji ?? icon ?? "" },
-        (ack) => {
-          resolve(ack);
-        },
-      );
+      let settled = false;
+      const payload = { ...rest, gameId: resolvedGameId, toPlayerId, emoji: emoji ?? icon ?? "" };
+
+      const fallbackTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        // Backwards compat (older servers).
+        socket.emit("uno:reaction", payload, (ack2) => resolve(ack2));
+      }, 450);
+
+      socket.emit("reaction:send", payload, (ack) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(fallbackTimer);
+        resolve(ack);
+      });
     });
   }
 

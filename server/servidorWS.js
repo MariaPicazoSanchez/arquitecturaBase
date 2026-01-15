@@ -49,6 +49,87 @@ const BOT_TURN_DELAY_MAX_MS = (() => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 500;
 })();
 
+// Public-facing name sanitizer: never leak emails in UI payloads.
+const looksLikeEmail = (value) => {
+  const t = String(value || "").trim();
+  return !!t && t.includes("@");
+};
+
+const safePublicName = (value, fallback) => {
+  const t = String(value || "").trim();
+  if (!t || looksLikeEmail(t)) return String(fallback || "Jugador");
+  return t;
+};
+
+// Public stable userId (for lobby/UI): deterministic, NOT email, NOT socket.id.
+const publicUserIdFromEmail = (email) => {
+  const e = (email || "").toString().trim().toLowerCase();
+  if (!e) return "";
+  // djb2 (fast, deterministic). Not shown in UI; only used for identity comparisons.
+  let hash = 5381;
+  for (let i = 0; i < e.length; i += 1) {
+    hash = ((hash << 5) + hash + e.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+};
+
+// Public list payload: strip emails + keep only safe fields (used by lobby UI).
+const sanitizeListaPartidasPublic = (lista) => {
+  if (!Array.isArray(lista)) return [];
+  return lista.map((p) => {
+    const jugadoresCount = Array.isArray(p?.jugadores)
+      ? p.jugadores.length
+      : Number.isFinite(Number(p?.jugadores))
+        ? Number(p.jugadores)
+        : Number.isFinite(Number(p?.playersCount))
+          ? Number(p.playersCount)
+          : 0;
+    const maxPlayersRaw = p?.maxPlayers ?? p?.maxJug ?? 2;
+    const maxPlayers = Number.isFinite(Number(maxPlayersRaw)) ? Number(maxPlayersRaw) : 2;
+
+    const ownerCandidate =
+      p?.propietario ||
+      (Array.isArray(p?.jugadores) && p.jugadores[0] ? p.jugadores[0].nick : "") ||
+      "";
+
+    const jugadoresArr = Array.isArray(p?.jugadores) ? p.jugadores : [];
+    const hostUserId = publicUserIdFromEmail(
+      p?.propietarioEmail || (jugadoresArr[0] && jugadoresArr[0].email) || ""
+    );
+
+    const players = jugadoresArr
+      .map((j) => {
+        const isBot = !!(j && (j.isBot || String(j.email || "").toLowerCase() === "bot@local"));
+        return {
+          userId: isBot ? "BOT" : publicUserIdFromEmail(j && j.email),
+          displayName: safePublicName(j && (j.nick || j.displayName), isBot ? "Bot" : "Jugador"),
+          isBot,
+        };
+      })
+      .filter((pl) => !!pl.userId);
+
+    const started =
+      String(p?.status || "").toUpperCase() === "STARTED" ||
+      (p?.estado && p.estado !== "pendiente");
+
+    return {
+      codigo: p?.codigo,
+      juego: p?.juego ?? "uno",
+      status: p?.status ?? "OPEN",
+      started,
+      jugadores: jugadoresCount,
+      numJugadores: jugadoresCount,
+      maxPlayers,
+      maxJug: maxPlayers,
+      vsBot: !!p?.vsBot,
+      mode: p?.mode ?? (p?.vsBot ? "PVBOT" : "PVP"),
+      hostUserId,
+      players,
+      propietario: safePublicName(ownerCandidate, "Anfitrión"),
+    };
+  });
+};
+
 function ServidorWS() {
   let srv = this;
   let sistemaRef = null;
@@ -112,12 +193,13 @@ function ServidorWS() {
   ]); */
 
   const pickDisplayName = (partida, playerId, fallback) => {
-    if (!partida || !Array.isArray(partida.jugadores)) return fallback;
+    if (!partida || !Array.isArray(partida.jugadores)) return safePublicName(fallback, "Jugador");
     const found = partida.jugadores.find(
       (j) => normalizePlayerId(j.email) === playerId
     );
     const nick = (found && typeof found.nick === "string" ? found.nick.trim() : "") || "";
-    return nick || fallback;
+    if (!nick) return safePublicName(fallback, "Jugador");
+    return safePublicName(nick, fallback);
   };
 
   const arraysEqual = (a, b) =>
@@ -201,7 +283,7 @@ function ServidorWS() {
         cleanupCodigoState(io, codigo);
 
         const lista = sistema.obtenerPartidasDisponibles(partidaNow.juego);
-        srv.enviarGlobal(io, "listaPartidas", lista);
+        srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
       } catch (e) {
         console.warn("[RESUME] error deleting empty match:", e?.message || e);
       }
@@ -1007,13 +1089,13 @@ function ServidorWS() {
       socket.on("obtenerListaPartidas", function(datos) {
         const juego = datos && datos.juego;
         let lista = sistema.obtenerPartidasDisponibles(juego);
-        srv.enviarAlRemitente(socket, "listaPartidas", lista);
+        srv.enviarAlRemitente(socket, "listaPartidas", sanitizeListaPartidasPublic(lista));
       });
       // dispara una vez al conectar
-      socket.emit("listaPartidas", sistema.obtenerPartidasDisponibles());
+      socket.emit("listaPartidas", sanitizeListaPartidasPublic(sistema.obtenerPartidasDisponibles()));
 
       // === crearPartida ===
-      socket.on("crearPartida", function(datos) {
+      socket.on("crearPartida", function(datos, ack) {
         const juego = datos && datos.juego;
         const modeRaw = datos && datos.mode;
         const vsBotRaw = datos && datos.vsBot;
@@ -1042,7 +1124,11 @@ function ServidorWS() {
               ? parsed
               : 2;
 
-        let codigo = sistema.crearPartida(datos.email, juego, maxPlayers, { vsBot: isBotMode, mode });
+        let codigo = sistema.crearPartida(datos.email, juego, maxPlayers, {
+          vsBot: isBotMode,
+          mode,
+          nick: datos && typeof datos.nick === "string" ? datos.nick : undefined,
+        });
 
         if (codigo !== -1) {
           socket.join(codigo); // sala de socket.io
@@ -1056,6 +1142,14 @@ function ServidorWS() {
           juego: partidaCreada?.juego || juego,
           isBotGame: !!(partidaCreada && isBotMatch(partidaCreada)),
         });
+        if (typeof ack === "function") {
+          ack({
+            ok: codigo !== -1,
+            codigo,
+            juego: partidaCreada?.juego || juego,
+            maxPlayers,
+          });
+        }
 
         if (
           codigo !== -1 &&
@@ -1076,13 +1170,49 @@ function ServidorWS() {
         }
 
         let lista = sistema.obtenerPartidasDisponibles(juego);
-        srv.enviarGlobal(io, "listaPartidas", lista);
+        srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
       });
 
       // === unirAPartida ===
-      socket.on("unirAPartida", async function(datos) {
+      socket.on("unirAPartida", async function(datos, ack) {
+        // Mejor esfuerzo: actualizar nick del usuario para que el lobby muestre siempre displayName.
+        try {
+          const nick = datos && typeof datos.nick === "string" ? String(datos.nick).trim() : "";
+          if (nick && !looksLikeEmail(nick) && typeof sistema._obtenerOcrearUsuarioEnMemoria === "function") {
+            sistema._obtenerOcrearUsuarioEnMemoria(datos.email, nick);
+          }
+        } catch (e) {}
+
         const res = sistema.unirAPartida(datos.email, datos.codigo);
         const codigo = res && typeof res === "object" ? res.codigo : res;
+
+        // Si ya est\u00e1 en la sala, no tratar como error (deduplicaci\u00f3n).
+        if (codigo === -1 && res && typeof res === "object" && res.reason === "ALREADY_IN") {
+          const partida = sistema.partidas?.[datos.codigo] || null;
+          const maxPlayers = partida?.maxPlayers ?? partida?.maxJug ?? 2;
+          const playersCount = Array.isArray(partida?.jugadores)
+            ? partida.jugadores.length
+            : (partida?.playersCount || 0);
+          const status = partida?.status || (playersCount >= maxPlayers ? "FULL" : "OPEN");
+
+          try {
+            socket.join(datos.codigo);
+            cancelRoomEmptyTimer(datos.codigo);
+          } catch (e) {}
+
+          srv.enviarAlRemitente(socket, "unidoAPartida", {
+            codigo: datos.codigo,
+            status,
+            playersCount,
+            maxPlayers,
+            alreadyJoined: true,
+          });
+          if (typeof ack === "function") ack({ ok: true, reason: "already_joined" });
+
+          let lista = sistema.obtenerPartidasDisponibles(datos.juego);
+          srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
+          return;
+        }
 
         if (codigo !== -1) {
           socket.join(codigo);
@@ -1148,13 +1278,19 @@ function ServidorWS() {
           "unidoAPartida",
           res && typeof res === "object" ? res : { codigo: codigo }
         );
+        if (typeof ack === "function") {
+          ack({
+            ok: codigo !== -1,
+            reason: res && typeof res === "object" ? res.reason : undefined,
+          });
+        }
 
         let lista = sistema.obtenerPartidasDisponibles(datos.juego);
-        srv.enviarGlobal(io, "listaPartidas", lista);
+        srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
       });
 
       // === continuarPartida ===
-      socket.on("continuarPartida", function(datos) {
+      socket.on("continuarPartida", function(datos, ack) {
         // Marca la partida como "en curso" en tu sistema
         const res = sistema.continuarPartida(datos.email, datos.codigo);
         const codigo = res && typeof res === "object" ? res.codigo : res;
@@ -1177,7 +1313,8 @@ function ServidorWS() {
           // (si sistema.obtenerPartidasDisponibles ya filtra las "en curso",
           //   desaparecerá del listado como quieres)
           let lista = sistema.obtenerPartidasDisponibles(juego);
-          srv.enviarGlobal(io, "listaPartidas", lista);
+          srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
+          if (typeof ack === "function") ack({ ok: true, codigo });
         } else {
           // No se pudo continuar la partida (no es el propietario, código inválido, etc.)
           srv.enviarAlRemitente(
@@ -1185,21 +1322,40 @@ function ServidorWS() {
             "partidaContinuada",
             res && typeof res === "object" ? res : { codigo: -1 }
           );
+          if (typeof ack === "function") {
+            ack({
+              ok: false,
+              codigo: -1,
+              reason: res && typeof res === "object" ? res.reason : "ERROR",
+            });
+          }
         }
       });
 
       // === eliminarPartida ===
-      socket.on("eliminarPartida", function(datos) {
-        let codigo = sistema.eliminarPartida(datos.email, datos.codigo);
+      socket.on("eliminarPartida", function(datos, ack) {
+        const codigoReq = datos && datos.codigo;
+        const before = !!(codigoReq && sistema.partidas && sistema.partidas[codigoReq]);
+        let codigo = sistema.eliminarPartida(datos.email, codigoReq);
+        const deletedRoom =
+          before && !!codigoReq && !(sistema.partidas && sistema.partidas[codigoReq]);
+
+        try { if (codigoReq) socket.leave(codigoReq); } catch (e) {}
+        if (deletedRoom && codigoReq) {
+          try { io.to(codigoReq).emit("room:deleted", { codigo: codigoReq }); } catch (e) {}
+        }
 
         if (codigo !== -1 && !sistema.partidas[codigo]) {
           cleanupCodigoState(io, codigo);
         }
 
         srv.enviarAlRemitente(socket, "partidaEliminada", { codigo: codigo });
+        if (typeof ack === "function") {
+          ack({ ok: codigo !== -1, codigo, deletedRoom });
+        }
 
         let lista = sistema.obtenerPartidasDisponibles(datos.juego);
-        srv.enviarGlobal(io, "listaPartidas", lista);
+        srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
       });
 
       // ==========================
@@ -1323,7 +1479,7 @@ function ServidorWS() {
           delete sistema.partidas[codigo];
           cleanupCodigoState(io, codigo);
           const lista = sistema.obtenerPartidasDisponibles(partidaNow.juego);
-          srv.enviarGlobal(io, "listaPartidas", lista);
+          srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
         }
 
         return respond({ ok: true, codigo: res && typeof res === "object" ? res.codigo : res, deleted });
@@ -1399,13 +1555,15 @@ function ServidorWS() {
       //  UNO MULTIJUGADOR (WS)
       // ==========================
 
-      socket.on("reaction:send", function (payload, ack) {
+      const handleUnoReaction = function (payload, ack) {
         const respond = (res) => {
           if (typeof ack === "function") return ack(res);
-          socket.emit("reaction:send", res);
+          return;
         };
 
-        const gameId = String(payload?.gameId || "").trim();
+        const gameId = String(
+          payload?.gameId ?? payload?.roomId ?? payload?.matchId ?? payload?.codigo ?? ""
+        ).trim();
         const toPlayerId = String(payload?.toPlayerId ?? "").trim();
         const emoji = String(payload?.emoji ?? payload?.icon ?? "").trim();
 
@@ -1464,7 +1622,7 @@ function ServidorWS() {
         // Rate-limit por socket (defensa adicional; el cliente también aplica cooldown).
         const now = Date.now();
         const lastTs = Number(socket?.data?.lastReactionSendTs || 0) || 0;
-        const COOLDOWN_MS = 1000;
+        const COOLDOWN_MS = 2000;
         if (now - lastTs < COOLDOWN_MS) {
           return respond({ ok: false, error: "RATE_LIMIT" });
         }
@@ -1476,7 +1634,7 @@ function ServidorWS() {
           String(datosUNO.engine?.players?.[fromPlayerIndex]?.name || "").trim() ||
           pickDisplayName(partida, fromHumanId, fromHumanId);
 
-        io.to(gameId).emit("reaction:show", {
+        const reactionPayload = {
           id: `${now}-${Math.random().toString(16).slice(2)}`,
           gameId,
           toPlayerId: String(toPlayerIndex),
@@ -1485,10 +1643,27 @@ function ServidorWS() {
           fromName,
           durationMs: 7000,
           ts: now,
-        });
+        };
+
+        if (process.env.UNO_DEBUG_REACTIONS === "1") {
+          console.log("[UNO][REACTION] show", {
+            gameId,
+            toPlayerId: reactionPayload.toPlayerId,
+            fromPlayerId: fromPlayerIndex,
+            fromName,
+            emoji,
+          });
+        }
+
+        // Evento canonical para reacciones (y compat hacia clientes antiguos).
+        io.to(gameId).emit("reaction:received", reactionPayload);
+        io.to(gameId).emit("reaction:show", reactionPayload);
 
         return respond({ ok: true });
-      });
+      };
+
+      socket.on("reaction:send", handleUnoReaction);
+      socket.on("uno:reaction", handleUnoReaction);
 
       socket.on("uno_get_state", async function (datos) {
         const codigo = (datos && (datos.codigo || datos.codigoPartida)) || null;
@@ -1496,16 +1671,36 @@ function ServidorWS() {
         if (!codigo) return;
 
         const partida = sistema.partidas[codigo];
-        if (!partida) return;
-        if (partida.juego !== "uno") return;
+        if (!partida) {
+          try {
+            socket.emit("uno_error", { codigo, reason: "NOT_FOUND", message: "La partida no existe o ha expirado." });
+          } catch (e) {}
+          return;
+        }
+        if (partida.juego !== "uno") {
+          try {
+            socket.emit("uno_error", { codigo, reason: "GAME_MISMATCH", message: "La partida no es de UNO." });
+          } catch (e) {}
+          return;
+        }
 
         const playerId = normalizePlayerId(email);
-        if (!playerId) return;
+        if (!playerId) {
+          try {
+            socket.emit("uno_error", { codigo, reason: "INVALID_SESSION", message: "Sesi\u00f3n inv\u00e1lida." });
+          } catch (e) {}
+          return;
+        }
 
         const belongs =
           Array.isArray(partida.jugadores) &&
           partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
-        if (!belongs) return;
+        if (!belongs) {
+          try {
+            socket.emit("uno_error", { codigo, reason: "NOT_IN_ROOM", message: "No perteneces a esta partida." });
+          } catch (e) {}
+          return;
+        }
 
         if (!estadosUNO[codigo]) {
           estadosUNO[codigo] = {
@@ -1748,11 +1943,23 @@ function ServidorWS() {
       });
 
       // Cuando el juego UNO (en /uno) se conecta
-      async function handleUnoSubscribe(datos) {
+      async function handleUnoSubscribe(datos, ack) {
         const codigo = datos && datos.codigo;
         const email  = datos && datos.email;
+
+        const respond = (payload) => {
+          if (typeof ack === "function") ack(payload);
+        };
         if (!codigo || !email) {
           console.warn("[UNO] suscribirse sin codigo o email");
+          try {
+            socket.emit("uno_error", {
+              codigo,
+              reason: "INVALID_SUBSCRIBE",
+              message: "Suscripci\u00f3n inv\u00e1lida: falta c\u00f3digo o sesi\u00f3n.",
+            });
+          } catch (e) {}
+          respond({ ok: false, reason: "INVALID_SUBSCRIBE" });
           return;
         }
         cancelRoomEmptyTimer(codigo);
@@ -1760,10 +1967,26 @@ function ServidorWS() {
         const partida = sistema.partidas[codigo];
         if (!partida) {
           console.warn("[UNO] partida no encontrada", codigo);
+          try {
+            socket.emit("uno_error", {
+              codigo,
+              reason: "NOT_FOUND",
+              message: "La partida no existe o ha expirado.",
+            });
+          } catch (e) {}
+          respond({ ok: false, reason: "NOT_FOUND" });
           return;
         }
         if (partida.juego !== "uno") {
           console.warn("[UNO] la partida no es de UNO", codigo, partida.juego);
+          try {
+            socket.emit("uno_error", {
+              codigo,
+              reason: "GAME_MISMATCH",
+              message: "La partida no es de UNO.",
+            });
+          } catch (e) {}
+          respond({ ok: false, reason: "GAME_MISMATCH" });
           return;
         }
 
@@ -1775,11 +1998,23 @@ function ServidorWS() {
           Array.isArray(partida.jugadores) &&
           partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
         if (!belongs) {
+          const roomIds = Array.isArray(partida.jugadores)
+            ? partida.jugadores
+                .map((j) => normalizePlayerId(j && j.email))
+                .filter(Boolean)
+            : [];
           console.warn(
             "[UNO] suscripcion rechazada (no pertenece a la partida)",
-            email,
-            codigo
+            { codigo, socketId: socket.id, playerId, roomIdsCount: roomIds.length }
           );
+          try {
+            socket.emit("uno_error", {
+              codigo,
+              reason: "NOT_IN_ROOM",
+              message: "No perteneces a esta partida.",
+            });
+          } catch (e) {}
+          respond({ ok: false, reason: "NOT_IN_ROOM", message: "No perteneces a esta partida." });
           return;
         }
 
@@ -1861,6 +2096,8 @@ function ServidorWS() {
         } catch (e) {
           console.warn("[UNO] error reenviando uno_required al suscribir", e?.message || e);
         }
+
+        respond({ ok: true });
       }
 
       socket.on("uno:suscribirse", handleUnoSubscribe);
@@ -2405,7 +2642,7 @@ function ServidorWS() {
             io.to(codigo).emit("checkers_restart", { codigo, newCodigo });
 
             const lista = sistema.obtenerPartidasDisponibles(partida.juego);
-            srv.enviarGlobal(io, "listaPartidas", lista);
+            srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
           } catch (e) {
             console.warn("[CHECKERS] fallo creando nueva vs bot:", e?.message || e);
             emitDamasError(socket, {
@@ -2558,7 +2795,7 @@ function ServidorWS() {
             io.to(codigo).emit("4raya:rematch_ready", { codigo, newCodigo });
 
             const lista = sistema.obtenerPartidasDisponibles("4raya");
-            srv.enviarGlobal(io, "listaPartidas", lista);
+            srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
           } catch (e) {
             console.warn("[4RAYA] fallo creando revancha vs bot:", e?.message || e);
             io.to(codigo).emit("4raya:rematch_ready", {
@@ -2615,7 +2852,7 @@ function ServidorWS() {
             io.to(codigo).emit("4raya:rematch_ready", { codigo, newCodigo });
 
             const lista = sistema.obtenerPartidasDisponibles("4raya");
-            srv.enviarGlobal(io, "listaPartidas", lista);
+            srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
           } catch (e) {
             console.warn("[4RAYA] fallo creando revancha:", e?.message || e);
             io.to(codigo).emit("4raya:rematch_ready", {

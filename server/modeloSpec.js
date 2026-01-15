@@ -87,7 +87,8 @@ describe("Pruebas de las partidas", function(){
     let lista = sistema.obtenerPartidasDisponibles();
     expect(lista.length).toEqual(1);
     expect(lista[0].codigo).toEqual(codigo);
-    expect(lista[0].propietario).toEqual(usr.email);
+    expect(typeof lista[0].propietario).toEqual("string");
+    expect(lista[0].propietario.includes("@")).toBe(false);
   });
 
   it("Unir a partida y completar aforo", function(){
@@ -117,7 +118,12 @@ describe("Pruebas de las partidas", function(){
   it("Obtener partidas disponibles devuelve c��digo y propietario", function(){
     let codigo = sistema.crearPartida(usr.email);
     let lista = sistema.obtenerPartidasDisponibles();
-    const found = Array.isArray(lista) && lista.some(p => p && p.codigo === codigo && p.propietario === usr.email);
+    const found = Array.isArray(lista) && lista.some(p =>
+      p &&
+      p.codigo === codigo &&
+      typeof p.propietario === "string" &&
+      !p.propietario.includes("@")
+    );
     expect(found).toBe(true);
   });
 });
