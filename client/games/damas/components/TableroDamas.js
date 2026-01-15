@@ -60,8 +60,9 @@ export class TableroDamas {
     }
   }
 
-  render({ board, selectedFrom, destinations, forcedFrom, disabled, pieceRenderer, flip } = {}) {
+  render({ board, selectedFrom, destinations, forcedFrom, highlights, disabled, pieceRenderer, flip } = {}) {
     const dests = destinations instanceof Set ? destinations : new Set();
+    const hl = highlights instanceof Set ? highlights : new Set();
     const rows = Array.isArray(board) ? board : [];
     const shouldFlip = !!flip;
 
@@ -88,6 +89,7 @@ export class TableroDamas {
           !!forcedFrom && forcedFrom.r === rr && forcedFrom.c === cc,
         );
         cell.classList.toggle("damasCell--dest", dests.has(`${rr},${cc}`));
+        cell.classList.toggle("damasCell--highlight", hl.has(`${rr},${cc}`));
 
         const piece = rows?.[rr]?.[cc] ?? 0;
         cell.innerHTML = "";

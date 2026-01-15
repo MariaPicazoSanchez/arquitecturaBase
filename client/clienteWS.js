@@ -63,6 +63,28 @@ function ClienteWS() {
               }
               return;
           }
+          try {
+              const juego = String((datos && datos.juego) || ws.gameType || (window.cw && cw.juegoActual) || "uno").trim().toLowerCase();
+              const normalized = juego === "checkers" ? "damas" : juego;
+              const isBotGame = !!datos.isBotGame;
+              if (isBotGame) {
+                  localStorage.removeItem("activeMatch");
+              } else if (normalized === "4raya" || normalized === "damas") {
+                  localStorage.setItem(
+                      "activeMatch",
+                      JSON.stringify({
+                          matchCode: String(datos.codigo),
+                          gameKey: normalized,
+                          creatorNick: null,
+                          joinedAt: Date.now(),
+                          isBotMatch: false,
+                      })
+                  );
+              }
+          } catch(e) {}
+          if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+              cw.renderContinueGamesBar();
+          }
           ws.codigo = datos.codigo;
           ws.pedirListaPartidas();
       });
@@ -83,6 +105,29 @@ function ClienteWS() {
               }
               ws.pedirListaPartidas();
               return;
+          }
+          try {
+              const juego = String((datos && datos.juego) || ws.gameType || (window.cw && cw.juegoActual) || "uno").trim().toLowerCase();
+              const normalized = juego === "checkers" ? "damas" : juego;
+              const isBotGame = !!datos.isBotGame;
+              const creatorNick = (datos && typeof datos.creatorNick === "string") ? String(datos.creatorNick).trim() : "";
+              if (isBotGame) {
+                  localStorage.removeItem("activeMatch");
+              } else if (normalized === "4raya" || normalized === "damas") {
+                  localStorage.setItem(
+                      "activeMatch",
+                      JSON.stringify({
+                          matchCode: String(datos.codigo),
+                          gameKey: normalized,
+                          creatorNick: creatorNick || null,
+                          joinedAt: Date.now(),
+                          isBotMatch: false,
+                      })
+                  );
+              }
+          } catch(e) {}
+          if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+              cw.renderContinueGamesBar();
           }
           ws.codigo = datos.codigo;
           ws.pedirListaPartidas();
@@ -113,6 +158,7 @@ function ClienteWS() {
             const normalizedRaw = String(juego || "uno").trim().toLowerCase();
             const normalized = normalizedRaw === "checkers" ? "damas" : normalizedRaw;
             const isBotGame = !!datos.isBotGame;
+            const creatorNick = (datos && typeof datos.creatorNick === "string") ? String(datos.creatorNick).trim() : "";
             const key =
                 normalized === "uno" ? "activeGame:UNO" :
                 normalized === "damas" ? "activeGame:DAMAS" :
@@ -124,6 +170,22 @@ function ClienteWS() {
                 } else {
                     localStorage.setItem(key, JSON.stringify({ gameId: String(datos.codigo), ts: Date.now() }));
                 }
+            }
+
+            // New resumable-match payload (used by Home banner).
+            if (isBotGame) {
+                localStorage.removeItem("activeMatch");
+            } else {
+                localStorage.setItem(
+                    "activeMatch",
+                    JSON.stringify({
+                        matchCode: String(datos.codigo),
+                        gameKey: normalized,
+                        creatorNick: creatorNick || null,
+                        joinedAt: Date.now(),
+                        isBotMatch: false,
+                    })
+                );
             }
         } catch(e) {}
         if (window.cw && typeof cw.renderContinueGamesBar === "function") {
@@ -146,9 +208,87 @@ function ClienteWS() {
         }
     });
 
-    this.socket.on("partidaEliminada", function(datos){
+      this.socket.on("partidaEliminada", function(datos){
           console.log("Partida eliminada:", datos.codigo);
           ws.pedirListaPartidas();
+      });
+
+      const prettyGameName = (gameKey) => {
+        const k = String(gameKey || "").trim().toLowerCase();
+        if (k === "uno") return "Última Carta";
+        if (k === "4raya") return "4 en raya";
+        if (k === "damas" || k === "checkers") return "Damas";
+        return k || "juego";
+      };
+
+      const getActiveMatchCode = () => {
+        try {
+          const raw = localStorage.getItem("activeMatch");
+          const parsed = raw ? JSON.parse(raw) : null;
+          return parsed && parsed.matchCode ? String(parsed.matchCode).trim() : "";
+        } catch (e) {
+          return "";
+        }
+      };
+
+      const getMyNick = () => {
+        try {
+          const raw =
+            (window.$ && $.cookie && $.cookie("nick")) ? String($.cookie("nick")).trim() : "";
+          if (!raw) return "";
+          return raw.includes("@") ? "" : raw;
+        } catch (e) {
+          return "";
+        }
+      };
+
+      const shouldShowMatchToast = (matchCode) => {
+        const code = String(matchCode || "").trim();
+        if (!code) return false;
+        const current = String((window.ws && ws.codigo) || "").trim();
+        const active = getActiveMatchCode();
+        return code === current || code === active;
+      };
+
+      this.socket.on("match:player_left", function(payload){
+        const nick = payload && payload.playerNick ? String(payload.playerNick).trim() : "";
+        const codigo = payload && payload.matchCode ? String(payload.matchCode).trim() : "";
+        const juego = payload && payload.gameKey ? prettyGameName(payload.gameKey) : "";
+        if (!nick || !codigo) return;
+        if (!shouldShowMatchToast(codigo)) return;
+        const myNick = getMyNick();
+        if (myNick && nick.toLowerCase() === myNick.toLowerCase()) return;
+        const msg = `${nick} ha abandonado la partida ${codigo}${juego ? ` (${juego})` : ""}`;
+        if (window.appToast && typeof window.appToast.show === "function") {
+          window.appToast.show(msg, { variant: "warning" });
+        }
+      });
+
+      this.socket.on("match:player_disconnected", function(payload){
+        const nick = payload && payload.playerNick ? String(payload.playerNick).trim() : "";
+        const codigo = payload && payload.matchCode ? String(payload.matchCode).trim() : "";
+        const juego = payload && payload.gameKey ? prettyGameName(payload.gameKey) : "";
+        if (!nick || !codigo) return;
+        if (!shouldShowMatchToast(codigo)) return;
+        const myNick = getMyNick();
+        if (myNick && nick.toLowerCase() === myNick.toLowerCase()) return;
+        const msg = `${nick} se ha desconectado de la partida ${codigo}${juego ? ` (${juego})` : ""}`;
+        if (window.appToast && typeof window.appToast.show === "function") {
+          window.appToast.show(msg, { variant: "info" });
+        }
+      });
+
+      this.socket.on("match:ended", function(payload){
+        const codigo = payload && payload.matchCode ? String(payload.matchCode).trim() : "";
+        if (!codigo) return;
+        if (!shouldShowMatchToast(codigo)) return;
+        try {
+          const saved = getActiveMatchCode();
+          if (saved && saved === codigo) localStorage.removeItem("activeMatch");
+        } catch (e) {}
+        try {
+          if (window.cw && typeof cw.renderContinueGamesBar === "function") cw.renderContinueGamesBar();
+        } catch (e) {}
       });
     };
 
@@ -173,7 +313,9 @@ function ClienteWS() {
         juego: this.gameType,
         maxPlayers: maxPlayers,
         vsBot: vsBot,
+        isBotMatch: vsBot,
         mode: vsBot ? "PVBOT" : "PVP",
+        matchMode: vsBot ? "bot" : "pvp",
     });
   };
 
@@ -182,10 +324,22 @@ function ClienteWS() {
           console.warn("No hay email en ws, no se puede continuar partida.");
           return;
       }
-      this.socket.emit("continuarPartida", { 
-        email: this.email,
-        codigo: codigo,
-        juego: this.gameType
+      const juego = String(this.gameType || "").trim().toLowerCase();
+      if (juego === "4raya" || juego === "damas" || juego === "checkers") {
+          const uidCookieRaw =
+              (window.$ && $.cookie && $.cookie("uid")) ? String($.cookie("uid")).trim() : "";
+          const uidCookie = uidCookieRaw ? uidCookieRaw.toLowerCase() : "";
+          this.socket.emit("match:start", {
+              matchCode: String(codigo),
+              email: this.email,
+              userId: uidCookie || undefined,
+          });
+          return;
+      }
+      this.socket.emit("continuarPartida", {
+          email: this.email,
+          codigo: codigo,
+          juego: this.gameType
       });
   };
 

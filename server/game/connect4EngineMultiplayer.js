@@ -59,6 +59,44 @@ function hasFourInARow(board, playerIndex, row, col) {
   return false;
 }
 
+function findWinningCells(board, playerIndex, row, col) {
+  const dirs = [
+    [0, 1], // horizontal
+    [1, 0], // vertical
+    [1, 1], // diag \
+    [1, -1], // diag /
+  ];
+
+  const inBounds = (r, c) => r >= 0 && r < BOARD_ROWS && c >= 0 && c < BOARD_COLS;
+  const isMe = (r, c) => inBounds(r, c) && board[r][c] === playerIndex;
+
+  for (const [dr, dc] of dirs) {
+    const cells = [{ r: row, c: col }];
+
+    for (let step = 1; step < 4; step++) {
+      const rr = row + dr * step;
+      const cc = col + dc * step;
+      if (!isMe(rr, cc)) break;
+      cells.push({ r: rr, c: cc });
+    }
+
+    for (let step = 1; step < 4; step++) {
+      const rr = row - dr * step;
+      const cc = col - dc * step;
+      if (!isMe(rr, cc)) break;
+      cells.unshift({ r: rr, c: cc });
+    }
+
+    if (cells.length >= 4) {
+      const idx = cells.findIndex((p) => p.r === row && p.c === col);
+      const start = Math.min(Math.max(0, idx - 3), cells.length - 4);
+      return cells.slice(start, start + 4);
+    }
+  }
+
+  return null;
+}
+
 function normalizePlayers({ players, names }) {
   const fromPlayers = Array.isArray(players) ? players.slice(0, 2) : null;
   const fromNames = Array.isArray(names) ? names.slice(0, 2) : [];
@@ -94,6 +132,7 @@ function createInitialState({ players, names } = {}) {
     status: 'playing', // playing|finished
     winnerIndex: null, // 0|1|null
     lastMove: null, // { playerIndex, row, col, column }
+    winningCells: null, // [{r,c}...] when finished by win
   };
 }
 
@@ -124,11 +163,13 @@ function applyAction(state, action) {
     ...s,
     board,
     lastMove: { playerIndex, row, col: column, column },
+    winningCells: null,
   };
 
   if (isWin) {
     next.status = 'finished';
     next.winnerIndex = playerIndex;
+    next.winningCells = findWinningCells(board, playerIndex, row, column);
     return next;
   }
 

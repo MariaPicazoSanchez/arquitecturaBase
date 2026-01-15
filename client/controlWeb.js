@@ -84,6 +84,18 @@ function ControlWeb() {
 
         this._updateMainVisibility();
 
+        // Ensure the outer socket stays subscribed to the match room for system toasts / resume checks.
+        try {
+            const email =
+                cw.email ||
+                (window.ws && ws.email) ||
+                (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+                null;
+            if (window.ws && ws.socket && codigo && email) {
+                ws.socket.emit("match:resume", { matchCode: String(codigo), email: email });
+            }
+        } catch(e) {}
+
         // Scroll suave hasta el juego
         try {
             $("html, body").animate({
@@ -93,7 +105,9 @@ function ControlWeb() {
     };
 
     this.volverDesdeJuego = function(){
-        // Voluntary leave: clear saved resume session and remove player from server match
+        // Voluntary leave:
+        // - UNO: se comporta como "abandonar" (histórico).
+        // - Damas/4raya: salida blanda (no abandonar), permite reentrada/continuar.
         try {
             const gameType = cw._normalizeResumeGameType(cw._activeGameType || cw.juegoActual);
             const gameId = String(cw._activeCodigo || (window.ws && ws.codigo) || "").trim();
@@ -103,17 +117,45 @@ function ControlWeb() {
                 (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
                 null;
 
+            const isUno = gameType === "uno";
             const key = cw._activeGameStorageKeyFor(gameType);
-            if (key) {
-                try { localStorage.removeItem(key); } catch(e) {}
-            }
 
-            if (window.ws && ws.socket && gameId && email) {
-                ws.socket.emit("game:leave", { gameType, gameId, email }, function(){
-                    if (window.cw && typeof cw.renderContinueGamesBar === "function") {
-                        cw.renderContinueGamesBar();
+            if (isUno) {
+                if (key) {
+                    try { localStorage.removeItem(key); } catch(e) {}
+                }
+                try { localStorage.removeItem("activeMatch"); } catch(e) {}
+
+                if (window.ws && ws.socket && gameId && email) {
+                    ws.socket.emit("game:leave", { gameType, gameId, email }, function(){
+                        if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                            cw.renderContinueGamesBar();
+                        }
+                    });
+                }
+            } else {
+                // Soft exit: keep `activeMatch` for PVP games to allow "Continuar partida".
+                if (key) {
+                    // legacy keys only (UNO/DAMAS) - keep them for Damas to avoid breaking old banner logic
+                    // (activeMatch is the source of truth for resume UI).
+                }
+                // Inform server we left the match UI (disconnect semantics) so that:
+                // - other players get a system notification
+                // - matches with 0 connected players get destroyed (no "continuar" ghost)
+                try {
+                    const activeRaw = localStorage.getItem("activeMatch");
+                    const active = activeRaw ? JSON.parse(activeRaw) : null;
+                    const matchCode = String(active?.matchCode || gameId || "").trim();
+                    const isBotMatch = !!active?.isBotMatch;
+                    const isPvpResumable =
+                        !isBotMatch && (gameType === "damas" || gameType === "4raya");
+                    if (isPvpResumable && matchCode && email && window.ws && ws.socket) {
+                        ws.socket.emit("match:soft_disconnect", { matchCode, email });
                     }
-                });
+                } catch(e) {}
+                if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                    cw.renderContinueGamesBar();
+                }
             }
         } catch(e) {}
 
@@ -314,26 +356,38 @@ function ControlWeb() {
             return;
         }
 
-        const readSaved = (key) => {
-            try {
-                const raw = localStorage.getItem(key);
-                if (!raw) return null;
-                const parsed = JSON.parse(raw);
-                const gameId = parsed && (parsed.gameId || parsed.codigo);
-                if (!gameId) return null;
-                return { gameId: String(gameId).trim() };
-            } catch(e){
-                return null;
-            }
+        const safeJsonParse = (raw) => {
+            try { return JSON.parse(raw); } catch(e){ return null; }
         };
 
-        const candidates = [];
-        const unoSaved = readSaved("activeGame:UNO");
-        const damasSaved = readSaved("activeGame:DAMAS");
-        if (unoSaved?.gameId) candidates.push({ gameType: "uno", key: "activeGame:UNO", gameId: unoSaved.gameId });
-        if (damasSaved?.gameId) candidates.push({ gameType: "damas", key: "activeGame:DAMAS", gameId: damasSaved.gameId });
+        // Legacy migration: activeGame:* -> activeMatch (best-effort, without creatorNick).
+        try {
+            const existing = localStorage.getItem("activeMatch");
+            if (!existing) {
+                const legacyUno = safeJsonParse(localStorage.getItem("activeGame:UNO"));
+                const legacyDamas = safeJsonParse(localStorage.getItem("activeGame:DAMAS"));
+                const legacy = legacyUno?.gameId ? { gameKey: "uno", matchCode: legacyUno.gameId } :
+                               legacyDamas?.gameId ? { gameKey: "damas", matchCode: legacyDamas.gameId } :
+                               null;
+                if (legacy?.matchCode) {
+                    localStorage.setItem("activeMatch", JSON.stringify({
+                        matchCode: String(legacy.matchCode),
+                        gameKey: legacy.gameKey,
+                        creatorNick: null,
+                        joinedAt: Date.now(),
+                        isBotMatch: false,
+                    }));
+                }
+            }
+        } catch(e) {}
 
-        if (!candidates.length) {
+        const active = safeJsonParse((() => {
+            try { return localStorage.getItem("activeMatch"); } catch(e){ return null; }
+        })());
+        const matchCode = String(active?.matchCode || "").trim();
+        const savedGameKey = String(active?.gameKey || "").trim().toLowerCase();
+        const isBotMatch = !!active?.isBotMatch;
+        if (isBotMatch) {
             $host.hide().empty();
             return;
         }
@@ -366,71 +420,197 @@ function ControlWeb() {
                 }
             });
 
-        Promise.all(
-            candidates.map((c) =>
-                emitWithTimeout("game:resumeStatus", {
-                    gameType: c.gameType,
-                    gameId: c.gameId,
-                    email: email,
-                }).then((res) => ({ candidate: c, res }))
-            )
-        ).then((results) => {
-            const resumables = [];
+        let didRenderFromActiveList = false;
+        const userId = String((window.$ && $.cookie && $.cookie("uid")) || "").trim().toLowerCase();
 
-            for (const { candidate, res } of results) {
-                if (res && res.canResume) {
-                    resumables.push({ gameType: candidate.gameType, gameId: candidate.gameId });
-                } else {
+        // Prefer server authoritative list (PVP only) when available.
+        emitWithTimeout("matches:my_active", { email, userId }, 2500)
+            .then((res) => {
+                const gotList = !!(res && res.ok && Array.isArray(res.matches));
+                const matches = gotList ? res.matches : [];
+                // If server returns an authoritative list, remove stale local storage entries
+                // that aren't returned (prevents "Continuar" ghosts).
+                if (gotList) {
+                    try {
+                        if (matchCode && Array.isArray(matches)) {
+                            const hasSaved = matches.some((m) =>
+                                String(m?.matchCode || "").trim() === String(matchCode).trim()
+                            );
+                            if (!hasSaved) localStorage.removeItem("activeMatch");
+                        }
+                    } catch(e) {}
+                }
+                if (gotList) didRenderFromActiveList = true;
+
+                if (matches.length === 0) {
+                    // Server is the source of truth: if it returns 0 active matches,
+                    // hide the bar and skip legacy `match:can_resume` fallback.
+                    $host.hide().empty();
+                    return;
+                }
+
+                didRenderFromActiveList = true;
+                $host.empty();
+
+                const prettyGame = (k) => {
+                    const key = String(k || "").trim().toLowerCase();
+                    if (key === "4raya") return "4 en raya";
+                    if (key === "damas" || key === "checkers") return "Damas";
+                    return key || "Juego";
+                };
+
+                matches.forEach((m) => {
+                    const mc = String(m?.matchCode || "").trim();
+                    const gk = String(m?.gameKey || "").trim().toLowerCase();
+                    const st = String(m?.status || "").trim().toUpperCase();
+                    const creatorNick = String(m?.creatorNick || "Anfitrion").trim();
+                    const subtitle =
+                        st === "IN_PROGRESS" ? "En curso" :
+                        st === "WAITING_START" ? "Sala completa (esperando inicio)" :
+                        "";
+                    if (!mc || !gk) return;
+
+                    const $card = $('<div class="card shadow-sm mb-2"></div>');
+                    const $body = $('<div class="card-body py-2"></div>');
+                    const $row = $('<div class="d-flex flex-wrap align-items-center justify-content-between"></div>');
+                    const $left = $('<div class="text-muted small mb-2 mb-md-0"></div>')
+                        .text(`Continuar partida: ${prettyGame(gk)} - Codigo: ${mc} - Creador: ${creatorNick}${subtitle ? " - " + subtitle : ""}`);
+                    const $btn = $('<button type="button" class="btn btn-outline-primary btn-sm mb-2 continue-match-btn"></button>');
+                    $btn.attr("data-game-key", gk);
+                    $btn.attr("data-match-code", mc);
+                    $btn.text("Continuar");
+
+                    $row.append($left);
+                    $row.append($btn);
+                    $body.append($row);
+                    $card.append($body);
+                    $host.append($card);
+                });
+
+                $host.show();
+            })
+            .catch(() => {});
+
+        if (!matchCode) return;
+        emitWithTimeout("match:can_resume", { matchCode, email, userId }, 2500)
+            .then((res) => {
+                if (didRenderFromActiveList) return;
+                $host.empty();
+
+                if (!res || !res.ok) {
                     const reason = res && res.reason;
                     if (reason && reason !== "TIMEOUT" && reason !== "NO_RESPONSE") {
-                        try { localStorage.removeItem(candidate.key); } catch(e) {}
+                        try { localStorage.removeItem("activeMatch"); } catch(e) {}
                     }
+                    $host.hide();
+                    return;
                 }
-            }
 
-            $host.empty();
+                const resolvedGameKey = String(res.gameKey || savedGameKey || "").trim().toLowerCase();
+                const creatorNick = String(res.creatorNick || active?.creatorNick || "Anfitrión").trim();
+                const prettyGame =
+                    resolvedGameKey === "uno"    ? "Última Carta" :
+                    resolvedGameKey === "4raya"  ? "4 en raya" :
+                    (resolvedGameKey === "damas" || resolvedGameKey === "checkers") ? "Damas" :
+                    resolvedGameKey || "Juego";
 
-            if (!resumables.length) {
-                $host.hide();
-                return;
-            }
+                try {
+                    localStorage.setItem("activeMatch", JSON.stringify({
+                        matchCode,
+                        gameKey: resolvedGameKey || null,
+                        creatorNick: creatorNick || null,
+                        joinedAt: active?.joinedAt || Date.now(),
+                        isBotMatch: false,
+                    }));
+                } catch(e) {}
 
-            const $card = $('<div class="card shadow-sm"></div>');
-            const $body = $('<div class="card-body py-2"></div>');
-            const $row = $('<div class="d-flex flex-wrap align-items-center justify-content-between"></div>');
-            const $left = $('<div class="text-muted small mb-2 mb-md-0"></div>').text("Continuar partida");
-            const $btns = $('<div class="d-flex flex-wrap align-items-center"></div>');
+                const $card = $('<div class="card shadow-sm"></div>');
+                const $body = $('<div class="card-body py-2"></div>');
+                const $row = $('<div class="d-flex flex-wrap align-items-center justify-content-between"></div>');
+                const $left = $('<div class="text-muted small mb-2 mb-md-0"></div>')
+                    .text(`Continuar partida: ${prettyGame} — Código: ${matchCode} — Creador: ${creatorNick || "Anfitrión"}`);
+                const $btn = $('<button type="button" class="btn btn-outline-primary btn-sm mb-2 continue-match-btn"></button>');
+                $btn.attr("data-game-key", resolvedGameKey);
+                $btn.attr("data-match-code", matchCode);
+                $btn.text("Continuar");
 
-            for (const r of resumables) {
-                const label = r.gameType === "uno" ? "Continuar partida de UNO" : "Continuar partida de DAMAS";
-                const $btn = $('<button type="button" class="btn btn-outline-primary btn-sm mr-2 mb-2 continue-game-btn"></button>');
-                $btn.attr("data-game-type", r.gameType);
-                $btn.attr("data-game-id", r.gameId);
-                $btn.text(label);
-                $btns.append($btn);
-            }
-
-            $row.append($left);
-            $row.append($btns);
-            $body.append($row);
-            $card.append($body);
-            $host.append($card).show();
-        }).catch(() => {
-            $host.hide().empty();
-        });
+                $row.append($left);
+                $row.append($btn);
+                $body.append($row);
+                $card.append($body);
+                $host.append($card).show();
+            })
+            .catch(() => {
+                $host.hide().empty();
+            });
     };
 
-    $(document).on("click", ".continue-game-btn", function(){
-        const gameType = String($(this).data("game-type") || "").trim().toLowerCase();
-        const gameId = String($(this).data("game-id") || "").trim();
-        if (!gameType || !gameId) return;
+    $(document).on("click", ".continue-match-btn", function(){
+        const gameKey = String($(this).data("game-key") || "").trim().toLowerCase();
+        const matchCode = String($(this).data("match-code") || "").trim();
+        if (!gameKey || !matchCode) return;
 
-        if (window.ws){
-            ws.gameType = gameType;
-            ws.codigo = gameId;
-        }
-        if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
-            cw.mostrarJuegoEnApp(gameType, gameId);
+        const email =
+            cw.email ||
+            (window.ws && ws.email) ||
+            (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+            null;
+
+        const userId = String((window.$ && $.cookie && $.cookie("uid")) || "").trim().toLowerCase();
+
+        try {
+            const raw = localStorage.getItem("activeMatch");
+            const parsed = raw ? JSON.parse(raw) : null;
+            localStorage.setItem("activeMatch", JSON.stringify({
+                matchCode,
+                gameKey,
+                creatorNick: parsed?.creatorNick || null,
+                joinedAt: parsed?.joinedAt || Date.now(),
+                isBotMatch: false,
+            }));
+        } catch(e) {}
+
+        if (window.ws && ws.socket) {
+            ws.socket.emit("match:rejoin", { matchCode, email, userId }, function(res){
+                if (!res || !res.ok) {
+                    const reason = res && res.reason ? String(res.reason) : "NO_RESPONSE";
+                    if (reason === "MATCH_NOT_FOUND" || reason === "MATCH_EMPTY") {
+                        try { localStorage.removeItem("activeMatch"); } catch(e) {}
+                        if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                            cw.renderContinueGamesBar();
+                        }
+                    }
+                    if (window.cw && cw.mostrarAviso) {
+                        cw.mostrarAviso("No se pudo continuar la partida.", "error", 4000);
+                    }
+                    return;
+                }
+
+                const status = String(res.status || "").trim().toUpperCase();
+                const resolvedGameKey = String(res.gameKey || gameKey || "").trim().toLowerCase();
+                if (window.ws){
+                    ws.gameType = resolvedGameKey;
+                    ws.codigo = matchCode;
+                }
+
+                if (status === "IN_PROGRESS") {
+                    if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
+                        cw.mostrarJuegoEnApp(resolvedGameKey, matchCode);
+                    }
+                } else {
+                    if (window.cw && typeof cw.seleccionarJuego === "function") {
+                        cw.seleccionarJuego(resolvedGameKey);
+                    }
+                    if (window.cw && cw.mostrarAviso) {
+                        cw.mostrarAviso(
+                            status === "WAITING_START"
+                                ? "Sala completa. Esperando a que el creador inicie..."
+                                : "Partida aún no iniciada.",
+                            "info"
+                        );
+                    }
+                }
+            });
         }
     });
 
@@ -471,6 +651,8 @@ function ControlWeb() {
 
 
 
+    this._avisoTimer = null;
+
     this.mostrarMensaje=function(msg, tipo="info"){
         $("#au").empty();
         let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
@@ -487,11 +669,27 @@ function ControlWeb() {
         }
     };
 
-    this.mostrarAviso=function(msg, tipo="info"){
+    this.mostrarAviso=function(msg, tipo="info", duracion=0){
+        if (this._avisoTimer) {
+            clearTimeout(this._avisoTimer);
+            this._avisoTimer = null;
+        }
+        if (!msg) {
+            $("#msg").empty();
+            cw._updateMainVisibility();
+            return;
+        }
         let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
         let cadena='<div class="alert '+alertClass+'" role="alert">'+msg+'</div>';
         $("#msg").html(cadena);
         cw._updateMainVisibility();
+        if (duracion && Number.isFinite(duracion) && duracion > 0) {
+            this._avisoTimer = setTimeout(() => {
+                $("#msg").empty();
+                cw._updateMainVisibility();
+                this._avisoTimer = null;
+            }, duracion);
+        }
     };
 
     this.limpiar=function(){
@@ -1165,10 +1363,18 @@ function ControlWeb() {
             const maxPlayers = (typeof p.maxPlayers === 'number')
                 ? p.maxPlayers
                 : ((typeof p.maxJug === 'number') ? p.maxJug : 2);
-            const status = (typeof p.status === 'string')
-                ? p.status
-                : (jugadores >= maxPlayers ? 'FULL' : 'OPEN');
-            const started = !!p.started || status === 'STARTED';
+            const statusRaw =
+                (typeof p.matchStatus === 'string' && String(p.matchStatus).trim())
+                    ? String(p.matchStatus).trim()
+                    : (typeof p.status === 'string' && String(p.status).trim())
+                        ? String(p.status).trim()
+                        : (jugadores >= maxPlayers ? 'FULL' : 'OPEN');
+            const status = statusRaw;
+            const statusNorm = norm(statusRaw);
+            const started =
+                !!p.started ||
+                statusNorm === 'started' ||
+                statusNorm === 'in_progress';
             const isFull = jugadores === maxPlayers;
             const joined = !!myUserId && players.some(pl => norm(pl && pl.userId) === myUserId);
             const isHost =
@@ -1182,8 +1388,8 @@ function ControlWeb() {
                 juego === 'hundir' ? 'Hundir la flota' :
                 juego;
             const statusClass =
-                status === 'STARTED' ? 'status-active' :
-                status === 'OPEN' ? 'status-pending' :
+                statusNorm === 'started' || statusNorm === 'in_progress' ? 'status-active' :
+                statusNorm === 'open' || statusNorm === 'full' || statusNorm === 'waiting' || statusNorm === 'waiting_start' ? 'status-pending' :
                 'status-finished';
             let acciones = '';
             if (isHost){
@@ -1195,8 +1401,12 @@ function ControlWeb() {
                   <button class="btn btn-eliminar btn-eliminar" data-codigo="${p.codigo}">Eliminar</button>
                 `;
             } else if (joined) {
+                const waitStartHint = statusNorm === 'waiting_start'
+                    ? '<span class="text-muted small mr-2">Esperando a que el creador inicie...</span>'
+                    : '';
                 acciones += `
-                  <span class="text-muted small mr-2">Unido</span>
+                  ${waitStartHint}
+                  <span class="badge badge-pill badge-joined mr-2">Unido</span>
                   <button class="btn btn-outline-secondary btn-abandonar" data-codigo="${p.codigo}">Abandonar</button>
                 `;
             } else {

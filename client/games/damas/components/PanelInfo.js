@@ -24,7 +24,10 @@ export class PanelInfo {
           <div class="damasPill" data-role="metaRight"></div>
         </div>
         <div class="damasAlerts">
-          <div class="alert alert-info py-2 mb-2 damasAlert" data-role="notice" style="display:none;"></div>
+          <div class="alert alert-info py-2 mb-2 damasAlert" data-role="notice" style="display:none;">
+            <span data-role="noticeText"></span>
+            <button type="button" class="btn btn-sm btn-outline-light ml-2" data-role="noticeAction" style="display:none;">Reintentar</button>
+          </div>
           <div class="alert alert-danger py-2 mb-0 damasAlert" data-role="error" style="display:none;"></div>
         </div>
         <div class="damasStats">
@@ -43,6 +46,8 @@ export class PanelInfo {
     this.metaLeftEl = this.el.querySelector('[data-role="metaLeft"]');
     this.metaRightEl = this.el.querySelector('[data-role="metaRight"]');
     this.noticeEl = this.el.querySelector('[data-role="notice"]');
+    this.noticeTextEl = this.el.querySelector('[data-role="noticeText"]');
+    this.noticeActionBtn = this.el.querySelector('[data-role="noticeAction"]');
     this.errorEl = this.el.querySelector('[data-role="error"]');
     this.countWhiteEl = this.el.querySelector('[data-role="countWhite"]');
     this.countBlackEl = this.el.querySelector('[data-role="countBlack"]');
@@ -95,14 +100,31 @@ export class PanelInfo {
 
   setNotice(text) {
     if (!this.noticeEl) return;
-    const t = String(text || "");
+    const opts = text && typeof text === "object" ? text : { text };
+    const t = String(opts?.text || "");
     if (!t) {
       this.noticeEl.style.display = "none";
-      this.noticeEl.textContent = "";
+      if (this.noticeTextEl) this.noticeTextEl.textContent = "";
+      if (this.noticeActionBtn) this.noticeActionBtn.style.display = "none";
       return;
     }
     this.noticeEl.style.display = "";
-    this.noticeEl.textContent = t;
+    if (this.noticeTextEl) this.noticeTextEl.textContent = t;
+
+    const label = String(opts?.actionLabel || "");
+    const onAction = typeof opts?.onAction === "function" ? opts.onAction : null;
+    if (this.noticeActionBtn && label && onAction) {
+      this.noticeActionBtn.textContent = label;
+      this.noticeActionBtn.style.display = "";
+      this.noticeActionBtn.onclick = (e) => {
+        e?.preventDefault?.();
+        e?.stopPropagation?.();
+        onAction();
+      };
+    } else if (this.noticeActionBtn) {
+      this.noticeActionBtn.style.display = "none";
+      this.noticeActionBtn.onclick = null;
+    }
   }
 
   setError(text) {

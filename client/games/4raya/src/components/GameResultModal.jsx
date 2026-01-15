@@ -3,6 +3,7 @@ import React from 'react';
 export default function GameResultModal({
   status,
   onRestart,
+  onViewBoard,
   isMultiplayer = false,
   rematch = null,
 }) {
@@ -30,6 +31,11 @@ export default function GameResultModal({
         <button onClick={onRestart} disabled={isMultiplayer && isReady}>
           {isMultiplayer && isReady ? 'Listo' : 'Volver a jugar'}
         </button>
+        {typeof onViewBoard === 'function' && (
+          <button className="uno-modal__secondary" onClick={onViewBoard} type="button">
+            Ver tablero
+          </button>
+        )}
         {isMultiplayer && Number.isFinite(totalCount) && totalCount > 0 && (
           <p style={{ marginTop: '0.75rem', opacity: 0.9 }}>
             {readyCount}/{totalCount} listos
@@ -42,4 +48,3 @@ export default function GameResultModal({
     </div>
   );
 }
-

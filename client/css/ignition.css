@@ -35,6 +35,19 @@
 .partida-acciones {
   display: flex;
   gap: 10px;
+  align-items: center;
+}
+.badge-joined{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0.35rem 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: rgba(35, 41, 70, 0.12);
+  color: #232946;
+  border: 1px solid rgba(35, 41, 70, 0.22);
 }
 .btn-jugar {
   background: #27ae60;

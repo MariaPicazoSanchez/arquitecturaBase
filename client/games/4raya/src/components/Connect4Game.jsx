@@ -17,6 +17,16 @@ function normalizeId(value) {
     .toLowerCase();
 }
 
+function publicUserIdFromEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return '';
+  let hash = 5381;
+  for (let i = 0; i < e.length; i += 1) {
+    hash = ((hash << 5) + hash + e.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function getCookieValue(cookieStr, name) {
   const parts = String(cookieStr || '')
     .split(';')
@@ -34,12 +44,20 @@ function getCookieValue(cookieStr, name) {
 
 function resolveNickOrEmail() {
   const localCookie = typeof document !== 'undefined' ? document.cookie : '';
-  const direct = getCookieValue(localCookie, 'nick') || getCookieValue(localCookie, 'email');
-  if (direct) return direct;
+  const email = getCookieValue(localCookie, 'email');
+  if (email) return email;
+
+  // Back-compat: antes la cookie `nick` podía guardar el email.
+  const legacyNick = getCookieValue(localCookie, 'nick');
+  if (legacyNick && legacyNick.includes('@')) return legacyNick;
 
   try {
     const parentCookie = window.parent?.document?.cookie || '';
-    return getCookieValue(parentCookie, 'nick') || getCookieValue(parentCookie, 'email') || null;
+    const parentEmail = getCookieValue(parentCookie, 'email');
+    if (parentEmail) return parentEmail;
+    const parentNick = getCookieValue(parentCookie, 'nick');
+    if (parentNick && parentNick.includes('@')) return parentNick;
+    return null;
   } catch {
     return null;
   }
@@ -58,14 +76,18 @@ export default function Connect4Game() {
     status: 'playing',
     winnerIndex: null,
     lastMove: null,
+    winningCells: null,
   }));
   const [statusText, setStatusText] = useState('Conectando a la partida...');
   const [rematch, setRematch] = useState(null);
+  const [isReviewingEnd, setIsReviewingEnd] = useState(false);
+  const [stateError, setStateError] = useState('');
   const apiRef = useRef(null);
 
   const lastMoveKeyRef = useRef(null);
   const dropTimerRef = useRef(null);
   const endSoundKeyRef = useRef(null);
+  const hasStateRef = useRef(false);
   const [isMuted, setIsMuted] = useState(() => {
     initSfxFromStorage();
     return isSfxMuted();
@@ -86,7 +108,7 @@ export default function Connect4Game() {
   };
 
   const email = useMemo(() => resolveNickOrEmail(), []);
-  const localId = useMemo(() => normalizeId(email), [email]);
+  const localId = useMemo(() => publicUserIdFromEmail(email) || normalizeId(email), [email]);
   const myIndex = useMemo(() => {
     const idx = (engine.players || []).findIndex((p) => normalizeId(p?.id) === localId);
     return idx >= 0 ? idx : null;
@@ -109,7 +131,9 @@ export default function Connect4Game() {
       email,
       onState: (nextEngine) => {
         if (!nextEngine) return;
+        hasStateRef.current = true;
         setEngine(nextEngine);
+        setStateError('');
       },
       onRematchReady: (newCodigo, error) => {
         if (error) {
@@ -127,8 +151,28 @@ export default function Connect4Game() {
     });
     apiRef.current = api;
     setStatusText('Conectado. Esperando estado...');
+    hasStateRef.current = false;
+    setStateError('');
+
+    const t = setTimeout(() => {
+      if (hasStateRef.current) return;
+      setStateError('No llega el estado. Puedes reintentar.');
+      try {
+        api.requestState?.((res) => {
+          const reason = res && res.reason ? String(res.reason) : 'NO_RESPONSE';
+          if (reason === 'WAITING_FOR_PLAYERS') {
+            setStateError('Esperando al segundo jugador...');
+          } else {
+            setStateError('No llega el estado. Puedes reintentar.');
+          }
+        });
+      } catch {
+        // ignore
+      }
+    }, 2600);
 
     return () => {
+      clearTimeout(t);
       try {
         api.disconnect();
       } catch {
@@ -188,6 +232,10 @@ export default function Connect4Game() {
     else sfxLose(); // incluye empate
   }, [engine.status, engine.winnerIndex, myIndex]);
 
+  useEffect(() => {
+    if (engine.status !== 'finished') setIsReviewingEnd(false);
+  }, [engine.status]);
+
   const handleColumnClick = (column) => {
     handleUserGesture();
     const api = apiRef.current;
@@ -207,6 +255,19 @@ export default function Connect4Game() {
     api.requestRematch();
   };
 
+  const handleRetryState = () => {
+    const api = apiRef.current;
+    if (!api || typeof api.requestState !== 'function') return;
+    setStateError('Reintentando...');
+    api.requestState((res) => {
+      if (res && res.ok) setStateError('');
+      else {
+        const reason = res && res.reason ? String(res.reason) : 'NO_RESPONSE';
+        setStateError(reason === 'WAITING_FOR_PLAYERS' ? 'Esperando al segundo jugador...' : 'No se pudo obtener el estado.');
+      }
+    });
+  };
+
   const modalStatus =
     engine.status !== 'finished'
       ? null
@@ -215,6 +276,12 @@ export default function Connect4Game() {
         : myIndex != null && engine.winnerIndex === myIndex
           ? 'won'
           : 'lost';
+
+  const winningSet = useMemo(() => {
+    const arr = Array.isArray(engine.winningCells) ? engine.winningCells : null;
+    if (!arr || arr.length === 0) return null;
+    return new Set(arr.map((p) => `${p.r},${p.c}`));
+  }, [engine.winningCells]);
 
   return (
     <div className="c4-game" onPointerDown={handleUserGesture}>
@@ -240,6 +307,15 @@ export default function Connect4Game() {
           {codigoFromUrl && <div className="c4-status-code">Partida: {codigoFromUrl}</div>}
         </div>
       </div>
+
+      {stateError && (
+        <div className="c4-state-error" role="status" aria-live="polite">
+          <span className="c4-state-error__text">{stateError}</span>
+          <button type="button" className="c4-state-error__btn" onClick={handleRetryState}>
+            Reintentar
+          </button>
+        </div>
+      )}
 
       <div className="c4-board" role="grid" aria-label="Tablero 4 en raya">
         <div className="c4-columns" role="row">
@@ -268,8 +344,9 @@ export default function Connect4Game() {
                   droppingMove.row === r &&
                   droppingMove.col === c &&
                   droppingMove.playerIndex === cell;
+                const isWinningCell = !!isReviewingEnd && !!winningSet && winningSet.has(`${r},${c}`);
                 return (
-                  <div key={c} className="c4-cell" role="gridcell">
+                  <div key={c} className={'c4-cell' + (isWinningCell ? ' c4-cell--win' : '')} role="gridcell">
                     <div
                       className={cls + (isThisDropping ? ' c4-disc--dropping' : '')}
                       style={isThisDropping ? { '--drop-rows': r + 1 } : undefined}
@@ -282,13 +359,22 @@ export default function Connect4Game() {
         </div>
       </div>
 
-      {modalStatus && (
+      {modalStatus && !isReviewingEnd && (
         <GameResultModal
           status={modalStatus}
           onRestart={handleRematch}
+          onViewBoard={() => setIsReviewingEnd(true)}
           isMultiplayer={true}
           rematch={rematch}
         />
+      )}
+
+      {engine.status === 'finished' && isReviewingEnd && (
+        <div className="c4-reviewbar">
+          <button type="button" className="c4-review-close" onClick={() => setIsReviewingEnd(false)}>
+            Cerrar revisión
+          </button>
+        </div>
       )}
     </div>
   );

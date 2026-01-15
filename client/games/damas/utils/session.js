@@ -23,14 +23,22 @@ function getCookieValue(cookieStr, name) {
 
 export function resolveNickOrEmail() {
   const localCookie = typeof document !== "undefined" ? document.cookie : "";
-  const direct = getCookieValue(localCookie, "nick") || getCookieValue(localCookie, "email");
-  if (direct) return direct;
+
+  const email = getCookieValue(localCookie, "email");
+  if (email) return email;
+
+  // Back-compat: antes la cookie `nick` podía guardar el email.
+  const legacyNick = getCookieValue(localCookie, "nick");
+  if (legacyNick && legacyNick.includes("@")) return legacyNick;
 
   try {
     const parentCookie = window.parent?.document?.cookie || "";
-    return getCookieValue(parentCookie, "nick") || getCookieValue(parentCookie, "email") || null;
+    const parentEmail = getCookieValue(parentCookie, "email");
+    if (parentEmail) return parentEmail;
+    const parentNick = getCookieValue(parentCookie, "nick");
+    if (parentNick && parentNick.includes("@")) return parentNick;
+    return null;
   } catch {
     return null;
   }
 }
-

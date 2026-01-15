@@ -21,12 +21,37 @@ export function createConnect4Socket({
     withCredentials: true,
   });
 
+  let hasReceivedState = false;
+  const matchCode = String(codigo || '').trim();
+
+  function requestState(onResult) {
+    if (!matchCode) return;
+    if (typeof onResult === 'function') {
+      socket.emit('game:get_state', { matchCode, gameKey: '4raya', email }, onResult);
+    } else {
+      socket.emit('game:get_state', { matchCode, gameKey: '4raya', email });
+    }
+  }
+
   socket.on('connect', () => {
     socket.emit('4raya:suscribirse', { codigo, email });
+    setTimeout(() => {
+      if (!hasReceivedState) requestState();
+    }, 1200);
   });
 
   socket.on('4raya:estado', (payload) => {
+    hasReceivedState = true;
     if (typeof onState === 'function') onState(payload?.engine ?? null);
+  });
+
+  socket.on('game:state', (payload) => {
+    const code = String(payload?.matchCode || payload?.codigo || '').trim();
+    const key = String(payload?.gameKey || '').trim().toLowerCase();
+    if (!code || code !== matchCode) return;
+    if (key && key !== '4raya' && key !== 'connect4') return;
+    hasReceivedState = true;
+    if (typeof onState === 'function') onState(payload?.state ?? null);
   });
 
   socket.on('connect_error', (err) => {
@@ -51,5 +76,5 @@ export function createConnect4Socket({
     socket.disconnect();
   }
 
-  return { socket, sendAction, requestRematch, disconnect };
+  return { socket, sendAction, requestRematch, requestState, disconnect };
 }

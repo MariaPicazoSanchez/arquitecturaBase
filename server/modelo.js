@@ -383,6 +383,63 @@ function Sistema() {
     }
     return codigo;
   };
+
+  // Remove a player after a disconnect grace window without destroying the whole match immediately.
+  // If the host is removed and there are remaining human players, transfer ownership to the next human.
+  this.removerJugadorPorDesconexion = function(email, codigo) {
+    email = normalizarEmail(email);
+    if (!codigo) {
+      this.registrarActividad("salirPartidaFallido", email);
+      return { codigo: -1, reason: "INVALID_CODE" };
+    }
+    const partida = this.partidas[codigo];
+    if (!partida) {
+      this.registrarActividad("salirPartidaFallido", email);
+      return { codigo: -1, reason: "NOT_FOUND" };
+    }
+
+    const propietarioEmail = normalizarEmail(partida.propietarioEmail || "");
+    const wasHost = !!propietarioEmail && propietarioEmail === email;
+    const wasPlayer = Array.isArray(partida.jugadores) && partida.jugadores.some(j => normalizarEmail(j.email) === email);
+    if (!wasHost && !wasPlayer) {
+      return { codigo, ok: false, reason: "NOT_IN_MATCH" };
+    }
+
+    // Remove from players list.
+    partida.jugadores = (partida.jugadores || []).filter(j => normalizarEmail(j.email) !== email);
+    recalcularEstadoPartida(partida);
+
+    if (partida.jugadores.length === 0) {
+      delete this.partidas[codigo];
+      this.registrarActividad("salirPartida", email, { partida: codigo, motivo: "disconnect_timeout", deleted: true });
+      return { codigo, ok: true, deleted: true, hostTransferred: false };
+    }
+
+    let hostTransferred = false;
+    if (wasHost) {
+      const nextHost = (partida.jugadores || []).find(j => {
+        const e = normalizarEmail(j?.email);
+        if (!e) return false;
+        if (e === normalizarEmail(BOT_PLAYER.email) || j?.isBot) return false;
+        return true;
+      }) || null;
+
+      if (nextHost) {
+        partida.propietarioEmail = normalizarEmail(nextHost.email);
+        const candidateNick = (nextHost.nick && String(nextHost.nick).trim()) || "";
+        partida.propietario = (!candidateNick || looksLikeEmail(candidateNick)) ? partida.propietario : candidateNick;
+        hostTransferred = true;
+      } else {
+        // Only bot remains: delete the match.
+        delete this.partidas[codigo];
+        this.registrarActividad("salirPartida", email, { partida: codigo, motivo: "disconnect_timeout", deleted: true });
+        return { codigo, ok: true, deleted: true, hostTransferred: false };
+      }
+    }
+
+    this.registrarActividad("salirPartida", email, { partida: codigo, motivo: "disconnect_timeout", hostTransferred });
+    return { codigo, ok: true, deleted: false, hostTransferred };
+  };
   this.obtenerPartidasDisponibles = function(juego) {
     // let lista = [];
 

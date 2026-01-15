@@ -108,14 +108,22 @@ const sanitizeListaPartidasPublic = (lista) => {
       })
       .filter((pl) => !!pl.userId);
 
+    const normalizedJuego = String(p?.juego ?? "uno").trim().toLowerCase();
+
     const started =
       String(p?.status || "").toUpperCase() === "STARTED" ||
       (p?.estado && p.estado !== "pendiente");
+
+    const matchStatus =
+      normalizedJuego === "4raya" || normalizedJuego === "damas" || normalizedJuego === "checkers"
+        ? (started ? "IN_PROGRESS" : jugadoresCount >= maxPlayers ? "WAITING_START" : "WAITING")
+        : null;
 
     return {
       codigo: p?.codigo,
       juego: p?.juego ?? "uno",
       status: p?.status ?? "OPEN",
+      matchStatus,
       started,
       jugadores: jugadoresCount,
       numJugadores: jugadoresCount,
@@ -136,6 +144,8 @@ function ServidorWS() {
   const estadosUNO = {};
   const estados4raya = {};
   const estadosCheckers = {};
+  const checkersRematchByCodigo = {};
+  const CHECKERS_REMATCH_TIMEOUT_MS = 30000;
   const rematchVotes4raya = {};
   const socketTo4RayaPlayerId = {};
   const socketTo4RayaCodigo = {};
@@ -147,6 +157,12 @@ function ServidorWS() {
     const parsed = Number.parseInt(process.env.ROOM_EMPTY_GRACE_MS, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 60000;
   })();
+  const MATCH_PLAYER_GRACE_MS = (() => {
+    const parsed = Number.parseInt(process.env.MATCH_PLAYER_GRACE_MS, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 90000;
+  })();
+  const matchPresenceByCodigo = new Map(); // codigo -> Map(playerId -> Set(socketId))
+  const matchDisconnectTimers = new Map(); // `${codigo}::${playerId}` -> timeout
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const thinkMs = () => BOT_THINK_MS + Math.floor(Math.random() * 300);
   const botTurnDelayMs = () => {
@@ -157,6 +173,60 @@ function ServidorWS() {
 
   const normalizePlayerId = (value) =>
     (value || "").toString().trim().toLowerCase();
+
+  const getCheckersMatchPlayerUids = (partida) => {
+    if (!partida) return [];
+    const jugadores = Array.isArray(partida.jugadores) ? partida.jugadores : [];
+    return jugadores
+      .filter((j) => !!j && !j?.isBot)
+      .map((j) => publicUserIdFromEmail(j?.email))
+      .filter((id) => !!id);
+  };
+
+  const ensureCheckersRematchRecord = (codigo, partida) => {
+    if (!codigo || !partida) return null;
+    let rematch = checkersRematchByCodigo[codigo];
+    if (!rematch) {
+      rematch = {
+        active: false,
+        started: false,
+        votes: new Set(),
+        createdAt: null,
+        timeout: null,
+      };
+      checkersRematchByCodigo[codigo] = rematch;
+    }
+    partida.rematch = rematch;
+    return rematch;
+  };
+
+  const serializeCheckersRematch = (codigo, partida) => {
+    const room = String(codigo || "").trim();
+    const rematch = partida?.rematch;
+    const voters = rematch?.votes ? Array.from(rematch.votes) : [];
+    const requiredUids = getCheckersMatchPlayerUids(partida);
+    const pending = requiredUids.filter((uid) => !voters.includes(uid));
+    return {
+      matchCode: room,
+      codigo: room,
+      active: !!rematch?.active,
+      started: !!rematch?.started,
+      createdAt: rematch?.createdAt || null,
+      votesCount: voters.length,
+      voters,
+      required: requiredUids.length,
+      pending,
+    };
+  };
+
+  const emitCheckersRematchState = (io, codigo, partida, { socket = null } = {}) => {
+    const payload = serializeCheckersRematch(codigo, partida);
+    const target = socket ? socket : io.to(codigo);
+    try {
+      target.emit("checkers:rematch_state", payload);
+      target.emit("damas:rematch_state", payload);
+    } catch (e) {}
+  };
 
   const ALLOWED_REACTION_EMOJIS = new Set([
     "\u{1F44D}", // 👍
@@ -202,6 +272,36 @@ function ServidorWS() {
     return safePublicName(nick, fallback);
   };
 
+  const emitMatchPlayerLeft = (io, { matchCode, gameKey, playerNick }, { excludeSocket = null } = {}) => {
+    const codigo = String(matchCode || "").trim();
+    if (!codigo) return;
+    const payload = {
+      matchCode: codigo,
+      gameKey: String(gameKey || "").trim().toLowerCase() || null,
+      playerNick: safePublicName(playerNick, "Jugador"),
+      ts: Date.now(),
+    };
+    try {
+      if (excludeSocket && typeof excludeSocket.to === "function") {
+        excludeSocket.to(codigo).emit("match:player_left", payload);
+      } else {
+        io.to(codigo).emit("match:player_left", payload);
+      }
+    } catch (e) {
+      // best-effort
+    }
+    // Also emit globally so the system UI can react even if it isn't joined to the room.
+    try {
+      io.emit("match:player_left", payload);
+    } catch (e) {}
+
+    // If Damas was waiting for a rematch confirmation, cancel it.
+    try {
+      const k = String(payload.gameKey || "").trim().toLowerCase();
+      if (k === "damas" || k === "checkers") cancelCheckersRematch(io, codigo, "player_left");
+    } catch (e) {}
+  };
+
   const arraysEqual = (a, b) =>
     Array.isArray(a) &&
     Array.isArray(b) &&
@@ -236,6 +336,335 @@ function ServidorWS() {
       const id = normalizePlayerId(j?.email);
       return id === "bot" || id.startsWith("bot@") || j?.isBot === true;
     });
+  };
+
+  const getMatchMaxPlayers = (partida) => {
+    const raw = partida?.maxPlayers ?? partida?.maxJug ?? 2;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+  };
+
+  const getMatchPlayersLen = (partida) =>
+    Array.isArray(partida?.jugadores) ? partida.jugadores.length : 0;
+
+  const getDerivedMatchStatus = (partida) => {
+    if (!partida) return "WAITING";
+    const started =
+      String(partida?.status || "").toUpperCase() === "STARTED" ||
+      (partida?.estado && partida.estado !== "pendiente");
+    if (started) return "IN_PROGRESS";
+
+    const gameKey = String(partida?.juego || "").trim().toLowerCase();
+    if (gameKey !== "4raya" && gameKey !== "damas" && gameKey !== "checkers") return "WAITING";
+
+    const maxPlayers = getMatchMaxPlayers(partida);
+    const playersLen = getMatchPlayersLen(partida);
+    if (playersLen >= maxPlayers) return "WAITING_START";
+    return "WAITING";
+  };
+
+  const emitMatchUpdate = (io, codigo, partida) => {
+    const room = String(codigo || "").trim();
+    if (!room || !partida) return;
+    const gameKey = String(partida.juego || "").trim().toLowerCase() || null;
+    const playersLen = getMatchPlayersLen(partida);
+    const maxPlayers = getMatchMaxPlayers(partida);
+    const matchStatus = getDerivedMatchStatus(partida);
+    try {
+      io.to(room).emit("match:update", {
+        matchCode: room,
+        gameKey,
+        status: matchStatus,
+        playersCount: playersLen,
+        maxPlayers,
+        creatorNick: safePublicName(partida.propietario, "Anfitri▋"),
+        ts: Date.now(),
+      });
+    } catch (e) {}
+  };
+
+  const emitMatchPlayerDisconnected = (io, { matchCode, gameKey, playerNick }) => {
+    const codigo = String(matchCode || "").trim();
+    if (!codigo) return;
+    const payload = {
+      matchCode: codigo,
+      gameKey: String(gameKey || "").trim().toLowerCase() || null,
+      playerNick: safePublicName(playerNick, "Jugador"),
+      ts: Date.now(),
+    };
+    try {
+      io.to(codigo).emit("match:player_disconnected", payload);
+    } catch (e) {
+      // best-effort
+    }
+    // Also emit globally so the system UI can react even if it isn't joined to the room.
+    try {
+      io.emit("match:player_disconnected", payload);
+    } catch (e) {}
+
+    // If Damas was waiting for a rematch confirmation, cancel it.
+    try {
+      const k = String(payload.gameKey || "").trim().toLowerCase();
+      if (k === "damas" || k === "checkers") cancelCheckersRematch(io, codigo, "player_disconnected");
+    } catch (e) {}
+  };
+
+  const getConnectedCount = (codigo) => {
+    const room = String(codigo || "").trim();
+    if (!room) return 0;
+    const byPlayer = matchPresenceByCodigo.get(room);
+    if (!byPlayer) return 0;
+    let n = 0;
+    for (const set of byPlayer.values()) {
+      if (set && typeof set.size === "number") n += set.size > 0 ? 1 : 0;
+    }
+    return n;
+  };
+
+  const emitMatchEnded = (io, { matchCode, gameKey, reason = "ENDED" }) => {
+    const codigo = String(matchCode || "").trim();
+    if (!codigo) return;
+    const payload = {
+      matchCode: codigo,
+      gameKey: String(gameKey || "").trim().toLowerCase() || null,
+      reason: String(reason || "ENDED"),
+      ts: Date.now(),
+    };
+    try { io.to(codigo).emit("match:ended", payload); } catch (e) {}
+    try { io.emit("match:ended", payload); } catch (e) {}
+  };
+
+  const cancelCheckersRematch = (io, codigo, reason = "CANCELLED") => {
+    const room = String(codigo || "").trim();
+    if (!room) return;
+    const partida = sistema?.partidas?.[room] || null;
+    const rematch = ensureCheckersRematchRecord(room, partida);
+    if (!rematch) return;
+    try {
+      if (rematch.timeout) clearTimeout(rematch.timeout);
+    } catch (e) {}
+    rematch.timeout = null;
+    rematch.active = false;
+    rematch.started = false;
+    rematch.votes = new Set();
+    rematch.createdAt = null;
+    if (partida) partida.rematch = rematch;
+    try {
+      const payload = {
+        ...serializeCheckersRematch(room, partida),
+        reason: String(reason || "CANCELLED"),
+      };
+      io.to(room).emit("checkers:rematch_cancelled", payload);
+      io.to(room).emit("damas:rematch_cancelled", payload);
+    } catch (e) {}
+  };
+
+  const destroyMatch = (io, sistema, codigo, { reason = "EMPTY" } = {}) => {
+    const room = String(codigo || "").trim();
+    if (!room) return false;
+    const partida = sistema?.partidas?.[room] || null;
+    const gameKey = partida?.juego || null;
+    if (!partida) return false;
+
+    try {
+      delete sistema.partidas[room];
+    } catch (e) {}
+    try {
+      cleanupCodigoState(io, room);
+    } catch (e) {}
+    try {
+      cancelRoomEmptyTimer(room);
+    } catch (e) {}
+
+    emitMatchEnded(io, { matchCode: room, gameKey, reason });
+
+    if (String(gameKey || "").trim().toLowerCase() === "damas" || String(gameKey || "").trim().toLowerCase() === "checkers") {
+      cancelCheckersRematch(io, room, "match_ended");
+    }
+
+    // Refresh lobby list (best-effort).
+    try {
+      const lista = sistema.obtenerPartidasDisponibles(gameKey);
+      srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
+    } catch (e) {}
+    return true;
+  };
+
+  const shouldDestroyImmediatelyWhenEmpty = (partida) => {
+    const gameKey = String(partida?.juego || "").trim().toLowerCase();
+    return gameKey === "4raya" || gameKey === "damas" || gameKey === "checkers";
+  };
+
+  const presenceKey = (codigo, playerId) => `${String(codigo || "").trim()}::${String(playerId || "").trim()}`;
+
+  const cancelDisconnectTimer = (codigo, playerId) => {
+    const key = presenceKey(codigo, playerId);
+    const t = matchDisconnectTimers.get(key);
+    if (t) {
+      clearTimeout(t);
+      matchDisconnectTimers.delete(key);
+    }
+  };
+
+  const trackMatchPresence = (codigo, email, socket) => {
+    const room = String(codigo || "").trim();
+    const playerId = normalizePlayerId(email);
+    if (!room || !playerId || !socket) return;
+
+    let byPlayer = matchPresenceByCodigo.get(room);
+    if (!byPlayer) {
+      byPlayer = new Map();
+      matchPresenceByCodigo.set(room, byPlayer);
+    }
+
+    let sockets = byPlayer.get(playerId);
+    if (!sockets) {
+      sockets = new Set();
+      byPlayer.set(playerId, sockets);
+    }
+    sockets.add(socket.id);
+
+    try {
+      if (!socket.data) socket.data = {};
+      if (!socket.data.matchPresenceKeys) socket.data.matchPresenceKeys = new Set();
+      socket.data.matchPresenceKeys.add(presenceKey(room, playerId));
+      socket.data.email = normalizePlayerId(email);
+    } catch (e) {}
+
+    cancelDisconnectTimer(room, playerId);
+  };
+
+  const untrackSocketFromMatchPresence = (codigo, email, socket) => {
+    const room = String(codigo || "").trim();
+    const playerId = normalizePlayerId(email);
+    if (!room || !playerId || !socket) return;
+
+    const byPlayer = matchPresenceByCodigo.get(room);
+    const sockets = byPlayer ? byPlayer.get(playerId) : null;
+    if (sockets) {
+      sockets.delete(socket.id);
+      if (sockets.size === 0) {
+        byPlayer.delete(playerId);
+        if (byPlayer.size === 0) matchPresenceByCodigo.delete(room);
+      }
+    }
+
+    cancelDisconnectTimer(room, playerId);
+    try {
+      socket.data?.matchPresenceKeys?.delete?.(presenceKey(room, playerId));
+    } catch (e) {}
+  };
+
+  const scheduleRemovePlayerIfStillDisconnected = (io, sistema, codigo, playerId) => {
+    const room = String(codigo || "").trim();
+    const pid = String(playerId || "").trim().toLowerCase();
+    if (!room || !pid) return;
+
+    const key = presenceKey(room, pid);
+    if (matchDisconnectTimers.has(key)) return;
+
+    const partidaNow = sistema.partidas?.[room] || null;
+    if (!partidaNow || isBotMatch(partidaNow)) return;
+
+    // If nobody is connected anymore, end the match immediately (platform UX requirement).
+    if (getConnectedCount(room) <= 0 && shouldDestroyImmediatelyWhenEmpty(partidaNow)) {
+      destroyMatch(io, sistema, room, { reason: "EMPTY" });
+      return;
+    }
+
+    emitMatchPlayerDisconnected(io, {
+      matchCode: room,
+      gameKey: partidaNow.juego,
+      playerNick: pickDisplayName(partidaNow, pid, "Jugador"),
+    });
+
+    const t = setTimeout(() => {
+      matchDisconnectTimers.delete(key);
+
+      const partida = sistema.partidas?.[room] || null;
+      if (!partida || isBotMatch(partida)) return;
+
+      const stillConnected =
+        matchPresenceByCodigo.get(room)?.get(pid)?.size > 0;
+      if (stillConnected) return;
+
+      const jugador = Array.isArray(partida.jugadores)
+        ? partida.jugadores.find((j) => normalizePlayerId(j?.email) === pid)
+        : null;
+      if (!jugador || !jugador.email) return;
+
+      const playerNick = pickDisplayName(partida, pid, "Jugador");
+      const gameKey = partida.juego || null;
+
+      try {
+        if (typeof sistema.removerJugadorPorDesconexion === "function") {
+          sistema.removerJugadorPorDesconexion(jugador.email, room);
+        } else {
+          sistema.eliminarPartida(jugador.email, room);
+        }
+      } catch (e) {}
+
+      emitMatchPlayerLeft(io, { matchCode: room, gameKey, playerNick });
+
+      // If the match became empty (no connected players), destroy it.
+      try {
+        const partidaAfter = sistema.partidas?.[room] || null;
+        if (!partidaAfter) {
+          destroyMatch(io, sistema, room, { reason: "EMPTY" });
+          return;
+        }
+        if (getConnectedCount(room) <= 0 && shouldDestroyImmediatelyWhenEmpty(partidaAfter)) {
+          destroyMatch(io, sistema, room, { reason: "EMPTY" });
+          return;
+        }
+      } catch (e) {}
+
+      try {
+        if (!sistema.partidas?.[room]) {
+          cleanupCodigoState(io, room);
+        }
+      } catch (e) {}
+
+      // Refresh lobby list (best-effort).
+      try {
+        const lista = sistema.obtenerPartidasDisponibles(gameKey);
+        srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
+      } catch (e) {}
+    }, MATCH_PLAYER_GRACE_MS);
+
+    matchDisconnectTimers.set(key, t);
+  };
+
+  const handleSocketDisconnectPresence = (io, sistema, socket) => {
+    const keys = socket?.data?.matchPresenceKeys;
+    if (!keys || typeof keys.forEach !== "function") return;
+
+    const keysArr = Array.from(keys);
+    for (const key of keysArr) {
+      const parts = String(key || "").split("::");
+      if (parts.length < 2) continue;
+      const room = String(parts[0] || "").trim();
+      const pid = String(parts.slice(1).join("::") || "").trim().toLowerCase();
+      if (!room || !pid) continue;
+
+      const byPlayer = matchPresenceByCodigo.get(room);
+      const sockets = byPlayer ? byPlayer.get(pid) : null;
+      if (sockets) {
+        sockets.delete(socket.id);
+        if (sockets.size === 0) {
+          byPlayer.delete(pid);
+          if (byPlayer.size === 0) matchPresenceByCodigo.delete(room);
+
+          const partidaNow = sistema.partidas?.[room] || null;
+          if (partidaNow && shouldDestroyImmediatelyWhenEmpty(partidaNow) && getConnectedCount(room) <= 0) {
+            destroyMatch(io, sistema, room, { reason: "EMPTY" });
+            continue;
+          }
+
+          scheduleRemovePlayerIfStillDisconnected(io, sistema, room, pid);
+        }
+      }
+    }
   };
 
   const cleanupCodigoState = (io, codigo) => {
@@ -525,8 +954,11 @@ function ServidorWS() {
 
     const botUser = getBotUserFromPartida(partida);
     const botPlayerId = botUser ? normalizePlayerId(botUser.email) : "bot";
+    const botStableId = `bot:${codigo}`;
     const botIndex = (engine.players || []).findIndex(
-      (p) => normalizePlayerId(p?.id) === botPlayerId,
+      (p) =>
+        normalizePlayerId(p?.id) === botPlayerId ||
+        String(p?.id || "").trim().toLowerCase() === botStableId,
     );
     if (botIndex !== engine.currentPlayerIndex) return;
 
@@ -572,7 +1004,13 @@ function ServidorWS() {
     const botUser = getBotUserFromPartida(partida);
     const botPlayerId = botUser ? normalizePlayerId(botUser.email) : "bot";
     const players = Array.isArray(datosCheckers?.players) ? datosCheckers.players : [];
-    const botPlayer = players.find((p) => normalizePlayerId(p?.id) === botPlayerId) || null;
+    const botStableId = `bot:${codigo}`;
+    const botPlayer =
+      players.find(
+        (p) =>
+          normalizePlayerId(p?.id) === botPlayerId ||
+          String(p?.id || "").trim().toLowerCase() === botStableId,
+      ) || null;
     const botColor = botPlayer?.color === "white" || botPlayer?.color === "black" ? botPlayer.color : "black";
     if (state.currentPlayer !== botColor) return;
 
@@ -814,17 +1252,136 @@ function ServidorWS() {
     }
   };
 
-  const emitirEstado4Raya = (io, codigo, datos4Raya) => {
+  const emitirEstado4Raya = (io, codigo, datos4Raya, { socket = null } = {}) => {
     const engine = datos4Raya?.engine ?? null;
     if (!engine) return;
 
-    io.to(codigo).emit("4raya:estado", {
+    const target = socket ? socket : io.to(codigo);
+
+    target.emit("4raya:estado", {
       codigo,
       engine,
     });
+
+    try {
+      target.emit("game:state", {
+        matchCode: codigo,
+        gameKey: "4raya",
+        state: engine,
+      });
+      if (!socket) console.log("[EMIT STATE] 4raya", codigo);
+    } catch (e) {}
   };
 
-  const emitirEstadoCheckers = (io, codigo, datosCheckers) => {
+  const buildConnect4PlayersFromPartida = (partida, codigo) => {
+    const raw = Array.isArray(partida?.jugadores) ? partida.jugadores.slice(0, 2) : [];
+    return raw
+      .map((j, idx) => {
+        const isBot =
+          !!(j && (j.isBot === true || normalizePlayerId(j.email) === "bot@local"));
+        const id = isBot ? `bot:${codigo}` : publicUserIdFromEmail(j?.email);
+        if (!id) return null;
+        const fallbackName = idx === 0 ? "Jugador 1" : "Jugador 2";
+        const name = isBot ? "Bot" : safePublicName(j?.nick, fallbackName);
+        return { id, name };
+      })
+      .filter(Boolean);
+  };
+
+  const initConnect4State = (codigo, partida, { reason = "" } = {}) => {
+    if (!codigo || !partida) return null;
+    const players = buildConnect4PlayersFromPartida(partida, codigo);
+    estados4raya[codigo] = {
+      engine: createConnect4InitialState({ players }),
+    };
+    console.log(
+      "[INIT] 4raya",
+      codigo,
+      "players=" + players.length,
+      "mode=" + String(partida.mode || "PVP"),
+      reason ? "reason=" + reason : "",
+    );
+    return estados4raya[codigo];
+  };
+
+  const ensureConnect4State = (codigo, partida, { reason = "" } = {}) => {
+    if (!codigo || !partida) return null;
+    const started =
+      String(partida?.status || "").toUpperCase() === "STARTED" ||
+      (partida?.estado && partida.estado !== "pendiente");
+    if (!started && !isBotMatch(partida)) return null;
+
+    if (!estados4raya[codigo] || !estados4raya[codigo].engine) {
+      return initConnect4State(codigo, partida, { reason: reason || "ensure" });
+    }
+
+    const datos4Raya = estados4raya[codigo];
+    const engine = datos4Raya.engine;
+    const desiredPlayers = buildConnect4PlayersFromPartida(partida, codigo);
+
+    if (engine && Array.isArray(engine.players) && engine.players.length >= 2) {
+      const nextPlayers = engine.players.slice(0, 2).map((p, idx) => {
+        const desired = desiredPlayers[idx];
+        if (!desired) return p;
+        return { ...p, id: desired.id ?? p.id, name: desired.name ?? p.name };
+      });
+      datos4Raya.engine = { ...engine, players: nextPlayers };
+    }
+
+    return datos4Raya;
+  };
+
+  const buildCheckersPlayersFromPartida = (partida, codigo) => {
+    const raw = Array.isArray(partida?.jugadores) ? partida.jugadores.slice(0, 2) : [];
+    return raw
+      .map((j, idx) => {
+        const isBot =
+          !!(j && (j.isBot === true || normalizePlayerId(j.email) === "bot@local"));
+        const id = isBot ? `bot:${codigo}` : publicUserIdFromEmail(j?.email);
+        if (!id) return null;
+        const fallbackName = idx === 0 ? "Jugador 1" : "Jugador 2";
+        const name = isBot ? "Bot" : safePublicName(j?.nick, fallbackName);
+        return {
+          color: idx === 0 ? "white" : "black",
+          id,
+          name,
+        };
+      })
+      .filter(Boolean);
+  };
+
+  const initCheckersState = (codigo, partida, { reason = "" } = {}) => {
+    if (!codigo || !partida) return null;
+    const players = buildCheckersPlayersFromPartida(partida, codigo);
+    estadosCheckers[codigo] = {
+      state: createCheckersInitialState(),
+      players,
+    };
+    console.log(
+      "[INIT]",
+      String(partida.juego || "damas"),
+      codigo,
+      "players=" + players.length,
+      "mode=" + String(partida.mode || "PVP"),
+      reason ? "reason=" + reason : "",
+    );
+    return estadosCheckers[codigo];
+  };
+
+  const ensureCheckersState = (codigo, partida, { reason = "" } = {}) => {
+    if (!codigo || !partida) return null;
+    const started =
+      String(partida?.status || "").toUpperCase() === "STARTED" ||
+      (partida?.estado && partida.estado !== "pendiente");
+    if (!started && !isBotMatch(partida)) return null;
+    if (!estadosCheckers[codigo] || !estadosCheckers[codigo].state) {
+      return initCheckersState(codigo, partida, { reason: reason || "ensure" });
+    }
+    estadosCheckers[codigo].players = buildCheckersPlayersFromPartida(partida, codigo);
+    return estadosCheckers[codigo];
+  };
+
+  const emitirEstadoCheckers = (io, codigo, datosCheckers, { socket = null } = {}) => {
     const state = datosCheckers?.state ?? null;
     if (!state) return;
 
@@ -872,8 +1429,54 @@ function ServidorWS() {
       },
     };
 
-    io.to(codigo).emit("damas_state", payload);
-    io.to(codigo).emit("checkers_state", payload);
+    const target = socket ? socket : io.to(codigo);
+
+    target.emit("damas_state", payload);
+    target.emit("checkers_state", payload);
+
+    try {
+      const partida = sistemaRef?.partidas?.[codigo] || null;
+      const gameKey = String(partida?.juego || "damas").trim().toLowerCase();
+      target.emit("game:state", {
+        matchCode: codigo,
+        gameKey,
+        state: payload.statePublic,
+      });
+      if (!socket) console.log("[EMIT STATE]", gameKey || "damas", codigo);
+    } catch (e) {}
+
+    // Damas PVP rematch ready-check: initialize + broadcast rematch state when a round ends.
+    try {
+      const partida = sistemaRef?.partidas?.[codigo] || null;
+      const gameKey = String(partida?.juego || "").trim().toLowerCase();
+      if (gameKey !== "damas" && gameKey !== "checkers") return;
+      if (!partida || isBotMatch(partida)) return;
+
+      if (String(state.status || "").toLowerCase() !== "finished") {
+        cancelCheckersRematch(io, codigo, "round_active");
+        return;
+      }
+
+      const required = getCheckersMatchPlayerUids(partida);
+      if (required.length < 2) return;
+
+      const rematch = ensureCheckersRematchRecord(codigo, partida);
+      if (!rematch) return;
+      rematch.active = true;
+      rematch.started = false;
+      rematch.votes = new Set();
+      rematch.createdAt = Date.now();
+      if (rematch.timeout) {
+        try { clearTimeout(rematch.timeout); } catch (e2) {}
+      }
+      rematch.timeout = setTimeout(() => {
+        try {
+          cancelCheckersRematch(io, codigo, "timeout");
+        } catch (e) {}
+      }, CHECKERS_REMATCH_TIMEOUT_MS);
+
+      emitCheckersRematchState(io, codigo, partida);
+    } catch (e) {}
   };
 
   const ensureUnoTimers = (datosUNO) => {
@@ -1097,15 +1700,16 @@ function ServidorWS() {
       // === crearPartida ===
       socket.on("crearPartida", function(datos, ack) {
         const juego = datos && datos.juego;
-        const modeRaw = datos && datos.mode;
-        const vsBotRaw = datos && datos.vsBot;
+        const modeRaw = datos && (datos.matchMode ?? datos.mode);
+        const vsBotRaw = datos && (datos.isBotMatch ?? datos.vsBot ?? datos.bot);
         const vsBot =
           vsBotRaw === true ||
           vsBotRaw === 1 ||
           vsBotRaw === "1" ||
           String(vsBotRaw).toLowerCase() === "true";
+        const modeNorm = String(modeRaw || "").trim().toLowerCase();
         const mode =
-          String(modeRaw || "").trim().toUpperCase() === "PVBOT" || vsBot
+          modeNorm === "pvbot" || modeNorm === "bot" || modeNorm === "machine" || modeNorm === "cpu" || vsBot
             ? "PVBOT"
             : "PVP";
         const isBotMode =
@@ -1133,9 +1737,32 @@ function ServidorWS() {
         if (codigo !== -1) {
           socket.join(codigo); // sala de socket.io
           cancelRoomEmptyTimer(codigo);
+          trackMatchPresence(codigo, datos.email, socket);
         }
 
+        try {
+          const partidaNow = codigo !== -1 ? sistema.partidas?.[codigo] : null;
+          if (partidaNow) emitMatchUpdate(io, codigo, partidaNow);
+        } catch (e) {}
+
         const partidaCreada = codigo !== -1 ? sistema.partidas[codigo] : null;
+        try {
+          const gameKeyDbg = String(partidaCreada?.juego || juego || "").trim().toLowerCase();
+          if (codigo !== -1 && (gameKeyDbg === "4raya" || gameKeyDbg === "damas" || gameKeyDbg === "checkers")) {
+            const playersLenDbg = Array.isArray(partidaCreada?.jugadores) ? partidaCreada.jugadores.length : 0;
+            const hasStateDbg =
+              gameKeyDbg === "4raya"
+                ? !!estados4raya?.[codigo]?.engine
+                : !!estadosCheckers?.[codigo]?.state;
+            console.log("[CREATE]", {
+              matchCode: codigo,
+              gameKey: gameKeyDbg,
+              mode: partidaCreada?.mode,
+              players: playersLenDbg,
+              hasState: hasStateDbg,
+            });
+          }
+        } catch (e) {}
         srv.enviarAlRemitente(socket, "partidaCreada", {
           codigo: codigo,
           maxPlayers: maxPlayers,
@@ -1159,7 +1786,28 @@ function ServidorWS() {
           const contRes = sistema.continuarPartida(datos.email, codigo);
           const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
           if (contCodigo !== -1) {
-            io.to(codigo).emit("partidaContinuada", { codigo, juego, isBotGame: true });
+            const partida = sistema.partidas?.[codigo] || null;
+            try {
+              const gameKey = String(juego || "").trim().toLowerCase();
+              if (partida && (gameKey === "4raya" || gameKey === "damas" || gameKey === "checkers")) {
+                if (gameKey === "4raya") {
+                  ensureConnect4State(codigo, partida, { reason: "create_bot" });
+                  if (estados4raya[codigo]) emitirEstado4Raya(io, codigo, estados4raya[codigo]);
+                } else {
+                  ensureCheckersState(codigo, partida, { reason: "create_bot" });
+                  if (estadosCheckers[codigo]) emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
+                  if (partida.mode === "PVBOT") {
+                    try { maybeBotMoveCheckers(io, codigo); } catch (e) {}
+                  }
+                }
+              }
+            } catch (e) {}
+            io.to(codigo).emit("partidaContinuada", {
+              codigo,
+              juego,
+              isBotGame: true,
+              creatorNick: safePublicName(partida?.propietario, "Anfitrión"),
+            });
           } else {
             srv.enviarAlRemitente(
               socket,
@@ -1185,6 +1833,26 @@ function ServidorWS() {
 
         const res = sistema.unirAPartida(datos.email, datos.codigo);
         const codigo = res && typeof res === "object" ? res.codigo : res;
+        try {
+          const partidaDbg = codigo !== -1 ? sistema.partidas?.[codigo] : sistema.partidas?.[datos.codigo];
+          const gameKeyDbg = String(partidaDbg?.juego || datos?.juego || "").trim().toLowerCase();
+          const playersLenDbg = Array.isArray(partidaDbg?.jugadores) ? partidaDbg.jugadores.length : 0;
+          const hasStateDbg =
+            gameKeyDbg === "4raya"
+              ? !!estados4raya?.[String(codigo !== -1 ? codigo : datos.codigo)]?.engine
+              : gameKeyDbg === "damas" || gameKeyDbg === "checkers"
+                ? !!estadosCheckers?.[String(codigo !== -1 ? codigo : datos.codigo)]?.state
+                : false;
+          if (gameKeyDbg === "4raya" || gameKeyDbg === "damas" || gameKeyDbg === "checkers") {
+            console.log("[JOIN]", {
+              matchCode: String(codigo !== -1 ? codigo : datos.codigo),
+              gameKey: gameKeyDbg,
+              mode: partidaDbg?.mode,
+              players: playersLenDbg,
+              hasState: hasStateDbg,
+            });
+          }
+        } catch (e) {}
 
         // Si ya est\u00e1 en la sala, no tratar como error (deduplicaci\u00f3n).
         if (codigo === -1 && res && typeof res === "object" && res.reason === "ALREADY_IN") {
@@ -1198,6 +1866,7 @@ function ServidorWS() {
           try {
             socket.join(datos.codigo);
             cancelRoomEmptyTimer(datos.codigo);
+            trackMatchPresence(datos.codigo, datos.email, socket);
           } catch (e) {}
 
           srv.enviarAlRemitente(socket, "unidoAPartida", {
@@ -1217,8 +1886,16 @@ function ServidorWS() {
         if (codigo !== -1) {
           socket.join(codigo);
           cancelRoomEmptyTimer(codigo);
+          trackMatchPresence(codigo, datos.email, socket);
           cancelRoomEmptyTimer(codigo);
+          cancelRoomEmptyTimer(codigo);
+          trackMatchPresence(codigo, datos.email, socket);
         }
+
+        try {
+          const partidaNow = codigo !== -1 ? sistema.partidas?.[codigo] : null;
+          if (partidaNow) emitMatchUpdate(io, codigo, partidaNow);
+        } catch (e) {}
 
         // Si ya hay un engine UNO creado, sincronizarlo con los jugadores reales de la partida.
         try {
@@ -1273,6 +1950,45 @@ function ServidorWS() {
           console.warn("[UNO] error sincronizando engine tras unirAPartida", e?.message || e);
         }
 
+        // Damas / 4raya PVP: NO auto-start. El host debe iniciar manualmente.
+        try {
+          const partidaNow = sistema.partidas?.[codigo] || null;
+          const gameKey = String(partidaNow?.juego || "").trim().toLowerCase();
+          const isTwoPlayerGame = gameKey === "4raya" || gameKey === "damas" || gameKey === "checkers";
+          if (false && partidaNow && isTwoPlayerGame && !isBotMatch(partidaNow)) {
+            const maxPlayers = partidaNow?.maxPlayers ?? partidaNow?.maxJug ?? 2;
+            const playersLen = Array.isArray(partidaNow?.jugadores) ? partidaNow.jugadores.length : 0;
+            const started = String(partidaNow?.status || "").toUpperCase() === "STARTED" || (partidaNow?.estado && partidaNow.estado !== "pendiente");
+
+            if (!started && playersLen >= 2 && playersLen >= maxPlayers) {
+              const hostEmail =
+                partidaNow.propietarioEmail || (partidaNow.jugadores && partidaNow.jugadores[0] && partidaNow.jugadores[0].email);
+              const contRes = hostEmail ? sistema.continuarPartida(hostEmail, codigo) : null;
+              const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
+              if (contCodigo !== -1) {
+                console.log("[AUTO-START]", { gameKey, matchCode: codigo, players: playersLen });
+                if (gameKey === "4raya") {
+                  try {
+                    ensureConnect4State(codigo, partidaNow, { reason: "auto_start" });
+                    if (estados4raya[codigo]) emitirEstado4Raya(io, codigo, estados4raya[codigo]);
+                  } catch (e) {}
+                } else if (gameKey === "damas" || gameKey === "checkers") {
+                  try {
+                    ensureCheckersState(codigo, partidaNow, { reason: "auto_start" });
+                    if (estadosCheckers[codigo]) emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
+                  } catch (e) {}
+                }
+                io.to(codigo).emit("partidaContinuada", {
+                  codigo,
+                  juego: gameKey,
+                  isBotGame: false,
+                  creatorNick: safePublicName(partidaNow?.propietario, "Anfitrión"),
+                });
+              }
+            }
+          }
+        } catch (e) {}
+
         srv.enviarAlRemitente(
           socket,
           "unidoAPartida",
@@ -1307,7 +2023,20 @@ function ServidorWS() {
             codigo: codigo,
             juego,
             isBotGame: !!(partida && isBotMatch(partida)),
+            creatorNick: safePublicName(partida?.propietario, "Anfitrión"),
           });
+
+          try {
+            const gameKey = String(juego || "").trim().toLowerCase();
+            io.to(codigo).emit("match:started", {
+              matchCode: String(codigo),
+              gameKey,
+              status: getDerivedMatchStatus(partida),
+              creatorNick: safePublicName(partida?.propietario, "Anfitrión"),
+              ts: Date.now(),
+            });
+            emitMatchUpdate(io, codigo, partida);
+          } catch (e) {}
 
           // Actualizar la lista para TODO el mundo
           // (si sistema.obtenerPartidasDisponibles ya filtra las "en curso",
@@ -1335,18 +2064,46 @@ function ServidorWS() {
       // === eliminarPartida ===
       socket.on("eliminarPartida", function(datos, ack) {
         const codigoReq = datos && datos.codigo;
+        const partidaBefore = codigoReq && sistema.partidas ? sistema.partidas[codigoReq] : null;
+        const email = datos && datos.email;
+        const playerId = normalizePlayerId(email);
+        const wasHost =
+          !!partidaBefore &&
+          !!playerId &&
+          normalizePlayerId(partidaBefore.propietarioEmail || "") === playerId;
+        const wasPlayer =
+          !!partidaBefore &&
+          !!playerId &&
+          Array.isArray(partidaBefore.jugadores) &&
+          partidaBefore.jugadores.some((j) => normalizePlayerId(j?.email) === playerId);
+
         const before = !!(codigoReq && sistema.partidas && sistema.partidas[codigoReq]);
         let codigo = sistema.eliminarPartida(datos.email, codigoReq);
         const deletedRoom =
           before && !!codigoReq && !(sistema.partidas && sistema.partidas[codigoReq]);
 
-        try { if (codigoReq) socket.leave(codigoReq); } catch (e) {}
+        try {
+          if (codigoReq) socket.leave(codigoReq);
+          if (codigoReq && email) untrackSocketFromMatchPresence(codigoReq, email, socket);
+        } catch (e) {}
         if (deletedRoom && codigoReq) {
           try { io.to(codigoReq).emit("room:deleted", { codigo: codigoReq }); } catch (e) {}
+          try {
+            emitMatchEnded(io, { matchCode: codigoReq, gameKey: partidaBefore?.juego || datos?.juego, reason: "DELETED" });
+          } catch (e) {}
         }
 
         if (codigo !== -1 && !sistema.partidas[codigo]) {
           cleanupCodigoState(io, codigo);
+        }
+
+        if (codigoReq && partidaBefore && wasPlayer && !wasHost) {
+          const playerNick = pickDisplayName(partidaBefore, playerId, "Jugador");
+          emitMatchPlayerLeft(
+            io,
+            { matchCode: codigoReq, gameKey: partidaBefore.juego || datos?.juego, playerNick },
+            { excludeSocket: socket }
+          );
         }
 
         srv.enviarAlRemitente(socket, "partidaEliminada", { codigo: codigo });
@@ -1356,6 +2113,507 @@ function ServidorWS() {
 
         let lista = sistema.obtenerPartidasDisponibles(datos.juego);
         srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
+      });
+
+      // ==========================
+      //  MATCH RESUME (GLOBAL)
+      // ==========================
+
+      socket.on("match:can_resume", function(datos, ack) {
+        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
+        const email = datos?.email;
+        const emailId = normalizePlayerId(email);
+        const userId = normalizePlayerId(datos?.userId || datos?.uid || "");
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("match:can_resume", payload);
+        };
+
+        if (!matchCode || (!emailId && !userId)) {
+          return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[matchCode] || null;
+        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
+        if (getConnectedCount(matchCode) <= 0) {
+          // If the match has no connected players, treat it as dead.
+          if (shouldDestroyImmediatelyWhenEmpty(partida)) {
+            try { destroyMatch(io, sistema, matchCode, { reason: "EMPTY" }); } catch (e) {}
+          }
+          return respond({ ok: false, matchCode, reason: "MATCH_EMPTY" });
+        }
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => {
+            const e = normalizePlayerId(j?.email);
+            if (emailId && e === emailId) return true;
+            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
+            return false;
+          });
+        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
+
+        return respond({
+          ok: true,
+          matchCode,
+          gameKey: String(partida.juego || "uno").trim().toLowerCase(),
+          status: getDerivedMatchStatus(partida),
+          creatorNick: safePublicName(partida.propietario, "Anfitrión"),
+        });
+      });
+
+      socket.on("match:resume", function(datos, ack) {
+        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
+        const email = datos?.email;
+        const emailId = normalizePlayerId(email);
+        const userId = normalizePlayerId(datos?.userId || datos?.uid || "");
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("match:resume", payload);
+        };
+
+        if (!matchCode || (!emailId && !userId)) {
+          return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[matchCode] || null;
+        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
+        if (getConnectedCount(matchCode) <= 0) {
+          if (shouldDestroyImmediatelyWhenEmpty(partida)) {
+            try { destroyMatch(io, sistema, matchCode, { reason: "EMPTY" }); } catch (e) {}
+          }
+          return respond({ ok: false, matchCode, reason: "MATCH_EMPTY" });
+        }
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => {
+            const e = normalizePlayerId(j?.email);
+            if (emailId && e === emailId) return true;
+            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
+            return false;
+          });
+        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
+
+        try {
+          socket.join(matchCode);
+          cancelRoomEmptyTimer(matchCode);
+          if (email) trackMatchPresence(matchCode, email, socket);
+        } catch (e) {}
+
+        return respond({
+          ok: true,
+          matchCode,
+          gameKey: String(partida.juego || "uno").trim().toLowerCase(),
+          status: getDerivedMatchStatus(partida),
+          creatorNick: safePublicName(partida.propietario, "Anfitrión"),
+        });
+      });
+
+      socket.on("matches:my_active", function(datos, ack) {
+        const email = datos?.email;
+        const emailId = normalizePlayerId(email);
+        const userIdRaw = normalizePlayerId(datos?.userId || datos?.uid || "");
+        const userId = userIdRaw || (email ? publicUserIdFromEmail(email) : "");
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("matches:my_active", payload);
+        };
+
+        if (!emailId && !userId) return respond({ ok: false, reason: "INVALID_REQUEST" });
+
+        const partidas = sistema?.partidas || {};
+        const matches = [];
+        for (const codigo of Object.keys(partidas)) {
+          const partida = partidas[codigo];
+          if (!partida) continue;
+          if (isBotMatch(partida)) continue;
+
+          const gameKey = String(partida.juego || "").trim().toLowerCase();
+          if (gameKey !== "4raya" && gameKey !== "damas" && gameKey !== "checkers") continue;
+          if (getConnectedCount(codigo) <= 0) continue;
+
+          const belongs =
+            Array.isArray(partida.jugadores) &&
+            partida.jugadores.some((j) => {
+              const e = normalizePlayerId(j?.email);
+              if (emailId && e === emailId) return true;
+              if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
+              return false;
+            });
+          if (!belongs) continue;
+
+          matches.push({
+            matchCode: String(codigo),
+            gameKey,
+            status: getDerivedMatchStatus(partida),
+            creatorNick: safePublicName(partida.propietario, "Anfitrión"),
+            playersCount: getMatchPlayersLen(partida),
+            maxPlayers: getMatchMaxPlayers(partida),
+          });
+        }
+
+        const order = (s) =>
+          s === "IN_PROGRESS" ? 0 : s === "WAITING_START" ? 1 : 2;
+        matches.sort((a, b) => order(a.status) - order(b.status));
+        return respond({ ok: true, matches });
+      });
+
+      socket.on("match:rejoin", function(datos, ack) {
+        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
+        const email = datos?.email;
+        const emailId = normalizePlayerId(email);
+        const userIdRaw = normalizePlayerId(datos?.userId || datos?.uid || "");
+        const userId = userIdRaw || (email ? publicUserIdFromEmail(email) : "");
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("match:rejoin", payload);
+        };
+
+        if (!matchCode || (!emailId && !userId)) {
+          return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[matchCode] || null;
+        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
+        if (getConnectedCount(matchCode) <= 0) {
+          if (shouldDestroyImmediatelyWhenEmpty(partida)) {
+            try { destroyMatch(io, sistema, matchCode, { reason: "EMPTY" }); } catch (e) {}
+          }
+          return respond({ ok: false, matchCode, reason: "MATCH_EMPTY" });
+        }
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => {
+            const e = normalizePlayerId(j?.email);
+            if (emailId && e === emailId) return true;
+            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
+            return false;
+          });
+        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
+
+        try {
+          socket.join(matchCode);
+          cancelRoomEmptyTimer(matchCode);
+          if (email) trackMatchPresence(matchCode, email, socket);
+        } catch (e) {}
+
+        const gameKey = String(partida.juego || "").trim().toLowerCase();
+        const status = getDerivedMatchStatus(partida);
+
+        // Best-effort: keep lobby UI in sync.
+        emitMatchUpdate(io, matchCode, partida);
+
+        // If already started, re-send state to this socket.
+        try {
+          if (status === "IN_PROGRESS") {
+            if (gameKey === "4raya") {
+              ensureConnect4State(matchCode, partida, { reason: "rejoin" });
+              if (estados4raya[matchCode]) {
+                emitirEstado4Raya(io, matchCode, estados4raya[matchCode], { socket });
+              }
+            } else if (gameKey === "damas" || gameKey === "checkers") {
+              ensureCheckersState(matchCode, partida, { reason: "rejoin" });
+              if (estadosCheckers[matchCode]) {
+                emitirEstadoCheckers(io, matchCode, estadosCheckers[matchCode], { socket });
+              }
+            }
+          }
+        } catch (e) {}
+
+        return respond({
+          ok: true,
+          matchCode,
+          gameKey,
+          status,
+          creatorNick: safePublicName(partida.propietario, "Anfitrión"),
+        });
+      });
+
+      socket.on("match:start", function(datos, ack) {
+        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
+        const email = datos?.email;
+        const emailId = normalizePlayerId(email);
+        const userIdRaw = normalizePlayerId(datos?.userId || datos?.uid || "");
+        const userId = userIdRaw || (email ? publicUserIdFromEmail(email) : "");
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("match:start", payload);
+        };
+
+        if (!matchCode || (!emailId && !userId)) {
+          return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[matchCode] || null;
+        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
+
+        const gameKey = String(partida.juego || "").trim().toLowerCase();
+        if (gameKey !== "4raya" && gameKey !== "damas" && gameKey !== "checkers") {
+          return respond({ ok: false, matchCode, reason: "UNSUPPORTED_GAME" });
+        }
+
+        const hostEmail =
+          partida.propietarioEmail || (partida.jugadores && partida.jugadores[0] && partida.jugadores[0].email) || "";
+        const hostEmailId = normalizePlayerId(hostEmail);
+        const hostUserId = hostEmail ? publicUserIdFromEmail(hostEmail) : "";
+        const isHost =
+          (!!emailId && !!hostEmailId && emailId === hostEmailId) ||
+          (!!userId && !!hostUserId && userId === hostUserId);
+        if (!isHost) return respond({ ok: false, matchCode, reason: "NOT_HOST" });
+
+        const playersLen = getMatchPlayersLen(partida);
+        const maxPlayers = getMatchMaxPlayers(partida);
+        if (playersLen < maxPlayers) return respond({ ok: false, matchCode, reason: "NOT_FULL" });
+
+        const res = sistema.continuarPartida(hostEmail, matchCode);
+        const codigo = res && typeof res === "object" ? res.codigo : res;
+        if (codigo === -1) {
+          return respond({ ok: false, matchCode, reason: res?.reason || "START_FAILED" });
+        }
+
+        const partidaNow = sistema.partidas?.[matchCode] || partida;
+        const status = getDerivedMatchStatus(partidaNow);
+
+        io.to(matchCode).emit("match:started", {
+          matchCode,
+          gameKey,
+          status,
+          creatorNick: safePublicName(partidaNow?.propietario, "Anfitrión"),
+          ts: Date.now(),
+        });
+        emitMatchUpdate(io, matchCode, partidaNow);
+
+        // Keep legacy client behavior: `partidaContinuada` triggers navigation.
+        io.to(matchCode).emit("partidaContinuada", {
+          codigo: matchCode,
+          juego: gameKey,
+          isBotGame: false,
+          creatorNick: safePublicName(partidaNow?.propietario, "Anfitrión"),
+        });
+
+        try {
+          if (gameKey === "4raya") {
+            ensureConnect4State(matchCode, partidaNow, { reason: "start" });
+            if (estados4raya[matchCode]) emitirEstado4Raya(io, matchCode, estados4raya[matchCode]);
+          } else {
+            ensureCheckersState(matchCode, partidaNow, { reason: "start" });
+            if (estadosCheckers[matchCode]) emitirEstadoCheckers(io, matchCode, estadosCheckers[matchCode]);
+          }
+        } catch (e) {}
+
+        return respond({ ok: true, matchCode, gameKey, status });
+      });
+
+      socket.on("match:soft_disconnect", function(datos, ack) {
+        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
+        const email = datos?.email;
+        const emailId = normalizePlayerId(email);
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("match:soft_disconnect", payload);
+        };
+
+        if (!matchCode || !emailId) return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+
+        const partida = sistema.partidas?.[matchCode] || null;
+        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j?.email) === emailId);
+        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
+
+        try {
+          socket.leave(matchCode);
+        } catch (e) {}
+        try {
+          untrackSocketFromMatchPresence(matchCode, email, socket);
+        } catch (e) {}
+
+        // If nobody is connected anymore, end the match immediately.
+        if (getConnectedCount(matchCode) <= 0 && shouldDestroyImmediatelyWhenEmpty(partida)) {
+          destroyMatch(io, sistema, matchCode, { reason: "EMPTY" });
+          return respond({ ok: true, matchCode, ended: true });
+        }
+
+        // Otherwise behave like a disconnect (start TTL removal + notify).
+        scheduleRemovePlayerIfStillDisconnected(io, sistema, matchCode, emailId);
+        return respond({ ok: true, matchCode, ended: false });
+      });
+
+      socket.on("match:leave", function(datos, ack) {
+        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
+        const email = datos?.email;
+        const emailId = normalizePlayerId(email);
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("match:leave", payload);
+        };
+
+        if (!matchCode || !emailId) return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+
+        const partidaBefore = sistema.partidas?.[matchCode] || null;
+        if (!partidaBefore) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partidaBefore)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
+
+        const belongs =
+          Array.isArray(partidaBefore.jugadores) &&
+          partidaBefore.jugadores.some((j) => normalizePlayerId(j?.email) === emailId);
+        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
+
+        const playerNick = pickDisplayName(partidaBefore, emailId, "Jugador");
+        const gameKey = partidaBefore.juego || null;
+
+        try {
+          untrackSocketFromMatchPresence(matchCode, email, socket);
+        } catch (e) {}
+        try {
+          socket.leave(matchCode);
+        } catch (e) {}
+
+        const res = sistema.eliminarPartida(email, matchCode);
+        const partidaAfter = sistema.partidas?.[matchCode] || null;
+
+        emitMatchPlayerLeft(io, { matchCode, gameKey, playerNick }, { excludeSocket: socket });
+
+        if (!partidaAfter || getConnectedCount(matchCode) <= 0) {
+          if (partidaAfter) {
+            destroyMatch(io, sistema, matchCode, { reason: "EMPTY" });
+          } else {
+            // already deleted by model
+            emitMatchEnded(io, { matchCode, gameKey, reason: "EMPTY" });
+          }
+        }
+
+        return respond({ ok: true, matchCode, codigo: res && typeof res === "object" ? res.codigo : res });
+      });
+
+      // ==========================
+      //  GAME STATE (DAMAS / 4RAYA)
+      // ==========================
+
+      socket.on("game:get_state", function(datos, ack) {
+        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
+        const requestedKey = String(datos?.gameKey || datos?.gameType || "").trim().toLowerCase();
+        const email = datos?.email;
+        const emailId = normalizePlayerId(email);
+        const userId = normalizePlayerId(datos?.userId || datos?.uid || "");
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("game:get_state", payload);
+        };
+
+        if (!matchCode) return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+
+        const partida = sistema.partidas?.[matchCode] || null;
+        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+
+        const gameKey = String(partida.juego || "").trim().toLowerCase();
+        if (!gameKey) return respond({ ok: false, matchCode, reason: "UNKNOWN_GAME" });
+
+        if (requestedKey && requestedKey !== gameKey) {
+          return respond({ ok: false, matchCode, reason: "GAME_MISMATCH", gameKey });
+        }
+
+        const playersLen = Array.isArray(partida.jugadores) ? partida.jugadores.length : 0;
+        const hasState =
+          gameKey === "4raya"
+            ? !!estados4raya?.[matchCode]?.engine
+            : gameKey === "damas" || gameKey === "checkers"
+              ? !!estadosCheckers?.[matchCode]?.state
+              : false;
+        console.log("[GET_STATE]", { matchCode, gameKey, mode: partida.mode, players: playersLen, hasState });
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => {
+            const e = normalizePlayerId(j?.email);
+            if (emailId && e === emailId) return true;
+            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
+            return false;
+          });
+        const alreadyInRoom = (() => {
+          try { return socket.rooms && socket.rooms.has(matchCode); } catch { return false; }
+        })();
+        if (!belongs && !alreadyInRoom) {
+          return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
+        }
+
+        try {
+          socket.join(matchCode);
+          cancelRoomEmptyTimer(matchCode);
+          if (email) trackMatchPresence(matchCode, email, socket);
+        } catch (e) {}
+
+        if (gameKey === "4raya") {
+          if (playersLen < 2 && String(partida.mode || "").toUpperCase() !== "PVBOT") {
+            return respond({ ok: false, matchCode, gameKey, reason: "WAITING_FOR_PLAYERS" });
+          }
+          const started =
+            String(partida?.status || "").toUpperCase() === "STARTED" ||
+            (partida?.estado && partida.estado !== "pendiente");
+          if (!started && !isBotMatch(partida)) {
+            return respond({ ok: false, matchCode, gameKey, reason: "WAITING_FOR_START" });
+          }
+          const ensured = ensureConnect4State(matchCode, partida, { reason: "get_state" });
+          if (!ensured || !estados4raya?.[matchCode]?.engine) {
+            return respond({ ok: false, matchCode, gameKey, reason: "STATE_NOT_READY" });
+          }
+          emitirEstado4Raya(io, matchCode, estados4raya[matchCode], { socket });
+          return respond({ ok: true, matchCode, gameKey });
+        }
+
+        if (gameKey === "damas" || gameKey === "checkers") {
+          let started =
+            String(partida?.status || "").toUpperCase() === "STARTED" ||
+            (partida?.estado && partida.estado !== "pendiente");
+          if (false && !started) {
+            // Best-effort auto-start (if full / vs bot).
+            try {
+              const hostEmail =
+                partida.propietarioEmail || (partida.jugadores && partida.jugadores[0] && partida.jugadores[0].email);
+              const contRes = hostEmail ? sistema.continuarPartida(hostEmail, matchCode) : null;
+              const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
+              if (contCodigo !== -1) {
+                started = true;
+                io.to(matchCode).emit("partidaContinuada", {
+                  codigo: matchCode,
+                  juego: gameKey,
+                  isBotGame: !!isBotMatch(partida),
+                  creatorNick: safePublicName(partida?.propietario, "Anfitrión"),
+                });
+              }
+          } catch (e) {}
+          }
+
+          if (!started) {
+            return respond({ ok: false, matchCode, gameKey, reason: "WAITING_FOR_START" });
+          }
+
+          ensureCheckersState(matchCode, partida, { reason: "get_state" });
+          emitirEstadoCheckers(io, matchCode, estadosCheckers[matchCode], { socket });
+          if (partida.mode === "PVBOT") {
+            try { maybeBotMoveCheckers(io, matchCode); } catch (e) {}
+          }
+          return respond({ ok: true, matchCode, gameKey });
+        }
+
+        return respond({ ok: false, matchCode, gameKey, reason: "UNSUPPORTED_GAME" });
       });
 
       // ==========================
@@ -1426,6 +2684,21 @@ function ServidorWS() {
 
         try {
           socket.leave(codigo);
+        } catch (e) {}
+        try {
+          untrackSocketFromMatchPresence(codigo, email, socket);
+        } catch (e) {}
+
+        try {
+          if (before && codigo && email) {
+            const playerId = normalizePlayerId(email);
+            const playerNick = pickDisplayName(before, playerId, "Jugador");
+            emitMatchPlayerLeft(
+              io,
+              { matchCode: codigo, gameKey: before.juego || datos?.gameType, playerNick },
+              { excludeSocket: socket }
+            );
+          }
         } catch (e) {}
 
         // Notificar abandono + cancelar rematch si estaba en votación (UNO).
@@ -1701,6 +2974,8 @@ function ServidorWS() {
           } catch (e) {}
           return;
         }
+
+        trackMatchPresence(codigo, email, socket);
 
         if (!estadosUNO[codigo]) {
           estadosUNO[codigo] = {
@@ -1991,8 +3266,8 @@ function ServidorWS() {
         }
 
         // Si aún no hemos creado el engine para esta partida, lo creamos
-        const playerId = normalizePlayerId(email);
-        if (!playerId) return;
+        const emailId = normalizePlayerId(email);
+        if (!emailId) return;
 
         const belongs =
           Array.isArray(partida.jugadores) &&
@@ -2392,16 +3667,20 @@ function ServidorWS() {
       //  DAMAS / CHECKERS (WS)
       // ==========================
 
-      const resolveCheckersPlayers = (partida) => {
+      const resolveCheckersPlayers = (partida, codigo) => {
         const raw = Array.isArray(partida?.jugadores) ? partida.jugadores.slice(0, 2) : [];
         return raw
           .map((j, idx) => {
-            const id = normalizePlayerId(j?.email);
+            const isBot =
+              !!(j && (j.isBot === true || normalizePlayerId(j.email) === "bot@local"));
+            const id = isBot ? `bot:${codigo}` : publicUserIdFromEmail(j?.email);
             if (!id) return null;
+            const fallbackName = idx === 0 ? "Jugador 1" : "Jugador 2";
+            const name = isBot ? "Bot" : safePublicName(j?.nick, fallbackName);
             return {
               color: idx === 0 ? "white" : "black",
               id,
-              name: j?.nick || (idx === 0 ? "Jugador 1" : "Jugador 2"),
+              name,
             };
           })
           .filter(Boolean);
@@ -2448,19 +3727,18 @@ function ServidorWS() {
           return;
         }
 
+        try {
+          const playersLen = Array.isArray(partida.jugadores) ? partida.jugadores.length : 0;
+          const hasState = !!estadosCheckers?.[codigo]?.state;
+          console.log("[SUBSCRIBE]", { matchCode: codigo, gameKey: String(partida.juego || "damas"), mode: partida.mode, players: playersLen, hasState });
+        } catch (e) {}
+
         socketToCheckersPlayerId[socket.id] = playerId;
         socketToCheckersCodigo[socket.id] = codigo;
 
-        if (!estadosCheckers[codigo]) {
-          estadosCheckers[codigo] = {
-            state: createCheckersInitialState(),
-            players: resolveCheckersPlayers(partida),
-          };
-          console.log("[CHECKERS] estado creado para partida", codigo);
-        } else {
-          estadosCheckers[codigo].players = resolveCheckersPlayers(partida);
-        }
+        ensureCheckersState(codigo, partida, { reason: "subscribe" });
 
+        trackMatchPresence(codigo, email, socket);
         socket.join(codigo);
         emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
       }
@@ -2487,21 +3765,32 @@ function ServidorWS() {
           return;
         }
 
-        const playerId = normalizePlayerId(email);
-        if (!playerId) return;
+        const emailId = normalizePlayerId(email);
+        if (!emailId) return;
 
-        if (!estadosCheckers[codigo]) {
-          estadosCheckers[codigo] = {
-            state: createCheckersInitialState(),
-            players: resolveCheckersPlayers(partida),
-          };
-        } else {
-          estadosCheckers[codigo].players = resolveCheckersPlayers(partida);
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j?.email) === emailId);
+        if (!belongs) {
+          emitDamasError(socket, {
+            codigo,
+            reason: "NOT_IN_MATCH",
+            message: "No perteneces a esta partida.",
+          });
+          return;
         }
 
+        ensureCheckersState(codigo, partida, { reason: "move" });
+
         const datosCheckers = estadosCheckers[codigo];
-        const players = Array.isArray(datosCheckers.players) ? datosCheckers.players : [];
-        const me = players.find((p) => normalizePlayerId(p.id) === playerId) || null;
+        const players = Array.isArray(datosCheckers?.players) ? datosCheckers.players : [];
+        const publicId = publicUserIdFromEmail(email);
+        const me =
+          players.find(
+            (p) =>
+              normalizePlayerId(p?.id) === normalizePlayerId(publicId) ||
+              normalizePlayerId(p?.id) === emailId,
+          ) || null;
         const myColor = me?.color || null;
         if (!myColor) {
           emitDamasError(socket, {
@@ -2550,6 +3839,77 @@ function ServidorWS() {
       socket.on("damas_move", onDamasMove);
       socket.on("checkers_move", onDamasMove);
 
+      const handleCheckersRematchRequest = function(datos) {
+        const codigo = String((datos && (datos.codigo || datos.matchCode)) || "").trim();
+        const email = datos?.email;
+        const userIdRaw = normalizePlayerId(datos?.userId || datos?.uid || "");
+        const userId = userIdRaw || (email ? publicUserIdFromEmail(email) : "");
+        if (!codigo || !userId) return;
+
+        const partida = sistema.partidas[codigo];
+        if (!partida || !isDamasGame(partida) || isBotMatch(partida)) return;
+
+        const rematch = ensureCheckersRematchRecord(codigo, partida);
+        if (!rematch || !rematch.active) return;
+
+        const requiredUids = getCheckersMatchPlayerUids(partida);
+        if (requiredUids.length < 2) {
+          cancelCheckersRematch(io, codigo, "not_enough_players");
+          return;
+        }
+        if (!requiredUids.includes(userId)) return;
+
+        rematch.votes.add(userId);
+        console.log("[CHECKERS REMATCH] request", {
+          matchCode: codigo,
+          userId,
+          votes: rematch.votes.size,
+          required: requiredUids.length,
+        });
+        emitCheckersRematchState(io, codigo, partida);
+
+        if (rematch.started || rematch.votes.size < requiredUids.length) return;
+
+        rematch.started = true;
+        rematch.active = false;
+        rematch.createdAt = Date.now();
+        if (rematch.timeout) {
+          try { clearTimeout(rematch.timeout); } catch (e) {}
+        }
+        rematch.timeout = null;
+        rematch.votes = new Set();
+        if (partida) partida.rematch = rematch;
+
+        if (!estadosCheckers[codigo]) {
+          estadosCheckers[codigo] = {
+            state: createCheckersInitialState(),
+            players: resolveCheckersPlayers(partida, codigo),
+          };
+        } else {
+          estadosCheckers[codigo].state = createCheckersInitialState();
+          estadosCheckers[codigo].players = resolveCheckersPlayers(partida, codigo);
+        }
+
+        const newState = estadosCheckers[codigo].state;
+        partida.status = "STARTED";
+
+        console.log("[CHECKERS REMATCH] start", { matchCode: codigo });
+
+        io.to(codigo).emit("checkers:rematch_start", { matchCode: codigo, codigo, newState });
+        io.to(codigo).emit("damas:rematch_start", { matchCode: codigo, codigo, newState });
+        io.to(codigo).emit("damas_restart", { codigo });
+        io.to(codigo).emit("checkers_restart", { codigo });
+        emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
+        emitCheckersRematchState(io, codigo, partida);
+      };
+
+      // New API (preferred)
+      socket.on("checkers:rematch_request", handleCheckersRematchRequest);
+      socket.on("damas:rematch_request", handleCheckersRematchRequest);
+      // Backwards-compatible API
+      socket.on("checkers:rematch_vote", handleCheckersRematchRequest);
+      socket.on("damas:rematch_vote", handleCheckersRematchRequest);
+
       const onDamasRestart = function (datos) {
         const codigo = datos && datos.codigo;
         const email = datos && datos.email;
@@ -2585,10 +3945,10 @@ function ServidorWS() {
         if (!estadosCheckers[codigo]) {
           estadosCheckers[codigo] = {
             state: createCheckersInitialState(),
-            players: resolveCheckersPlayers(partida),
+            players: resolveCheckersPlayers(partida, codigo),
           };
         } else {
-          estadosCheckers[codigo].players = resolveCheckersPlayers(partida);
+          estadosCheckers[codigo].players = resolveCheckersPlayers(partida, codigo);
         }
 
         const datosCheckers = estadosCheckers[codigo];
@@ -2654,10 +4014,8 @@ function ServidorWS() {
           return;
         }
 
-        datosCheckers.state = createCheckersInitialState();
-        io.to(codigo).emit("damas_restart", { codigo });
-        io.to(codigo).emit("checkers_restart", { codigo });
-        emitirEstadoCheckers(io, codigo, datosCheckers);
+        // PVP: require BOTH players to accept rematch.
+        handleCheckersRematchRequest({ codigo, email });
       };
 
       socket.on("damas_restart", onDamasRestart);
@@ -2687,31 +4045,18 @@ function ServidorWS() {
           return;
         }
 
+        try {
+          const playersLen = Array.isArray(partida.jugadores) ? partida.jugadores.length : 0;
+          const hasState = !!estados4raya?.[codigo]?.engine;
+          console.log("[SUBSCRIBE]", { matchCode: codigo, gameKey: "4raya", mode: partida.mode, players: playersLen, hasState });
+        } catch (e) {}
+
         socketTo4RayaPlayerId[socket.id] = playerId;
         socketTo4RayaCodigo[socket.id] = codigo;
 
-        if (!estados4raya[codigo]) {
-          const players = (partida.jugadores || []).slice(0, 2).map((j) => ({
-            id: normalizePlayerId(j.email),
-            name: j.nick || j.email,
-          }));
-          estados4raya[codigo] = {
-            engine: createConnect4InitialState({ players }),
-          };
-          console.log("[4RAYA] engine creado para partida", codigo);
-        } else {
-          // Si la partida aun no ha empezado (tablero vacio), sincronizamos nombres/ids.
-          const datos4Raya = estados4raya[codigo];
-          const engine = datos4Raya.engine;
-          if (engine && !engine.lastMove) {
-            const players = (partida.jugadores || []).slice(0, 2).map((j) => ({
-              id: normalizePlayerId(j.email),
-              name: j.nick || j.email,
-            }));
-            datos4Raya.engine = { ...engine, players: createConnect4InitialState({ players }).players };
-          }
-        }
+        ensureConnect4State(codigo, partida, { reason: "subscribe" });
 
+        trackMatchPresence(codigo, email, socket);
         socket.join(codigo);
         emitirEstado4Raya(io, codigo, estados4raya[codigo]);
       });
@@ -2727,9 +4072,18 @@ function ServidorWS() {
         if (!partida || !datos4Raya || !datos4Raya.engine) return;
         if (partida.juego !== "4raya") return;
 
-        const playerId = normalizePlayerId(email);
+        const emailId = normalizePlayerId(email);
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => normalizePlayerId(j?.email) === emailId);
+        if (!belongs) {
+          console.warn("[4RAYA] accion rechazada (no pertenece a la partida)", codigo);
+          return;
+        }
+
+        const playerId = publicUserIdFromEmail(email);
         const playerIndex = (datos4Raya.engine.players || []).findIndex(
-          (p) => normalizePlayerId(p?.id) === playerId,
+          (p) => String(p?.id || "").trim().toLowerCase() === String(playerId || "").trim().toLowerCase(),
         );
         if (playerIndex === -1) {
           console.warn("[4RAYA] jugador no pertenece a la partida", email, codigo);
@@ -2938,6 +4292,10 @@ function ServidorWS() {
         delete socketTo4RayaPlayerId[socket.id];
         delete socketToCheckersCodigo[socket.id];
         delete socketToCheckersPlayerId[socket.id];
+
+        try {
+          handleSocketDisconnectPresence(io, sistema, socket);
+        } catch (e) {}
 
         // If any match rooms became empty due to this disconnect, delete after grace.
         try {
