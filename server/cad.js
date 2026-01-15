@@ -1,6 +1,7 @@
 require("dotenv").config();
 const { MongoClient, ObjectId } = require("mongodb");
 const gv = require("./gestorVariables.js");
+const logger = require("./logger");
 
 function CAD() {
   this.client = null;
@@ -12,10 +13,10 @@ function CAD() {
   // ---------- CONEXIÓN ÚNICA, CON TIMEOUTS ----------
   this.conectar = async (callback) => {
     const uri = await gv.obtenerMongoUri();
-    console.log("[cad.conectar] MONGO_URI presente:", !!uri);
+    logger.debug("[cad.conectar] MONGO_URI presente:", !!uri);
 
     if (!uri) {
-      console.warn("[cad.conectar] MONGO_URI no definida. MODO MEMORIA (NO persiste).");
+      logger.warn("[cad.conectar] MONGO_URI no definida. MODO MEMORIA (NO persiste).");
       this.usuarios = undefined;
       this.logs = undefined;
       this.passwordResetTokens = undefined;
@@ -23,7 +24,7 @@ function CAD() {
       return;
     }
     if (!/^mongodb(\+srv)?:\/\//.test(uri)) {
-      console.warn("[cad.conectar] MONGO_URI involida. MODO MEMORIA (NO persiste).");
+      logger.warn("[cad.conectar] MONGO_URI involida. MODO MEMORIA (NO persiste).");
       this.usuarios = undefined;
       this.logs = undefined;
       this.passwordResetTokens = undefined;
@@ -52,7 +53,7 @@ function CAD() {
       try {
         await this.usuarios.createIndex({ nick: 1 }, { unique: true, sparse: true });
       } catch (e) {
-        console.warn("[cad.conectar] No se pudo crear índice único en nick (continuo):", e && e.message);
+        logger.warn("[cad.conectar] No se pudo crear índice único en nick (continuo):", e && e.message);
       }
 
       try {
@@ -60,13 +61,13 @@ function CAD() {
         await this.passwordResetTokens.createIndex({ userId: 1, createdAt: -1 });
         await this.passwordResetTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
       } catch (e) {
-        console.warn("[cad.conectar] No se pudieron crear índices de passwordResetTokens:", e && e.message);
+        logger.warn("[cad.conectar] No se pudieron crear índices de passwordResetTokens:", e && e.message);
       }
 
-      console.log("[cad.conectar] Conectado a Mongo. Colección: sistema.usuarios");
+      logger.debug("[cad.conectar] Conectado a Mongo. Colección: sistema.usuarios");
       if (typeof callback === "function") callback(this.db);
     } catch (err) {
-      console.error("[cad.conectar] Error conectando a Mongo:", {
+      logger.error("[cad.conectar] Error conectando a Mongo:", {
         message: err.message,
         code: err.code,
         name: err.name,
@@ -121,7 +122,7 @@ function CAD() {
       return;
     }
     const safePatch = patch && typeof patch === "object" ? patch : {};
-    console.log("[cad.actualizarUsuarioPorEmail] updating email:", e, "patch:", safePatch);
+    logger.debug("[cad.actualizarUsuarioPorEmail] updating email:", e, "patch:", safePatch);
     this.usuarios.findOneAndUpdate(
       { email: e },
       { $set: safePatch },
@@ -132,14 +133,14 @@ function CAD() {
         maxTimeMS: 10000,
       }
     ).then((result) => {
-      console.log("[cad.actualizarUsuarioPorEmail] result:", result);
-      console.log("[cad.actualizarUsuarioPorEmail] update result:", result ? "success" : "no result");
+      logger.debug("[cad.actualizarUsuarioPorEmail] result:", result);
+      logger.debug("[cad.actualizarUsuarioPorEmail] update result:", result ? "success" : "no result");
       const doc = result && Object.prototype.hasOwnProperty.call(result, "value")
         ? result.value
         : result;
       callback(doc || undefined);
     }).catch((err) => {
-      console.error("[cad.actualizarUsuarioPorEmail] error:", err && err.message ? err.message : err);
+      logger.error("[cad.actualizarUsuarioPorEmail] error:", err && err.message ? err.message : err);
       callback(undefined);
     });
   };
@@ -155,7 +156,7 @@ function CAD() {
     this.usuarios.findOne({ _id }, { maxTimeMS: 5000 })
       .then((doc) => cb(doc || undefined))
       .catch((err) => {
-        console.error("[cad.buscarUsuarioPorId] error:", err && err.message ? err.message : err);
+        logger.error("[cad.buscarUsuarioPorId] error:", err && err.message ? err.message : err);
         cb(undefined);
       });
   };
@@ -184,7 +185,7 @@ function CAD() {
         : result;
       callback(doc || undefined);
     }).catch((err) => {
-      console.error("[cad.actualizarUsuarioPorId] error:", err && err.message ? err.message : err);
+      logger.error("[cad.actualizarUsuarioPorId] error:", err && err.message ? err.message : err);
       callback(undefined);
     });
   };
@@ -198,7 +199,7 @@ function CAD() {
         cb(Object.assign({ _id: res.insertedId }, safeDoc));
       })
       .catch((err) => {
-        console.error("[cad.insertarPasswordResetToken] error:", err && err.message ? err.message : err);
+        logger.error("[cad.insertarPasswordResetToken] error:", err && err.message ? err.message : err);
         cb(undefined);
       });
   };
@@ -210,7 +211,7 @@ function CAD() {
     this.passwordResetTokens.findOne({ tokenHash: h }, { maxTimeMS: 5000 })
       .then((doc) => cb(doc || undefined))
       .catch((err) => {
-        console.error("[cad.buscarPasswordResetTokenPorHash] error:", err && err.message ? err.message : err);
+        logger.error("[cad.buscarPasswordResetTokenPorHash] error:", err && err.message ? err.message : err);
         cb(undefined);
       });
   };
@@ -227,7 +228,7 @@ function CAD() {
       .toArray()
       .then((docs) => cb(Array.isArray(docs) && docs[0] ? docs[0] : undefined))
       .catch((err) => {
-        console.error("[cad.buscarPasswordResetTokenActivoMasRecienteDeUsuario] error:", err && err.message ? err.message : err);
+        logger.error("[cad.buscarPasswordResetTokenActivoMasRecienteDeUsuario] error:", err && err.message ? err.message : err);
         cb(undefined);
       });
   };
@@ -243,7 +244,7 @@ function CAD() {
     this.passwordResetTokens.updateOne({ _id }, { $set: { usedAt: new Date() } }, { maxTimeMS: 5000 })
       .then((res) => cb(!!(res && res.modifiedCount === 1)))
       .catch((err) => {
-        console.error("[cad.marcarPasswordResetTokenUsado] error:", err && err.message ? err.message : err);
+        logger.error("[cad.marcarPasswordResetTokenUsado] error:", err && err.message ? err.message : err);
         cb(false);
       });
   };
@@ -261,7 +262,7 @@ function CAD() {
     this.usuarios.deleteOne({ email: e }, { maxTimeMS: 5000 })
       .then((res) => callback(!!(res && res.deletedCount === 1)))
       .catch((err) => {
-        console.error("[cad.eliminarUsuarioPorEmail] error:", err && err.message ? err.message : err);
+        logger.error("[cad.eliminarUsuarioPorEmail] error:", err && err.message ? err.message : err);
         callback(false);
       });
   };
@@ -283,14 +284,14 @@ function CAD() {
         if (typeof callback === "function") callback(!!res);
       })
       .catch((err) => {
-        console.error("[cad.eliminarPasswordResetTokensDeUsuario] error:", err && err.message ? err.message : err);
+        logger.error("[cad.eliminarPasswordResetTokensDeUsuario] error:", err && err.message ? err.message : err);
         if (typeof callback === "function") callback(false);
       });
   };
 
   this.insertarLog = async function (tipoOperacion, usuario) {
     if (!this.logs) {
-      console.error("[cad.insertarLog] Coleccion logs no inicializada");
+      logger.error("[cad.insertarLog] Coleccion logs no inicializada");
       return;
     }
 
@@ -302,14 +303,14 @@ function CAD() {
 
     try {
       const resultado = await this.logs.insertOne(logDoc, { maxTimeMS: 5000 });
-      console.log("[cad.insertarLog] Log insertado:", {
+      logger.debug("[cad.insertarLog] Log insertado:", {
         id: resultado && resultado.insertedId,
         tipoOperacion,
         usuario,
       });
       return resultado;
     } catch (err) {
-      console.error("[cad.insertarLog] Error insertando log:", err.message);
+      logger.error("[cad.insertarLog] Error insertando log:", err.message);
       return;
     }
   };
@@ -451,7 +452,7 @@ function buscarOCrear(coleccion, criterio, callback) {
 
     callback({ email, nick: undefined });
   })().catch((err) => {
-    console.error("[cad.buscarOCrear] error:", err && err.message ? err.message : err);
+    logger.error("[cad.buscarOCrear] error:", err && err.message ? err.message : err);
     callback(undefined);
   });
 }
@@ -459,9 +460,9 @@ function buscarOCrear(coleccion, criterio, callback) {
 function buscar(col, criterio, cb) {
   try {
     const keys = criterio && typeof criterio === "object" ? Object.keys(criterio) : [];
-    console.log("[cad.buscar] criterio(keys):", keys, "col?", !!col);
+    logger.debug("[cad.buscar] criterio(keys):", keys, "col?", !!col);
   } catch (e) {
-    console.log("[cad.buscar] criterio(keys):", [], "col?", !!col);
+    logger.debug("[cad.buscar] criterio(keys):", [], "col?", !!col);
   }
   if (!col) {
     cb(undefined);
@@ -469,11 +470,11 @@ function buscar(col, criterio, cb) {
   }
   col.findOne(criterio, { maxTimeMS: 4000, projection: { _id: 1, email: 1, password: 1 } })
     .then((doc) => {
-      console.log("[cad.buscar] resultado:", doc ? { _id: doc._id } : undefined);
+      logger.debug("[cad.buscar] resultado:", doc ? { _id: doc._id } : undefined);
       cb(doc);
     })
     .catch((err) => {
-      console.error("[cad.buscar] error:", err.message);
+      logger.error("[cad.buscar] error:", err.message);
       cb(undefined);
     });
 }
@@ -486,7 +487,7 @@ function buscarRaw(col, criterio, cb) {
   col.findOne(criterio, { maxTimeMS: 5000 })
     .then((doc) => cb(doc))
     .catch((err) => {
-      console.error("[cad.buscarRaw] error:", err && err.message ? err.message : err);
+      logger.error("[cad.buscarRaw] error:", err && err.message ? err.message : err);
       cb(undefined);
     });
 }
@@ -499,39 +500,39 @@ function buscarConProyeccion(col, criterio, projection, cb) {
   col.findOne(criterio, { maxTimeMS: 5000, projection })
     .then((doc) => cb(doc))
     .catch((err) => {
-      console.error("[cad.buscarConProyeccion] error:", err && err.message ? err.message : err);
+      logger.error("[cad.buscarConProyeccion] error:", err && err.message ? err.message : err);
       cb(undefined);
     });
 }
 
 function insertar(col, elem, cb) {
-  console.log("[cad.insertar] col?", !!col, "elem.email:", elem && elem.email);
+  logger.debug("[cad.insertar] col?", !!col, "elem.email:", elem && elem.email);
   if (!col) {
-    console.warn("[cad.insertar] MODO MEMORIA: NO persiste en Mongo");
+    logger.warn("[cad.insertar] MODO MEMORIA: NO persiste en Mongo");
     cb({ email: elem && elem.email ? elem.email : -1 });
     return;
   }
   col
     .insertOne(elem, { maxTimeMS: 5000 })
     .then(() => {
-      console.log("[cad.insertar] Nuevo elemento creado en Mongo");
+      logger.debug("[cad.insertar] Nuevo elemento creado en Mongo");
       cb(elem);
     })
     .catch((err) => {
       if (err && err.code === 11000) {
-        console.warn("[cad.insertar] duplicado email");
+        logger.warn("[cad.insertar] duplicado email");
         cb({ email: -1, reason: "duplicado" });
       } else {
-        console.error("[cad.insertar] error:", err.message);
+        logger.error("[cad.insertar] error:", err.message);
         cb({ email: -1 });
       }
     });
 }
 
 function actualizar(coleccion, obj, callback) {
-  console.log("[cad.actualizar] entrada:", { email: obj.email, _id: obj._id });
+  logger.debug("[cad.actualizar] entrada:", { email: obj.email, _id: obj._id });
   if (!coleccion || !obj || !obj._id) {
-    console.error("[cad.actualizar] faltan datos");
+    logger.error("[cad.actualizar] faltan datos");
     callback({ email: -1 });
     return;
   }
@@ -546,17 +547,17 @@ function actualizar(coleccion, obj, callback) {
       maxTimeMS: 5000,
     }
   ).then(result => {
-    console.log("[cad.actualizar] resultado completo:", result);
+    logger.debug("[cad.actualizar] resultado completo:", result);
     const doc = result?.value || result;
     if (doc?.email) {
-      console.log("[cad.actualizar] Elemento actualizado:", { email: doc.email });
+      logger.debug("[cad.actualizar] Elemento actualizado:", { email: doc.email });
       callback({ email: doc.email });
     } else {
-      console.warn("[cad.actualizar] Actualización sin resultado esperado");
+      logger.warn("[cad.actualizar] Actualización sin resultado esperado");
       callback({ email: -1 });
     }
   }).catch(err => {
-    console.error("[cad.actualizar] error:", err.message);
+    logger.error("[cad.actualizar] error:", err.message);
     callback({ email: -1 });
   });
 }

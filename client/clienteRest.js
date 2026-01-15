@@ -126,13 +126,11 @@ function ClienteRest() {
             dataType: 'json',
             
             success: function(data, status, xhr){
-                // console.log("[cliente] SUCCESS status:", xhr.status);
                 if (data && data.ok){
                     cw.limpiar();
                     cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
                     cw.mostrarLogin({ email, keepMessage: true });
                 } else {
-                    // console.log("[cliente] Registro fallido");
                     const errorMsg = data.error || "No se ha podido registrar el usuario";
                     cw.mostrarModal(errorMsg);
                 }
@@ -154,7 +152,6 @@ function ClienteRest() {
                 cw.mostrarModal(errorMsg);
             },
             complete: function(xhr, textStatus){
-                // console.log("[cliente] COMPLETE:", textStatus, "status:", xhr.status);
             }
         });
     };

@@ -5,6 +5,7 @@ const app = express();
 const http = require('http');
 const httpServer = http.Server(app);
 const { Server } = require("socket.io");
+const logger = require("./server/logger");
 
 
 require('dotenv').config();
@@ -64,23 +65,23 @@ function clearAuthCookies(res) {
 }
 
 process.on('uncaughtException', (err) => {
-  console.error('[FATAL] uncaughtException:', err && err.stack ? err.stack : err);
+  logger.error('[FATAL] uncaughtException:', err && err.stack ? err.stack : err);
   process.exitCode = 1;
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('[FATAL] unhandledRejection:', reason && reason.stack ? reason.stack : reason);
+  logger.error('[FATAL] unhandledRejection:', reason && reason.stack ? reason.stack : reason);
   process.exitCode = 1;
 });
 
 require("./server/passport-setup.js");
 const modelo = require("./server/modelo.js");
-console.log('[START] creando Sistema()...');
+logger.info('[START] creando Sistema()...');
 let sistema;
 try {
   sistema = new modelo.Sistema();
-  console.log('[START] Sistema() creado');
+  logger.info('[START] Sistema() creado');
 } catch (e) {
-  console.error('[FATAL] fallo creando Sistema():', e && e.stack ? e.stack : e);
+  logger.error('[FATAL] fallo creando Sistema():', e && e.stack ? e.stack : e);
   process.exit(1);
 }
 // Socket.io server
@@ -147,7 +148,7 @@ app.use(function(req, res, next){
     const fpath = path.join(__dirname, 'client', req.path.replace(/^\//, ''));
     fs.access(fpath, fs.constants.R_OK, function(err){
       if (err){
-        console.warn('[static-diagnostic] asset requested but not accessible:', { url: req.url, fsPath: fpath, err: err.message });
+        logger.warn('[static-diagnostic] asset requested but not accessible:', { url: req.url, fsPath: fpath, err: err.message });
         // continue to static middleware so behavior is unchanged; but also attach flag for later
         req._staticMissing = true;
       }
@@ -235,14 +236,14 @@ const haIniciado = function(request, response, next){
       return next();
     }
   }catch(e){
-    console.warn('[haIniciado] error comprobando auth:', e && e.message);
+    logger.warn('[haIniciado] error comprobando auth:', e && e.message);
   }
 
   const acceptsJson = !!(request.xhr
     || (request.headers && request.headers.accept && request.headers.accept.indexOf('application/json') !== -1)
     || (request.path && String(request.path).startsWith('/api/')));
 
-  console.warn('[haIniciado] acceso no autorizado:', {
+  logger.warn('[haIniciado] acceso no autorizado:', {
     path: request.path,
     method: request.method,
     ip: request.ip,
@@ -277,9 +278,9 @@ app.get('/google/callback',
 });
 
 app.get("/good", function(req, res) {
-  console.log("[/good] Google OAuth callback, usuario:", req.user ? { id: req.user.id, displayName: req.user.displayName, emails: req.user.emails } : 'NONE');
+  logger.debug("[/good] Google OAuth callback, usuario:", req.user ? { id: req.user.id, displayName: req.user.displayName, emails: req.user.emails } : 'NONE');
   if (!req.user) {
-    console.error("[/good] ERROR: req.user es null/undefined");
+    logger.error("[/good] ERROR: req.user es null/undefined");
     return res.redirect('/fallo');
   }
 
@@ -289,27 +290,27 @@ app.get("/good", function(req, res) {
   }
   
   if (!email) {
-    console.error("[/good] ERROR: no email en profile");
+    logger.error("[/good] ERROR: no email en profile");
     return res.redirect('/fallo');
   }
 
   const displayName = req.user.displayName || '';
-  console.log("[/good] email extraído:", email, "displayName:", displayName);
+  logger.debug("[/good] email extraído:", email, "displayName:", displayName);
 
   process.nextTick(() => {
     sistema.usuarioGoogle({ email, displayName }, function(obj) {
-      console.log("[/good] usuarioGoogle retornó:", obj);
+      logger.debug("[/good] usuarioGoogle retornó:", obj);
       if (!obj || !obj.email) {
-        console.error("[/good] ERROR: objeto inválido de usuarioGoogle");
+        logger.error("[/good] ERROR: objeto inválido de usuarioGoogle");
         return res.redirect('/fallo');
       }
       try {
         req.session.user = { email };
       } catch(e) {
-        console.warn("[/good] session.user error:", e && e.message);
+        logger.warn("[/good] session.user error:", e && e.message);
       }
       const nickToSet = normalizePublicNick(obj.nick || obj.displayName || displayName, "Usuario");
-      console.log("[/good] nick final:", nickToSet);
+      logger.debug("[/good] nick final:", nickToSet);
       // Cookies: `email` (identidad interna) + `nick` (nombre visible, nunca email)
       setAuthCookies(res, email, nickToSet);
       res.redirect('/');
@@ -318,7 +319,7 @@ app.get("/good", function(req, res) {
 });
 
 app.get("/fallo", function(req, res) {
-  console.error("[/fallo] Redirigiendo, usuario no autenticado correctamente");
+  logger.error("[/fallo] Redirigiendo, usuario no autenticado correctamente");
   res.redirect('/');
 });
 
@@ -351,19 +352,19 @@ app.get("/eliminarUsuario/:nick", haIniciado, function(request, response) {
 });
 
 app.get('/salir', function(req, res){
-  console.log('[/salir] petición de cierre de sesión, user?', !!req.user);
+  logger.debug('[/salir] petición de cierre de sesión, user?', !!req.user);
   try{
     // Passport: intenta logout si está disponible
     if (typeof req.logout === 'function'){
       // En algunas versiones puede requerir callback
-      try { req.logout(); } catch(e) { console.warn('[/salir] req.logout fallo:', e && e.message); }
+      try { req.logout(); } catch(e) { logger.warn('[/salir] req.logout fallo:', e && e.message); }
     }
-  }catch(e){ console.warn('[/salir] error al llamar logout:', e && e.message); }
+  }catch(e){ logger.warn('[/salir] error al llamar logout:', e && e.message); }
 
   // Destruir la sesión
   if (req.session){
     req.session.destroy(function(err){
-      if (err) console.warn('[/salir] error destruyendo sesión:', err && err.message);
+      if (err) logger.warn('[/salir] error destruyendo sesión:', err && err.message);
       // Borrar cookie de sesión y cookie 'nick'
       clearAuthCookies(res);
       // Responder según tipo de petición
@@ -382,25 +383,25 @@ app.get('/salir', function(req, res){
 
 // One Tap: callback
 app.post('/oneTap/callback', (req, res, next) => {
-  console.log('[oneTap/callback] credential presente:', !!req.body.credential);
+  logger.debug('[oneTap/callback] credential presente:', !!req.body.credential);
   if (!req.body.credential) {
-    console.error('[oneTap] sin credential');
+    logger.error('[oneTap] sin credential');
     return res.redirect('/fallo');
   }
   
   passport.authenticate('google-one-tap', (err, user, info) => {
     if (err) {
-      console.error('[oneTap] error:', err);
+      logger.error('[oneTap] error:', err);
       return res.redirect('/fallo');
     }
     if (!user) {
-      console.warn('[oneTap] no user de strategy');
+      logger.warn('[oneTap] no user de strategy');
       return res.redirect('/fallo');
     }
     
     req.login(user, (loginErr) => {
       if (loginErr) {
-        console.error('[oneTap] login error:', loginErr);
+        logger.error('[oneTap] login error:', loginErr);
         return res.redirect('/fallo');
       }
       
@@ -414,13 +415,13 @@ app.post('/oneTap/callback', (req, res, next) => {
       const displayName = user.displayName || '';
       
       if (!email) {
-        console.error('[oneTap] sin email');
+        logger.error('[oneTap] sin email');
         return res.redirect('/fallo');
       }
       
       sistema.usuarioGoogle({ email, displayName }, function(obj) {
         if (!obj || !obj.email) {
-          console.error('[oneTap] usuarioGoogle fallo');
+          logger.error('[oneTap] usuarioGoogle fallo');
           return res.redirect('/fallo');
         }
         try {
@@ -428,7 +429,7 @@ app.post('/oneTap/callback', (req, res, next) => {
           const nickToSet = normalizePublicNick(obj.nick || obj.displayName || displayName, "Usuario");
           setAuthCookies(res, email, nickToSet);
         } catch (e) {
-          console.warn('[oneTap] cookie error:', e.message);
+          logger.warn('[oneTap] cookie error:', e.message);
         }
         return res.redirect('/');
       });
@@ -465,19 +466,19 @@ app.get('/assets-debug', (req, res) => {
 
 // Registro de usuario
 app.post("/registrarUsuario", function(req, res){
-  console.log("[/registrarUsuario] body recibido:", req.body);
+  logger.debug("[/registrarUsuario] body recibido:", req.body);
   const t0 = Date.now();
   let responded = false;
   const send = (status, payload) => {
     if (responded) return;
     responded = true;
-    console.log(`[/registrarUsuario] -> ${status} en ${Date.now()-t0}ms; payload:`, payload);
+    logger.debug(`[/registrarUsuario] -> ${status} en ${Date.now()-t0}ms; payload:`, payload);
     return res.status(status).json(payload);
   };
 
   try {
     sistema.registrarUsuario(req.body, function(out){
-      console.log("[/registrarUsuario] callback del modelo:", out);
+      logger.debug("[/registrarUsuario] callback del modelo:", out);
       if (out && out.email && out.email !== -1){
         return send(201, { ok: true });
       } else {
@@ -493,13 +494,13 @@ app.post("/registrarUsuario", function(req, res){
 
     setTimeout(() => {
       if (!responded){
-        console.warn("[/registrarUsuario] SIN RESPUESTA tras 10s (posible cuelgue en modelo/CAD)");
+        logger.warn("[/registrarUsuario] SIN RESPUESTA tras 10s (posible cuelgue en modelo/CAD)");
         send(504, { ok: false, reason: "timeout", error: "Tiempo de respuesta agotado" });
       }
     }, 10000);
 
   } catch (err) {
-    console.error("[/registrarUsuario] EXCEPCIÓN sin capturar:", err);
+    logger.error("[/registrarUsuario] EXCEPCIÓN sin capturar:", err);
     send(500, { ok: false, error: "Error interno del servidor" });
   }
 });
@@ -514,24 +515,24 @@ app.get("/confirmarUsuario/:email/:key", (req, res) => {
     responded = true;
 
     if (usr && usr.email && usr.email !== -1) {
-      console.log("[/confirmarUsuario] confirmación exitosa para:", usr.email);
+      logger.debug("[/confirmarUsuario] confirmación exitosa para:", usr.email);
       req.session.user = { email: usr.email };
       setAuthCookies(res, usr.email, usr.nick || usr.displayName || "Usuario");
     } else {
-      console.log("[/confirmarUsuario] confirmación fallida:", usr);
+      logger.debug("[/confirmarUsuario] confirmación fallida:", usr);
     }
     res.redirect('/');
   };
 
   // Procesar la confirmación
   sistema.confirmarUsuario({ email, key }, (usr) => {
-    console.log("[/confirmarUsuario] resultado confirmarUsuario:", usr);
+    logger.debug("[/confirmarUsuario] resultado confirmarUsuario:", usr);
     sendResponse(usr);
   });
 
   // Timeout de seguridad
   setTimeout(() => {
-    console.warn("[/confirmarUsuario] timeout alcanzado");
+    logger.warn("[/confirmarUsuario] timeout alcanzado");
     sendResponse({ email: -1, reason: "timeout" });
   }, 5000);
 });
@@ -543,7 +544,7 @@ app.get('/config.js', (req, res) => {
   const LOGIN_URI = process.env.LOGIN_URI || process.env.ONE_TAP_CALLBACK_URL || process.env.ONE_TAP_LOGIN_URI || process.env.GOOGLE_CALLBACK_URL || '';
   const SERVER_URL = process.env.SERVER_URL || '';
   const cfg = { CLIENT_ID, LOGIN_URI, SERVER_URL };
-  console.log('[config.js] sirviendo configuración al cliente:', cfg);
+  logger.debug('[config.js] sirviendo configuración al cliente:', cfg);
   res.type('application/javascript');
   res.send(`window.APP_CONFIG = ${JSON.stringify(cfg)};`);
 });
@@ -572,7 +573,7 @@ app.get('/api/logs', async function(req, res) {
     const docs = await col.find(filtro, { maxTimeMS: 5000 }).sort({ "fecha-hora": -1 }).limit(limit).toArray();
     return res.status(200).json(docs);
   } catch (err) {
-    console.error("[/api/logs] Error obteniendo logs:", err && err.message ? err.message : err);
+    logger.error("[/api/logs] Error obteniendo logs:", err && err.message ? err.message : err);
     return res.status(500).json({ error: "Error al obtener logs" });
   }
 });
@@ -642,7 +643,7 @@ app.post('/api/auth/password-reset/request', function(req, res) {
       return res.status(200).json({ ok: true });
     });
   } catch (err) {
-    console.error("[password-reset/request] error:", err && err.stack ? err.stack : err);
+    logger.error("[password-reset/request] error:", err && err.stack ? err.stack : err);
     return res.status(200).json({ ok: true });
   }
 });
@@ -658,7 +659,7 @@ app.post('/api/auth/password-reset/confirm', function(req, res) {
       return res.status(200).json({ ok: true });
     });
   } catch (err) {
-    console.error("[password-reset/confirm] error:", err && err.stack ? err.stack : err);
+    logger.error("[password-reset/confirm] error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ error: "No se pudo actualizar la contraseña." });
   }
 });
@@ -676,18 +677,18 @@ app.put('/api/user/me', haIniciado, function(req, res) {
   const email = getAuthEmail(req);
   if (!email) return res.status(401).json({ error: "No autenticado" });
   sistema.actualizarUsuarioSeguro(email, req.body, function(result) {
-    console.log("[/api/user/me] result:", result);
+    logger.debug("[/api/user/me] result:", result);
     if (!result || result.ok === false) {
       const status = result && result.status ? result.status : 500;
       const message = result && result.message ? result.message : "Error actualizando perfil";
-      console.log("[/api/user/me] sending error status:", status, "message:", message);
+      logger.debug("[/api/user/me] sending error status:", status, "message:", message);
       return res.status(status).json({ error: message });
     }
-    console.log("[/api/user/me] sending success, user:", result.user);
+    logger.debug("[/api/user/me] sending success, user:", result.user);
     try {
       return res.status(200).json(result.user);
     } catch (err) {
-      console.error("[/api/user/me] error sending json:", err);
+      logger.error("[/api/user/me] error sending json:", err);
       return res.status(500).json({ error: "Error serializando respuesta" });
     }
   });
@@ -774,9 +775,9 @@ function logClientFilesNonBlocking() {
       };
 
       walkSync(clientDir);
-      console.log('[startup] archivos en client/ (muestra hasta 50):', results);
+      logger.debug('[startup] archivos en client/ (muestra hasta 50):', results);
     } catch (e) {
-      console.warn('[startup] no se pudo listar client/:', e && e.message);
+      logger.warn('[startup] no se pudo listar client/:', e && e.message);
     }
   });
 }
@@ -785,18 +786,18 @@ function startServer(port, attempt = 0) {
   const maxAttempts = 10;
   const desiredPort = Number.parseInt(port, 10) || 3000;
 
-  console.log(`[START] intentando listen en puerto ${desiredPort}...`);
+  logger.info(`[START] intentando listen en puerto ${desiredPort}...`);
 
   const onError = (err) => {
     httpServer.off('listening', onListening);
 
     if (err && err.code === 'EADDRINUSE' && attempt < maxAttempts) {
       const next = desiredPort + 1;
-      console.warn(`[START] Puerto ${desiredPort} en uso, intentando ${next}...`);
+      logger.warn(`[START] Puerto ${desiredPort} en uso, intentando ${next}...`);
       return startServer(next, attempt + 1);
     }
 
-    console.error('[FATAL] Error arrancando servidor:', err && err.stack ? err.stack : err);
+    logger.error('[FATAL] Error arrancando servidor:', err && err.stack ? err.stack : err);
     process.exit(1);
   };
 
@@ -805,13 +806,13 @@ function startServer(port, attempt = 0) {
     const addr = httpServer.address();
     const actualPort = typeof addr === 'object' && addr ? addr.port : desiredPort;
 
-    console.log(`[START] Listening on http://localhost:${actualPort}`);
-    console.log("Ctrl+C para salir");
+    logger.info(`[START] Listening on http://localhost:${actualPort}`);
+    logger.info("Ctrl+C para salir");
 
     try {
       ws.lanzarServidor(io, sistema);
     } catch (e) {
-      console.error('[FATAL] ws.lanzarServidor fallo:', e && e.stack ? e.stack : e);
+      logger.error('[FATAL] ws.lanzarServidor fallo:', e && e.stack ? e.stack : e);
       process.exit(1);
     }
 
@@ -823,7 +824,7 @@ function startServer(port, attempt = 0) {
   httpServer.listen(desiredPort);
 }
 
-console.log('[START] llamando startServer(PORT)...');
+logger.info('[START] llamando startServer(PORT)...');
 startServer(PORT);
 
 

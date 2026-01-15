@@ -23,6 +23,7 @@ const {
 
 const { getBestMove: getBestConnect4Move } = require("./game/connect4_bot");
 const { getBestMove: getBestCheckersMove } = require("./game/checkers_bot");
+const logger = require("./logger");
 
 const UNO_CALL_WINDOW_MS = (() => {
   const parsed = Number.parseInt(process.env.UNO_CALL_WINDOW_MS, 10);
@@ -142,6 +143,27 @@ function ServidorWS() {
   let srv = this;
   let sistemaRef = null;
   const estadosUNO = {};
+  const createUnoState = () => ({
+    engine: null,
+    humanIds: [],
+    humanNames: [],
+    socketToPlayerId: {},
+    playerIdToSocketId: {},
+  });
+  const ensureUnoState = (codigo) => {
+    if (!codigo) return null;
+    let estado = estadosUNO[codigo];
+    if (!estado) {
+      estado = createUnoState();
+      estadosUNO[codigo] = estado;
+    } else {
+      estado.socketToPlayerId ||= {};
+      estado.playerIdToSocketId ||= {};
+      estado.humanIds ||= [];
+      estado.humanNames ||= [];
+    }
+    return estado;
+  };
   const estados4raya = {};
   const estadosCheckers = {};
   const checkersRematchByCodigo = {};
@@ -702,7 +724,7 @@ function ServidorWS() {
         const partidaNow = sistema?.partidas?.[codigo];
         if (!partidaNow) return;
 
-        console.log("[RESUME] deleting empty match after grace", {
+        logger.debug("[RESUME] deleting empty match after grace", {
           codigo,
           juego: partidaNow.juego,
           graceMs: ROOM_EMPTY_GRACE_MS,
@@ -714,7 +736,7 @@ function ServidorWS() {
         const lista = sistema.obtenerPartidasDisponibles(partidaNow.juego);
         srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
       } catch (e) {
-        console.warn("[RESUME] error deleting empty match:", e?.message || e);
+        logger.warn("[RESUME] error deleting empty match:", e?.message || e);
       }
     }, ROOM_EMPTY_GRACE_MS);
   };
@@ -922,7 +944,7 @@ function ServidorWS() {
         await emitirEstadoUNO(io, codigo, datosUNO);
       }
     } catch (e) {
-      console.warn("[UNO] error en bot loop", codigo, e?.message || e);
+      logger.warn("[UNO] error en bot loop", codigo, e?.message || e);
     } finally {
       botRunningByCodigo[codigo] = false;
     }
@@ -983,7 +1005,7 @@ function ServidorWS() {
 
       emitirEstado4Raya(io, codigo, estados4raya[codigo]);
     } catch (e) {
-      console.warn("[4RAYA][BOT] error", codigo, e?.message || e);
+      logger.warn("[4RAYA][BOT] error", codigo, e?.message || e);
     } finally {
       botRunningByCodigo[codigo] = false;
     }
@@ -1042,7 +1064,7 @@ function ServidorWS() {
       estadosCheckers[codigo].state = updated;
       emitirEstadoCheckers(io, codigo, estadosCheckers[codigo]);
     } catch (e) {
-      console.warn("[CHECKERS][BOT] error", codigo, e?.message || e);
+      logger.warn("[CHECKERS][BOT] error", codigo, e?.message || e);
     } finally {
       botRunningByCodigo[codigo] = false;
     }
@@ -1158,7 +1180,7 @@ function ServidorWS() {
           );
 
           if (process.env.UNO_DEBUG_PUBLIC === "1") {
-            console.log(
+            logger.debug(
               "[UNO] payload public",
               playersPublic.map((p) => `${p.nick}:${p.handCount}`),
               "turn",
@@ -1269,7 +1291,7 @@ function ServidorWS() {
         gameKey: "4raya",
         state: engine,
       });
-      if (!socket) console.log("[EMIT STATE] 4raya", codigo);
+      if (!socket) logger.debug("[EMIT STATE] 4raya", codigo);
     } catch (e) {}
   };
 
@@ -1294,7 +1316,7 @@ function ServidorWS() {
     estados4raya[codigo] = {
       engine: createConnect4InitialState({ players }),
     };
-    console.log(
+    logger.debug(
       "[INIT] 4raya",
       codigo,
       "players=" + players.length,
@@ -1357,7 +1379,7 @@ function ServidorWS() {
       state: createCheckersInitialState(),
       players,
     };
-    console.log(
+    logger.debug(
       "[INIT]",
       String(partida.juego || "damas"),
       codigo,
@@ -1442,7 +1464,7 @@ function ServidorWS() {
         gameKey,
         state: payload.statePublic,
       });
-      if (!socket) console.log("[EMIT STATE]", gameKey || "damas", codigo);
+      if (!socket) logger.debug("[EMIT STATE]", gameKey || "damas", codigo);
     } catch (e) {}
 
     // Damas PVP rematch ready-check: initialize + broadcast rematch state when a round ends.
@@ -1639,7 +1661,7 @@ function ServidorWS() {
 
           await emitirEstadoUNO(io, codigo, current);
         } catch (e) {
-          console.warn("[UNO] error en timeout UNO", e?.message || e);
+          logger.warn("[UNO] error en timeout UNO", e?.message || e);
         }
       }, UNO_CALL_WINDOW_MS);
     }
@@ -1686,7 +1708,7 @@ function ServidorWS() {
   this.lanzarServidor = function(io, sistema) {
     sistemaRef = sistema;
     io.on("connection", function(socket) {
-      console.log("Capa WS activa");
+      logger.debug("Capa WS activa");
 
       // Enviar lista inicial de partidas disponibles
       socket.on("obtenerListaPartidas", function(datos) {
@@ -1754,7 +1776,7 @@ function ServidorWS() {
               gameKeyDbg === "4raya"
                 ? !!estados4raya?.[codigo]?.engine
                 : !!estadosCheckers?.[codigo]?.state;
-            console.log("[CREATE]", {
+            logger.debug("[CREATE]", {
               matchCode: codigo,
               gameKey: gameKeyDbg,
               mode: partidaCreada?.mode,
@@ -1844,7 +1866,7 @@ function ServidorWS() {
                 ? !!estadosCheckers?.[String(codigo !== -1 ? codigo : datos.codigo)]?.state
                 : false;
           if (gameKeyDbg === "4raya" || gameKeyDbg === "damas" || gameKeyDbg === "checkers") {
-            console.log("[JOIN]", {
+            logger.debug("[JOIN]", {
               matchCode: String(codigo !== -1 ? codigo : datos.codigo),
               gameKey: gameKeyDbg,
               mode: partidaDbg?.mode,
@@ -1947,7 +1969,7 @@ function ServidorWS() {
             await emitirEstadoUNO(io, codigo, datosUNO);
           }
         } catch (e) {
-          console.warn("[UNO] error sincronizando engine tras unirAPartida", e?.message || e);
+          logger.warn("[UNO] error sincronizando engine tras unirAPartida", e?.message || e);
         }
 
         // Damas / 4raya PVP: NO auto-start. El host debe iniciar manualmente.
@@ -1966,7 +1988,7 @@ function ServidorWS() {
               const contRes = hostEmail ? sistema.continuarPartida(hostEmail, codigo) : null;
               const contCodigo = contRes && typeof contRes === "object" ? contRes.codigo : contRes;
               if (contCodigo !== -1) {
-                console.log("[AUTO-START]", { gameKey, matchCode: codigo, players: playersLen });
+                logger.debug("[AUTO-START]", { gameKey, matchCode: codigo, players: playersLen });
                 if (gameKey === "4raya") {
                   try {
                     ensureConnect4State(codigo, partidaNow, { reason: "auto_start" });
@@ -2537,7 +2559,7 @@ function ServidorWS() {
             : gameKey === "damas" || gameKey === "checkers"
               ? !!estadosCheckers?.[matchCode]?.state
               : false;
-        console.log("[GET_STATE]", { matchCode, gameKey, mode: partida.mode, players: playersLen, hasState });
+        logger.debug("[GET_STATE]", { matchCode, gameKey, mode: partida.mode, players: playersLen, hasState });
 
         const belongs =
           Array.isArray(partida.jugadores) &&
@@ -2801,11 +2823,11 @@ function ServidorWS() {
           Promise.resolve()
             .then(() => handleUnoSubscribe({ codigo, email }))
             .then(() => {
-              console.log("[RESUME] ok", { gameType: "uno", codigo, email });
+              logger.debug("[RESUME] ok", { gameType: "uno", codigo, email });
               respond({ ok: true, codigo, gameType: "uno" });
             })
             .catch((e) => {
-              console.warn("[RESUME] error UNO", codigo, e?.message || e);
+              logger.warn("[RESUME] error UNO", codigo, e?.message || e);
               respond({ ok: false, codigo, gameType: "uno", reason: "ERROR" });
             });
           return;
@@ -2814,10 +2836,10 @@ function ServidorWS() {
         if (normalizedType === "damas") {
           try {
             handleDamasJoin({ codigo, email });
-            console.log("[RESUME] ok", { gameType: "damas", codigo, email });
+            logger.debug("[RESUME] ok", { gameType: "damas", codigo, email });
             return respond({ ok: true, codigo, gameType: "damas" });
           } catch (e) {
-            console.warn("[RESUME] error DAMAS", codigo, e?.message || e);
+            logger.warn("[RESUME] error DAMAS", codigo, e?.message || e);
             return respond({ ok: false, codigo, gameType: "damas", reason: "ERROR" });
           }
         }
@@ -2919,7 +2941,7 @@ function ServidorWS() {
         };
 
         if (process.env.UNO_DEBUG_REACTIONS === "1") {
-          console.log("[UNO][REACTION] show", {
+          logger.debug("[UNO][REACTION] show", {
             gameId,
             toPlayerId: reactionPayload.toPlayerId,
             fromPlayerId: fromPlayerIndex,
@@ -2977,17 +2999,13 @@ function ServidorWS() {
 
         trackMatchPresence(codigo, email, socket);
 
-        if (!estadosUNO[codigo]) {
-          estadosUNO[codigo] = {
-            engine: null,
-            humanIds: [],
-            humanNames: [],
-            socketToPlayerId: {},
-            playerIdToSocketId: {},
-          };
+        const datosUNO = ensureUnoState(codigo);
+        if (!datosUNO) {
+          try {
+            socket.emit("uno_error", { codigo, reason: "INVALID_SESSION", message: "Código inválido." });
+          } catch (e) {}
+          return;
         }
-
-        const datosUNO = estadosUNO[codigo];
         datosUNO.socketToPlayerId[socket.id] = playerId;
         datosUNO.playerIdToSocketId[playerId] = socket.id;
 
@@ -3226,7 +3244,7 @@ function ServidorWS() {
           if (typeof ack === "function") ack(payload);
         };
         if (!codigo || !email) {
-          console.warn("[UNO] suscribirse sin codigo o email");
+          logger.warn("[UNO] suscribirse sin codigo o email");
           try {
             socket.emit("uno_error", {
               codigo,
@@ -3241,7 +3259,7 @@ function ServidorWS() {
 
         const partida = sistema.partidas[codigo];
         if (!partida) {
-          console.warn("[UNO] partida no encontrada", codigo);
+          logger.warn("[UNO] partida no encontrada", codigo);
           try {
             socket.emit("uno_error", {
               codigo,
@@ -3253,7 +3271,7 @@ function ServidorWS() {
           return;
         }
         if (partida.juego !== "uno") {
-          console.warn("[UNO] la partida no es de UNO", codigo, partida.juego);
+          logger.warn("[UNO] la partida no es de UNO", codigo, partida.juego);
           try {
             socket.emit("uno_error", {
               codigo,
@@ -3271,16 +3289,16 @@ function ServidorWS() {
 
         const belongs =
           Array.isArray(partida.jugadores) &&
-          partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
+          partida.jugadores.some((j) => normalizePlayerId(j.email) === emailId);
         if (!belongs) {
           const roomIds = Array.isArray(partida.jugadores)
             ? partida.jugadores
                 .map((j) => normalizePlayerId(j && j.email))
                 .filter(Boolean)
             : [];
-          console.warn(
+          logger.warn(
             "[UNO] suscripcion rechazada (no pertenece a la partida)",
-            { codigo, socketId: socket.id, playerId, roomIdsCount: roomIds.length }
+            { codigo, socketId: socket.id, playerId: emailId, roomIdsCount: roomIds.length }
           );
           try {
             socket.emit("uno_error", {
@@ -3303,7 +3321,7 @@ function ServidorWS() {
         }
 
         const datosUNO = estadosUNO[codigo];
-        datosUNO.socketToPlayerId[socket.id] = playerId;
+        datosUNO.socketToPlayerId[socket.id] = emailId;
 
         const partidaHumanIds = [];
         const partidaHumanNames = [];
@@ -3369,7 +3387,7 @@ function ServidorWS() {
             });
           }
         } catch (e) {
-          console.warn("[UNO] error reenviando uno_required al suscribir", e?.message || e);
+          logger.warn("[UNO] error reenviando uno_required al suscribir", e?.message || e);
         }
 
         respond({ ok: true });
@@ -3389,7 +3407,7 @@ function ServidorWS() {
         if (partida.juego !== "uno") return;
 
         if (datosUNO.engine.status !== "finished") {
-          console.log("[UNO][REMATCH] ready ignorado (partida no finalizada)", {
+          logger.debug("[UNO][REMATCH] ready ignorado (partida no finalizada)", {
             codigo,
           });
           return;
@@ -3398,7 +3416,7 @@ function ServidorWS() {
         const playerId = normalizePlayerId(email);
         if (!playerId) return;
         if (!datosUNO.humanIds.includes(playerId)) {
-          console.warn("[UNO][REMATCH] ready rechazado (no pertenece)", {
+          logger.warn("[UNO][REMATCH] ready rechazado (no pertenece)", {
             codigo,
             email,
             playerId,
@@ -3421,7 +3439,7 @@ function ServidorWS() {
           (id) => !!rematch.readyByPlayerId[String(id)],
         );
 
-        console.log("[UNO][REMATCH] ready", {
+        logger.debug("[UNO][REMATCH] ready", {
           codigo,
           playerId,
           ready: readyPlayerIds.length,
@@ -3458,7 +3476,7 @@ function ServidorWS() {
 
           rematch.readyByPlayerId = {};
 
-          console.log("[UNO][REMATCH] start", {
+          logger.debug("[UNO][REMATCH] start", {
             codigo,
             round: rematch.round,
             players: engine.players?.map((p) => p.name),
@@ -3505,18 +3523,18 @@ function ServidorWS() {
         const email  = datos && datos.email;
         const action = datos && datos.action;
         if (!codigo || !email || !action) {
-          console.warn("[UNO] accion con datos incompletos", datos);
+          logger.warn("[UNO] accion con datos incompletos", datos);
           return;
         }
 
         const partida = sistema.partidas[codigo];
         const datosUNO = estadosUNO[codigo];
         if (!partida || !datosUNO || !datosUNO.engine) {
-          console.warn("[UNO] partida o engine no encontrados", codigo);
+          logger.warn("[UNO] partida o engine no encontrados", codigo);
           return;
         }
         if (partida.juego !== "uno") {
-          console.warn("[UNO] partida no es de UNO al recibir accion", codigo);
+          logger.warn("[UNO] partida no es de UNO al recibir accion", codigo);
           return;
         }
 
@@ -3524,7 +3542,7 @@ function ServidorWS() {
         const playerId = normalizePlayerId(email);
         const playerIndex = datosUNO.humanIds.indexOf(playerId);
         if (playerIndex === -1) {
-          console.warn("[UNO] jugador no pertenece a la partida/estado", email, codigo);
+          logger.warn("[UNO] jugador no pertenece a la partida/estado", email, codigo);
           return;
         }
 
@@ -3730,7 +3748,7 @@ function ServidorWS() {
         try {
           const playersLen = Array.isArray(partida.jugadores) ? partida.jugadores.length : 0;
           const hasState = !!estadosCheckers?.[codigo]?.state;
-          console.log("[SUBSCRIBE]", { matchCode: codigo, gameKey: String(partida.juego || "damas"), mode: partida.mode, players: playersLen, hasState });
+          logger.debug("[SUBSCRIBE]", { matchCode: codigo, gameKey: String(partida.juego || "damas"), mode: partida.mode, players: playersLen, hasState });
         } catch (e) {}
 
         socketToCheckersPlayerId[socket.id] = playerId;
@@ -3860,7 +3878,7 @@ function ServidorWS() {
         if (!requiredUids.includes(userId)) return;
 
         rematch.votes.add(userId);
-        console.log("[CHECKERS REMATCH] request", {
+        logger.debug("[CHECKERS REMATCH] request", {
           matchCode: codigo,
           userId,
           votes: rematch.votes.size,
@@ -3893,7 +3911,7 @@ function ServidorWS() {
         const newState = estadosCheckers[codigo].state;
         partida.status = "STARTED";
 
-        console.log("[CHECKERS REMATCH] start", { matchCode: codigo });
+        logger.debug("[CHECKERS REMATCH] start", { matchCode: codigo });
 
         io.to(codigo).emit("checkers:rematch_start", { matchCode: codigo, codigo, newState });
         io.to(codigo).emit("damas:rematch_start", { matchCode: codigo, codigo, newState });
@@ -4004,7 +4022,7 @@ function ServidorWS() {
             const lista = sistema.obtenerPartidasDisponibles(partida.juego);
             srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
           } catch (e) {
-            console.warn("[CHECKERS] fallo creando nueva vs bot:", e?.message || e);
+            logger.warn("[CHECKERS] fallo creando nueva vs bot:", e?.message || e);
             emitDamasError(socket, {
               codigo,
               reason: "RESTART_FAILED",
@@ -4041,14 +4059,14 @@ function ServidorWS() {
           Array.isArray(partida.jugadores) &&
           partida.jugadores.some((j) => normalizePlayerId(j.email) === playerId);
         if (!belongs) {
-          console.warn("[4RAYA] suscripcion rechazada (no pertenece a la partida)", email, codigo);
+          logger.warn("[4RAYA] suscripcion rechazada (no pertenece a la partida)", email, codigo);
           return;
         }
 
         try {
           const playersLen = Array.isArray(partida.jugadores) ? partida.jugadores.length : 0;
           const hasState = !!estados4raya?.[codigo]?.engine;
-          console.log("[SUBSCRIBE]", { matchCode: codigo, gameKey: "4raya", mode: partida.mode, players: playersLen, hasState });
+          logger.debug("[SUBSCRIBE]", { matchCode: codigo, gameKey: "4raya", mode: partida.mode, players: playersLen, hasState });
         } catch (e) {}
 
         socketTo4RayaPlayerId[socket.id] = playerId;
@@ -4077,7 +4095,7 @@ function ServidorWS() {
           Array.isArray(partida.jugadores) &&
           partida.jugadores.some((j) => normalizePlayerId(j?.email) === emailId);
         if (!belongs) {
-          console.warn("[4RAYA] accion rechazada (no pertenece a la partida)", codigo);
+          logger.warn("[4RAYA] accion rechazada (no pertenece a la partida)", codigo);
           return;
         }
 
@@ -4086,7 +4104,7 @@ function ServidorWS() {
           (p) => String(p?.id || "").trim().toLowerCase() === String(playerId || "").trim().toLowerCase(),
         );
         if (playerIndex === -1) {
-          console.warn("[4RAYA] jugador no pertenece a la partida", email, codigo);
+          logger.warn("[4RAYA] jugador no pertenece a la partida", email, codigo);
           return;
         }
 
@@ -4151,7 +4169,7 @@ function ServidorWS() {
             const lista = sistema.obtenerPartidasDisponibles("4raya");
             srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
           } catch (e) {
-            console.warn("[4RAYA] fallo creando revancha vs bot:", e?.message || e);
+            logger.warn("[4RAYA] fallo creando revancha vs bot:", e?.message || e);
             io.to(codigo).emit("4raya:rematch_ready", {
               codigo,
               newCodigo: null,
@@ -4208,7 +4226,7 @@ function ServidorWS() {
             const lista = sistema.obtenerPartidasDisponibles("4raya");
             srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
           } catch (e) {
-            console.warn("[4RAYA] fallo creando revancha:", e?.message || e);
+            logger.warn("[4RAYA] fallo creando revancha:", e?.message || e);
             io.to(codigo).emit("4raya:rematch_ready", {
               codigo,
               newCodigo: null,

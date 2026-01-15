@@ -1265,9 +1265,9 @@ function ControlWeb() {
     };
 
     this.mostrarModal = function (m) {
-        console.log("[Modal] mensaje recibido:", m);
+        logger.debug("[Modal] mensaje recibido:", m);
         if (!$('#miModal').length) {
-            console.error('[Modal] No se encuentra el modal #miModal en el DOM');
+            logger.error('[Modal] No se encuentra el modal #miModal en el DOM');
             return;
         }
         // 1. vaciar el cuerpo del modal
@@ -1277,7 +1277,7 @@ function ControlWeb() {
         $('#mBody').text(m || "");
 
         // 3. mostrar el modal
-        console.log('[Modal] Mostrando modal #miModal');
+        logger.debug('[Modal] Mostrando modal #miModal');
         $('#miModal').modal('show');
     };
 

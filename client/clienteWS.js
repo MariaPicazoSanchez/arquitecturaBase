@@ -48,7 +48,6 @@ function ClienteWS() {
 
       this.socket.on("listaPartidas", function(lista){
         // Evitar logs con datos sensibles (emails). Si hace falta debug, usar solo counts.
-        // console.log("Lista de partidas recibida:", Array.isArray(lista) ? lista.length : 0);
         if (window.cw && cw.pintarPartidas){
             cw.pintarPartidas(lista);
         }
@@ -56,7 +55,7 @@ function ClienteWS() {
       });
 
       this.socket.on("partidaCreada", function(datos){
-          console.log("Partida creada:", datos.codigo);
+          logger.debug("Partida creada:", datos.codigo);
           if (!datos || !datos.codigo || datos.codigo === -1){
               if (window.cw && cw.mostrarAviso){
                   cw.mostrarAviso("No se pudo crear la partida.", "error");
@@ -90,7 +89,7 @@ function ClienteWS() {
       });
 
       this.socket.on("unidoAPartida", function(datos){
-          console.log("Unido a partida:", datos.codigo);
+          logger.debug("Unido a partida:", datos.codigo);
           if (!datos || !datos.codigo || datos.codigo === -1){
               const reason = datos && datos.reason;
               const message = (datos && datos.message) || (
@@ -134,12 +133,12 @@ function ClienteWS() {
       });
 
     this.socket.on("partidaContinuada", function(datos){
-        console.log("Continuando partida:", datos);
+        logger.debug("Continuando partida:", datos);
 
         ws.codigo = datos.codigo;
 
         if (!datos.codigo || datos.codigo === -1){
-            console.warn("No se pudo continuar la partida (código inválido).");
+            logger.warn("No se pudo continuar la partida (código inválido).");
             const message = (datos && datos.message) || "No se pudo iniciar la partida.";
             if (window.cw && cw.mostrarAviso){
                 cw.mostrarAviso(message, "error");
@@ -202,14 +201,14 @@ function ClienteWS() {
             } else if (juego === "damas" || juego === "checkers") {
                 window.location.href = "/damas?codigo=" + encodeURIComponent(datos.codigo);
             } else {
-                console.warn("Partida continuada para juego:", juego,
+                logger.warn("Partida continuada para juego:", juego,
                             "pero aún no tiene interfaz asociada.");
             }
         }
     });
 
       this.socket.on("partidaEliminada", function(datos){
-          console.log("Partida eliminada:", datos.codigo);
+          logger.debug("Partida eliminada:", datos.codigo);
           ws.pedirListaPartidas();
       });
 
@@ -296,7 +295,7 @@ function ClienteWS() {
 
   this.crearPartida = function(){
     if (!this._ensureEmail()){
-        console.warn("No hay email en ws, no se puede crear partida.");
+        logger.warn("No hay email en ws, no se puede crear partida.");
         return;
     }
     const maxPlayers = arguments[0];
@@ -321,7 +320,7 @@ function ClienteWS() {
 
   this.continuarPartida = function(codigo){
       if (!this._ensureEmail()){
-          console.warn("No hay email en ws, no se puede continuar partida.");
+          logger.warn("No hay email en ws, no se puede continuar partida.");
           return;
       }
       const juego = String(this.gameType || "").trim().toLowerCase();
@@ -345,7 +344,7 @@ function ClienteWS() {
 
   this.unirAPartida = function(codigo, ack){
       if (!this._ensureEmail()){
-          console.warn("No hay email en ws, no se puede unir a partida.");
+          logger.warn("No hay email en ws, no se puede unir a partida.");
           return;
       }
       const nickCookieRaw =
@@ -361,7 +360,7 @@ function ClienteWS() {
 
   this.eliminarPartida = function(codigo, ack){
       if (!this._ensureEmail()){
-          console.warn("No hay email en ws, no se puede eliminar partida.");
+          logger.warn("No hay email en ws, no se puede eliminar partida.");
           return;
       }
       this.socket.emit("eliminarPartida", {

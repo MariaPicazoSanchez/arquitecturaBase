@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const correo = require("./email.js");
 const datos = require("./cad.js");
 const crypto = require("node:crypto");
+const logger = require("./logger");
 
 const looksLikeEmail = (value) => {
   const t = String(value || "").trim();
@@ -129,9 +130,9 @@ function Sistema() {
     (async () => {
       await this.cad.conectar((db, err) => {
         if (err) {
-          console.warn("Mongo no disponible. Operando en memoria:", err.message);
+          logger.warn("Mongo no disponible. Operando en memoria:", err.message);
         } else {
-          console.log("Conectado a Mongo Atlas");
+          logger.debug("Conectado a Mongo Atlas");
         }
       });
     })();
@@ -150,7 +151,7 @@ function Sistema() {
       opts && typeof opts === "object" && typeof opts.nick === "string" ? opts.nick : undefined;
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email, nickFromOpts);
     if (!usuario) {
-      console.log("Usuario no encontrado");
+      logger.debug("Usuario no encontrado");
       this.registrarActividad("crearPartidaFallido", email);
       return -1;
     }
@@ -226,13 +227,13 @@ function Sistema() {
     email = normalizarEmail(email);
     let usuario = this._obtenerOcrearUsuarioEnMemoria(email);
     if (!usuario) {
-      console.log("Usuario no encontrado");
+      logger.debug("Usuario no encontrado");
       this.registrarActividad("unirAPartidaFallido", email);
       return { codigo: -1, reason: "INVALID_USER", message: "Usuario no encontrado" };
     }
     let partida = this.partidas[codigo];
     if (!partida) {
-      console.log("Partida no encontrada");
+      logger.debug("Partida no encontrada");
       this.registrarActividad("unirAPartidaFallido", email);
       return { codigo: -1, reason: "NOT_FOUND", message: "Partida no encontrada" };
     }
@@ -269,15 +270,15 @@ function Sistema() {
 
     const maxPlayers = obtenerMaxPlayers(partida);
     if (partida.jugadores.length >= maxPlayers && !partida.jugadores.some(j => j.email === usuario.email)) {
-      console.log("Partida llena");
-      console.log("Jugadores:", partida.jugadores.length, "MaxPlayers:", maxPlayers);
+      logger.debug("Partida llena");
+      logger.debug("Jugadores:", partida.jugadores.length, "MaxPlayers:", maxPlayers);
       this.registrarActividad("unirAPartidaFallido", email);
       return { codigo: -1, reason: "FULL", message: "La partida está llena" };
     }
 
     let yaEsta = partida.jugadores.some(j => j.email === usuario.email);
     if (yaEsta) {
-      console.log("Usuario ya está en la partida");
+      logger.debug("Usuario ya está en la partida");
       this.registrarActividad("unirAPartidaFallido", email);
       return { codigo: -1, reason: "ALREADY_IN", message: "Ya estás en la partida" };
     }
@@ -297,12 +298,12 @@ function Sistema() {
     email = normalizarEmail(email);
     let partida = this.partidas[codigo];
     if (!partida) {
-      console.log("Partida no encontrada");
+      logger.debug("Partida no encontrada");
       this.registrarActividad("continuarPartidaFallido", email);
       return { codigo: -1, reason: "NOT_FOUND", message: "Partida no encontrada" };
     }
     if (normalizarEmail(partida.propietarioEmail || partida.propietario) !== email) {
-      console.log("Solo el propietario puede continuar su partida");
+      logger.debug("Solo el propietario puede continuar su partida");
       this.registrarActividad("continuarPartidaFallido", email);
       return { codigo: -1, reason: "NOT_HOST", message: "Solo el propietario puede iniciar la partida" };
     }
@@ -352,13 +353,13 @@ function Sistema() {
   this.eliminarPartida = function(email, codigo) {
     email = normalizarEmail(email);
     if (!codigo) {
-      console.log("Codigo de partida no valido");
+      logger.debug("Codigo de partida no valido");
       this.registrarActividad("eliminarPartidaFallido", email);
       return -1;
     }
     let partida = this.partidas[codigo];
     if (!partida) {
-      console.log("Partida no encontrada");
+      logger.debug("Partida no encontrada");
       this.registrarActividad("eliminarPartidaFallido", email);
       return -1;
     }
@@ -502,7 +503,7 @@ function Sistema() {
       res.nick = nick;
       this.registrarActividad("agregarUsuario", nick);
     } else {
-      console.log("El nick " + nick + " está en uso");
+      logger.debug("El nick " + nick + " está en uso");
       this.registrarActividad("agregarUsuarioFallido", nick);
     }
     return res;
@@ -541,11 +542,11 @@ function Sistema() {
   // REGISTRO con confirmación
   // ===========================
   this.registrarUsuario = function (obj, callback) {
-    console.log("[modelo.registrarUsuario] entrada:", obj);
+    logger.debug("[modelo.registrarUsuario] entrada:", obj);
     let modelo = this;
 
     if (!obj || !obj.email || !obj.password || !obj.nick) {
-      console.warn("[modelo.registrarUsuario] datos inválidos");
+      logger.warn("[modelo.registrarUsuario] datos inválidos");
       modelo.registrarActividad("registrarUsuarioFallido", obj ? obj.email : null);
       callback({ email: -1 });
       return;
@@ -560,9 +561,9 @@ function Sistema() {
 
     // Comprobar duplicados por email
     this.cad.buscarUsuario({ email: obj.email }, function (usr) {
-      console.log("[modelo.registrarUsuario] resultado buscarUsuario:", usr ? { _id: usr._id } : null);
+      logger.debug("[modelo.registrarUsuario] resultado buscarUsuario:", usr ? { _id: usr._id } : null);
       if (usr) {
-        console.warn("[modelo.registrarUsuario] duplicado (email)");
+        logger.warn("[modelo.registrarUsuario] duplicado (email)");
         modelo.registrarActividad("registrarUsuarioFallido", obj.email);
         callback({ email: -1, reason: "email_ya_registrado" });
         return;
@@ -571,7 +572,7 @@ function Sistema() {
       // Comprobar duplicados por nick
       modelo.cad.buscarUsuario({ nick: obj.nick }, function (usrNick) {
         if (usrNick) {
-          console.warn("[modelo.registrarUsuario] nick duplicado:", obj.nick);
+          logger.warn("[modelo.registrarUsuario] nick duplicado:", obj.nick);
           modelo.registrarActividad("registrarUsuarioFallido", obj.email);
           callback({ email: -1, reason: "nick_ya_registrado" });
           return;
@@ -592,13 +593,13 @@ function Sistema() {
       };
 
       modelo.cad.insertarUsuario(nuevoUsuario, function (res) {
-        console.log("[modelo.registrarUsuario] resultado insertarUsuario:", res);
+        logger.debug("[modelo.registrarUsuario] resultado insertarUsuario:", res);
         modelo.registrarActividad("registroUsuario", nuevoUsuario.email);
 
         Promise.resolve()
           .then(() => correo.enviarEmail(obj.email, key, "Confirmar cuenta"))
           .catch((e) => {
-            console.warn("[registrarUsuario] Fallo enviando email:", e.message);
+            logger.warn("[registrarUsuario] Fallo enviando email:", e.message);
             modelo.registrarActividad("registroUsuarioFallido", nuevoUsuario.email);
           });
 
@@ -613,13 +614,13 @@ function Sistema() {
   // CONFIRMAR cuenta
   // ===========================
   this.confirmarUsuario = function (obj, callback) {
-    console.log("[modelo.confirmarUsuario] entrada:", obj);
+    logger.debug("[modelo.confirmarUsuario] entrada:", obj);
     let modelo = this;
     let responded = false;
     const finish = (result) => {
       if (!responded) {
         responded = true;
-        console.log("[modelo.confirmarUsuario] respuesta:", result);
+        logger.debug("[modelo.confirmarUsuario] respuesta:", result);
         callback(result);
       }
     };
@@ -629,7 +630,7 @@ function Sistema() {
     this.cad.buscarUsuario(
       { email: obj.email, key: obj.key, confirmada: false },
       function (usr) {
-        console.log("[modelo.confirmarUsuario] usuario encontrado:", usr ? { _id: usr._id } : null);
+        logger.debug("[modelo.confirmarUsuario] usuario encontrado:", usr ? { _id: usr._id } : null);
         if (!usr) {
           modelo.registrarActividad("confirmarUsuarioFallido", obj.email);
           return finish({ email: -1 });
@@ -657,19 +658,19 @@ function Sistema() {
   // ===========================
   this.loginUsuario = function (obj, callback) {
     let modelo = this;
-    console.log("[modelo.loginUsuario] entrada (sin imprimir email)");
+    logger.debug("[modelo.loginUsuario] entrada (sin imprimir email)");
     if (!obj || !obj.email || !obj.password) {
-      console.warn("[modelo.loginUsuario] datos inválidos");
+      logger.warn("[modelo.loginUsuario] datos inválidos");
       modelo.registrarActividad("loginUsuarioFallido", obj ? obj.email : null);
       callback({ email: -1 });
       return;
     }
 
     this.cad.buscarUsuario({ email: obj.email, confirmada: true }, function (usr) {
-      console.log("[modelo.loginUsuario] resultado buscarUsuario:", usr);
+      logger.debug("[modelo.loginUsuario] resultado buscarUsuario:", usr);
 
       if (!usr || !usr.password) {
-        console.warn("[modelo.loginUsuario] usuario inexistente o sin password");
+        logger.warn("[modelo.loginUsuario] usuario inexistente o sin password");
         modelo.registrarActividad("loginUsuarioFallido", obj.email);
         callback({ email: -1 });
         return;
@@ -682,7 +683,7 @@ function Sistema() {
         modelo.registrarActividad("inicioLocal", usr.email);
         callback(usr);
       } else {
-        console.warn("[modelo.loginUsuario] credenciales inválidas");
+        logger.warn("[modelo.loginUsuario] credenciales inválidas");
         modelo.registrarActividad("loginUsuarioFallido", obj.email);
         callback({ email: -1 });
       }
@@ -768,7 +769,7 @@ function Sistema() {
       return;
     }
     const body = payload && typeof payload === "object" ? payload : {};
-    console.log("[modelo.actualizarUsuarioSeguro] actualizar usuario (sin imprimir email)");
+    logger.debug("[modelo.actualizarUsuarioSeguro] actualizar usuario (sin imprimir email)");
 
     let displayNameCheck = { ok: true, value: undefined };
     if (Object.prototype.hasOwnProperty.call(body, "displayName")) {
@@ -835,7 +836,7 @@ function Sistema() {
 
       const applyUpdate = function(){
         modelo.cad.actualizarUsuarioPorEmail(e, patch, function(updated){
-          console.log("[modelo.actualizarUsuarioSeguro] updated from cad:", updated);
+          logger.debug("[modelo.actualizarUsuarioSeguro] updated from cad:", updated);
           if (!updated) {
             callback({ ok: false, status: 500, message: "No se pudo actualizar el perfil." });
             return;
@@ -967,13 +968,13 @@ function Sistema() {
             .then(() => correo.enviarEmailCambioPassword(e, { code, token }))
             .then(() => callback({ ok: true }))
             .catch((err) => {
-              console.warn("[password-reset] fallo enviando email:", err && err.message ? err.message : err);
+              logger.warn("[password-reset] fallo enviando email:", err && err.message ? err.message : err);
               callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo enviar el correo de reset de contraseña." });
             });
         });
       });
     } catch (err) {
-      console.error("[modelo.solicitarPasswordReset] error:", err && err.stack ? err.stack : err);
+      logger.error("[modelo.solicitarPasswordReset] error:", err && err.stack ? err.stack : err);
       callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo iniciar el reset de contraseña." });
     }
   };
@@ -1032,7 +1033,7 @@ function Sistema() {
         });
       });
     } catch (err) {
-      console.error("[modelo.confirmarPasswordReset] error:", err && err.stack ? err.stack : err);
+      logger.error("[modelo.confirmarPasswordReset] error:", err && err.stack ? err.stack : err);
       callback({ ok: false, status: 500, message: "No se pudo actualizar la contraseña." });
     }
   };
@@ -1133,7 +1134,7 @@ function Sistema() {
           .then(() => correo.enviarEmailCambioPassword(e, code))
           .then(() => callback({ ok: true }))
           .catch((err) => {
-            console.warn("[password-change] fallo enviando email:", err && err.message ? err.message : err);
+            logger.warn("[password-change] fallo enviando email:", err && err.message ? err.message : err);
             callback({ ok: false, status: 500, message: "No se pudo enviar el correo de cambio de contraseña." });
           });
       });
@@ -1276,7 +1277,7 @@ function Sistema() {
       try {
         await this.cad.insertarLog(tipoOperacion, usuarioConDetalle);
       } catch (err) {
-        console.error("[modelo.registrarActividad] Error guardando log:", err && err.message ? err.message : err);
+        logger.error("[modelo.registrarActividad] Error guardando log:", err && err.message ? err.message : err);
       }
     })();
   };
