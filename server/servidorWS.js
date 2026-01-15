@@ -21,6 +21,8 @@ const {
   CheckersError,
 } = require("./game/checkersEngine");
 
+const crypto = require("node:crypto");
+
 const { getBestMove: getBestConnect4Move } = require("./game/connect4_bot");
 const { getBestMove: getBestCheckersMove } = require("./game/checkers_bot");
 const logger = require("./logger");
@@ -177,7 +179,7 @@ function ServidorWS() {
   const roomEmptyTimers = {};
   const ROOM_EMPTY_GRACE_MS = (() => {
     const parsed = Number.parseInt(process.env.ROOM_EMPTY_GRACE_MS, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 60000;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 15000;
   })();
   const MATCH_PLAYER_GRACE_MS = (() => {
     const parsed = Number.parseInt(process.env.MATCH_PLAYER_GRACE_MS, 10);
@@ -185,6 +187,14 @@ function ServidorWS() {
   })();
   const matchPresenceByCodigo = new Map(); // codigo -> Map(playerId -> Set(socketId))
   const matchDisconnectTimers = new Map(); // `${codigo}::${playerId}` -> timeout
+  const activeRoomsByUserId = new Map(); // userId -> Map(roomId -> roomSummary)
+  const roomUsersIndex = new Map(); // roomId -> Set(userId)
+  const zeroConnectedTimers = new Map(); // roomId -> timeout
+  const roomPlayerStatusByRoom = new Map(); // roomId -> Map(userId -> { status, lastExitAt })
+  const ZERO_CONNECTED_GRACE_MS = (() => {
+    const parsed = Number.parseInt(process.env.ZERO_CONNECTED_GRACE_MS, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 15000;
+  })();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const thinkMs = () => BOT_THINK_MS + Math.floor(Math.random() * 300);
   const botTurnDelayMs = () => {
@@ -195,6 +205,95 @@ function ServidorWS() {
 
   const normalizePlayerId = (value) =>
     (value || "").toString().trim().toLowerCase();
+
+  const resolveStableUserId = (email, userIdRaw) => {
+    const uid = normalizePlayerId(userIdRaw || "");
+    if (uid) return uid;
+    const e = normalizePlayerId(email || "");
+    if (!e) return "";
+    return publicUserIdFromEmail(e);
+  };
+
+  const ensureRoomPlayerState = (roomId, userId) => {
+    const room = String(roomId || "").trim();
+    const uid = normalizePlayerId(userId || "");
+    if (!room || !uid) return null;
+
+    let byUser = roomPlayerStatusByRoom.get(room);
+    if (!byUser) {
+      byUser = new Map();
+      roomPlayerStatusByRoom.set(room, byUser);
+    }
+    let state = byUser.get(uid);
+    if (!state) {
+      state = { status: "connected", lastExitAt: 0 };
+      byUser.set(uid, state);
+    }
+    return state;
+  };
+
+  const getRoomPlayerStatus = (roomId, userId) => {
+    const room = String(roomId || "").trim();
+    const uid = normalizePlayerId(userId || "");
+    const byUser = roomPlayerStatusByRoom.get(room);
+    const st = byUser ? byUser.get(uid) : null;
+    return st && st.status ? String(st.status) : "connected";
+  };
+
+  const handleExit = ({ roomId, email, userId, reason }) => {
+    const room = String(roomId || "").trim();
+    const uid = resolveStableUserId(email, userId);
+    if (!room || !uid) return { ok: false, roomId: room, userId: uid, shouldEmit: false };
+
+    const state = ensureRoomPlayerState(room, uid);
+    if (!state) return { ok: false, roomId: room, userId: uid, shouldEmit: false };
+
+    const r = String(reason || "disconnect").trim().toLowerCase();
+    const now = Date.now();
+
+    if (state.status === "left") {
+      return { ok: true, roomId: room, userId: uid, shouldEmit: false, status: state.status };
+    }
+
+    if (r === "leave") {
+      state.status = "left";
+      state.lastExitAt = now;
+      return { ok: true, roomId: room, userId: uid, shouldEmit: true, status: "left" };
+    }
+
+    // disconnect
+    state.status = "disconnected";
+    state.lastExitAt = now;
+    return { ok: true, roomId: room, userId: uid, shouldEmit: true, status: "disconnected" };
+  };
+
+  const EXIT_EVENT_TTL_MS = (() => {
+    const parsed = Number.parseInt(process.env.EXIT_EVENT_TTL_MS, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 2000;
+  })();
+  const recentExitEvents = new Map();
+  const toExitEventKey = (room, identifier, reason) => {
+    const cleanRoom = String(room || "").trim();
+    const cleanId = (identifier || "")
+      .toString()
+      .trim()
+      .toLowerCase();
+    const cleanReason = String(reason || "leave").trim().toLowerCase();
+    if (!cleanRoom || !cleanReason) return null;
+    return `${cleanRoom}::${cleanId || "unknown"}::${cleanReason}`;
+  };
+  const shouldEmitRoomExit = (room, identifier, reason) => {
+    const key = toExitEventKey(room, identifier, reason);
+    if (!key) return true;
+    const now = Date.now();
+    const last = recentExitEvents.get(key);
+    if (last && now - last < EXIT_EVENT_TTL_MS) return false;
+    recentExitEvents.set(key, now);
+    setTimeout(() => {
+      if (recentExitEvents.get(key) === now) recentExitEvents.delete(key);
+    }, EXIT_EVENT_TTL_MS + 500);
+    return true;
+  };
 
   const getCheckersMatchPlayerUids = (partida) => {
     if (!partida) return [];
@@ -294,13 +393,21 @@ function ServidorWS() {
     return safePublicName(nick, fallback);
   };
 
-  const emitMatchPlayerLeft = (io, { matchCode, gameKey, playerNick }, { excludeSocket = null } = {}) => {
+  const emitMatchPlayerLeft = (
+    io,
+    { matchCode, gameKey, playerNick },
+    { excludeSocket = null, playerId = null, reason = "leave" } = {}
+  ) => {
     const codigo = String(matchCode || "").trim();
     if (!codigo) return;
+    const normalizedPlayerId = playerId ? normalizePlayerId(playerId) : null;
+    if (!shouldEmitRoomExit(codigo, normalizedPlayerId || playerNick, reason)) return;
     const payload = {
+      eventId: crypto.randomUUID(),
       matchCode: codigo,
       gameKey: String(gameKey || "").trim().toLowerCase() || null,
       playerNick: safePublicName(playerNick, "Jugador"),
+      reason: String(reason || "leave").trim().toLowerCase(),
       ts: Date.now(),
     };
     try {
@@ -405,13 +512,21 @@ function ServidorWS() {
     } catch (e) {}
   };
 
-  const emitMatchPlayerDisconnected = (io, { matchCode, gameKey, playerNick }) => {
+  const emitMatchPlayerDisconnected = (
+    io,
+    { matchCode, gameKey, playerNick },
+    { playerId = null, reason = "disconnect" } = {}
+  ) => {
     const codigo = String(matchCode || "").trim();
     if (!codigo) return;
+    const normalizedPlayerId = playerId ? normalizePlayerId(playerId) : null;
+    if (!shouldEmitRoomExit(codigo, normalizedPlayerId || playerNick, reason)) return;
     const payload = {
+      eventId: crypto.randomUUID(),
       matchCode: codigo,
       gameKey: String(gameKey || "").trim().toLowerCase() || null,
       playerNick: safePublicName(playerNick, "Jugador"),
+      reason: String(reason || "disconnect").trim().toLowerCase(),
       ts: Date.now(),
     };
     try {
@@ -441,6 +556,116 @@ function ServidorWS() {
       if (set && typeof set.size === "number") n += set.size > 0 ? 1 : 0;
     }
     return n;
+  };
+
+  const buildRoomSummary = (codigo, partida) => {
+    const roomId = String(codigo || "").trim();
+    if (!roomId || !partida) return null;
+    if (isBotMatch(partida)) return null;
+
+    const jugadores = Array.isArray(partida.jugadores) ? partida.jugadores : [];
+    const humanPlayers = jugadores.filter((j) => {
+      if (!j) return false;
+      if (j.isBot) return false;
+      const e = normalizePlayerId(j.email);
+      if (e === "bot@local" || e === "bot") return false;
+      return true;
+    });
+
+    const started =
+      String(partida?.status || "").toUpperCase() === "STARTED" ||
+      (partida?.estado && partida.estado !== "pendiente");
+    const phase = String(partida?.phase || (started ? "inGame" : "lobby")).trim();
+
+    return {
+      roomId,
+      matchCode: roomId,
+      gameType: String(partida.juego || "uno").trim().toLowerCase(),
+      ownerNick: safePublicName(partida.propietario, "Anfitrión"),
+      isBotMatch: false,
+      connectedCount: getConnectedCount(roomId),
+      playersCount: humanPlayers.length,
+      status: getDerivedMatchStatus(partida),
+      phase,
+    };
+  };
+
+  const purgeRoomFromActiveIndex = (roomId) => {
+    const room = String(roomId || "").trim();
+    if (!room) return;
+    const userIds = roomUsersIndex.get(room);
+    if (userIds) {
+      for (const uid of userIds) {
+        const byRoom = activeRoomsByUserId.get(uid);
+        if (byRoom) {
+          byRoom.delete(room);
+          if (byRoom.size === 0) activeRoomsByUserId.delete(uid);
+        }
+      }
+    }
+    roomUsersIndex.delete(room);
+  };
+
+  const indexRoomMembership = (roomId, partida) => {
+    const room = String(roomId || "").trim();
+    if (!room) return;
+    if (!partida) {
+      purgeRoomFromActiveIndex(room);
+      return;
+    }
+
+    const summary = buildRoomSummary(room, partida);
+    if (!summary) {
+      purgeRoomFromActiveIndex(room);
+      return;
+    }
+
+    const jugadores = Array.isArray(partida.jugadores) ? partida.jugadores : [];
+    const userIds = new Set(
+      jugadores
+        .map((j) => publicUserIdFromEmail(j?.email))
+        .filter((uid) => !!uid && uid !== "bot" && uid !== "BOT")
+    );
+
+    purgeRoomFromActiveIndex(room);
+    roomUsersIndex.set(room, userIds);
+
+    for (const uid of userIds) {
+      let byRoom = activeRoomsByUserId.get(uid);
+      if (!byRoom) {
+        byRoom = new Map();
+        activeRoomsByUserId.set(uid, byRoom);
+      }
+      byRoom.set(room, summary);
+    }
+  };
+
+  const cancelZeroConnectedTimer = (roomId) => {
+    const room = String(roomId || "").trim();
+    const t = zeroConnectedTimers.get(room);
+    if (t) {
+      clearTimeout(t);
+      zeroConnectedTimers.delete(room);
+    }
+  };
+
+  const scheduleDestroyIfStillZeroConnected = (io, sistema, roomId) => {
+    const room = String(roomId || "").trim();
+    if (!room) return;
+    if (zeroConnectedTimers.has(room)) return;
+    const partida = sistema?.partidas?.[room] || null;
+    if (!partida) return;
+    if (isBotMatch(partida)) return;
+
+    const t = setTimeout(() => {
+      zeroConnectedTimers.delete(room);
+      const partidaNow = sistema?.partidas?.[room] || null;
+      if (!partidaNow) return;
+      if (isBotMatch(partidaNow)) return;
+      if (getConnectedCount(room) > 0) return;
+      destroyMatch(io, sistema, room, { reason: "EMPTY" });
+    }, ZERO_CONNECTED_GRACE_MS);
+    zeroConnectedTimers.set(room, t);
   };
 
   const emitMatchEnded = (io, { matchCode, gameKey, reason = "ENDED" }) => {
@@ -492,10 +717,16 @@ function ServidorWS() {
       delete sistema.partidas[room];
     } catch (e) {}
     try {
+      purgeRoomFromActiveIndex(room);
+    } catch (e) {}
+    try {
       cleanupCodigoState(io, room);
     } catch (e) {}
     try {
       cancelRoomEmptyTimer(room);
+    } catch (e) {}
+    try {
+      cancelZeroConnectedTimer(room);
     } catch (e) {}
 
     emitMatchEnded(io, { matchCode: room, gameKey, reason });
@@ -546,15 +777,27 @@ function ServidorWS() {
     }
     sockets.add(socket.id);
 
-    try {
-      if (!socket.data) socket.data = {};
-      if (!socket.data.matchPresenceKeys) socket.data.matchPresenceKeys = new Set();
-      socket.data.matchPresenceKeys.add(presenceKey(room, playerId));
-      socket.data.email = normalizePlayerId(email);
-    } catch (e) {}
+      try {
+        if (!socket.data) socket.data = {};
+        if (!socket.data.matchPresenceKeys) socket.data.matchPresenceKeys = new Set();
+        socket.data.matchPresenceKeys.add(presenceKey(room, playerId));
+        socket.data.email = normalizePlayerId(email);
+        socket.data.userId = publicUserIdFromEmail(email) || socket.data.userId;
+        socket.data.nick = socket.data.nick || safePublicName(email, "Jugador");
+        if (!socket.data.roomIds) socket.data.roomIds = new Set();
+        socket.data.roomIds.add(room);
+        const st = ensureRoomPlayerState(room, socket.data.userId);
+        if (st) {
+          st.status = "connected";
+          st.lastExitAt = 0;
+        }
+      } catch (e) {}
 
-    cancelDisconnectTimer(room, playerId);
-  };
+      cancelDisconnectTimer(room, playerId);
+      try {
+        cancelZeroConnectedTimer(room);
+      } catch (e) {}
+    };
 
   const untrackSocketFromMatchPresence = (codigo, email, socket) => {
     const room = String(codigo || "").trim();
@@ -571,11 +814,12 @@ function ServidorWS() {
       }
     }
 
-    cancelDisconnectTimer(room, playerId);
-    try {
-      socket.data?.matchPresenceKeys?.delete?.(presenceKey(room, playerId));
-    } catch (e) {}
-  };
+      cancelDisconnectTimer(room, playerId);
+      try {
+        socket.data?.matchPresenceKeys?.delete?.(presenceKey(room, playerId));
+        socket.data?.roomIds?.delete?.(room);
+      } catch (e) {}
+    };
 
   const scheduleRemovePlayerIfStillDisconnected = (io, sistema, codigo, playerId) => {
     const room = String(codigo || "").trim();
@@ -588,17 +832,23 @@ function ServidorWS() {
     const partidaNow = sistema.partidas?.[room] || null;
     if (!partidaNow || isBotMatch(partidaNow)) return;
 
-    // If nobody is connected anymore, end the match immediately (platform UX requirement).
-    if (getConnectedCount(room) <= 0 && shouldDestroyImmediatelyWhenEmpty(partidaNow)) {
-      destroyMatch(io, sistema, room, { reason: "EMPTY" });
-      return;
-    }
+      // If nobody is connected anymore, allow a grace window for refresh/reconnect.
+      if (getConnectedCount(room) <= 0) {
+        scheduleDestroyIfStillZeroConnected(io, sistema, room);
+      }
 
-    emitMatchPlayerDisconnected(io, {
-      matchCode: room,
-      gameKey: partidaNow.juego,
-      playerNick: pickDisplayName(partidaNow, pid, "Jugador"),
-    });
+      const exit = handleExit({ roomId: room, email: pid, userId: publicUserIdFromEmail(pid), reason: "disconnect" });
+      if (exit.shouldEmit) {
+        emitMatchPlayerDisconnected(
+          io,
+          {
+            matchCode: room,
+            gameKey: partidaNow.juego,
+            playerNick: pickDisplayName(partidaNow, pid, "Jugador"),
+          },
+          { playerId: pid, reason: "disconnect" }
+        );
+      }
 
     const t = setTimeout(() => {
       matchDisconnectTimers.delete(key);
@@ -626,7 +876,7 @@ function ServidorWS() {
         }
       } catch (e) {}
 
-      emitMatchPlayerLeft(io, { matchCode: room, gameKey, playerNick });
+        // Do not emit "player_left" for a disconnect-driven cleanup (avoid confusing "abandonó").
 
       // If the match became empty (no connected players), destroy it.
       try {
@@ -678,9 +928,11 @@ function ServidorWS() {
           if (byPlayer.size === 0) matchPresenceByCodigo.delete(room);
 
           const partidaNow = sistema.partidas?.[room] || null;
-          if (partidaNow && shouldDestroyImmediatelyWhenEmpty(partidaNow) && getConnectedCount(room) <= 0) {
-            destroyMatch(io, sistema, room, { reason: "EMPTY" });
-            continue;
+          if (partidaNow) {
+            indexRoomMembership(room, partidaNow);
+            if (getConnectedCount(room) <= 0) {
+              scheduleDestroyIfStillZeroConnected(io, sistema, room);
+            }
           }
 
           scheduleRemovePlayerIfStillDisconnected(io, sistema, room, pid);
@@ -729,6 +981,9 @@ function ServidorWS() {
           juego: partidaNow.juego,
           graceMs: ROOM_EMPTY_GRACE_MS,
         });
+        try {
+          emitMatchEnded(io, { matchCode: codigo, gameKey: partidaNow.juego, reason: "EMPTY" });
+        } catch (e) {}
 
         delete sistema.partidas[codigo];
         cleanupCodigoState(io, codigo);
@@ -1755,6 +2010,10 @@ function ServidorWS() {
           mode,
           nick: datos && typeof datos.nick === "string" ? datos.nick : undefined,
         });
+        try {
+          const partidaCreated = codigo !== -1 ? sistema.partidas?.[codigo] : null;
+          if (partidaCreated) partidaCreated.phase = "lobby";
+        } catch (e) {}
 
         if (codigo !== -1) {
           socket.join(codigo); // sala de socket.io
@@ -1765,6 +2024,7 @@ function ServidorWS() {
         try {
           const partidaNow = codigo !== -1 ? sistema.partidas?.[codigo] : null;
           if (partidaNow) emitMatchUpdate(io, codigo, partidaNow);
+          if (partidaNow) indexRoomMembership(codigo, partidaNow);
         } catch (e) {}
 
         const partidaCreada = codigo !== -1 ? sistema.partidas[codigo] : null;
@@ -1889,6 +2149,8 @@ function ServidorWS() {
             socket.join(datos.codigo);
             cancelRoomEmptyTimer(datos.codigo);
             trackMatchPresence(datos.codigo, datos.email, socket);
+            const partidaNow = sistema.partidas?.[datos.codigo] || null;
+            if (partidaNow) indexRoomMembership(datos.codigo, partidaNow);
           } catch (e) {}
 
           srv.enviarAlRemitente(socket, "unidoAPartida", {
@@ -1916,7 +2178,9 @@ function ServidorWS() {
 
         try {
           const partidaNow = codigo !== -1 ? sistema.partidas?.[codigo] : null;
+          try { if (partidaNow) partidaNow.phase = "lobby"; } catch (e2) {}
           if (partidaNow) emitMatchUpdate(io, codigo, partidaNow);
+          if (partidaNow) indexRoomMembership(codigo, partidaNow);
         } catch (e) {}
 
         // Si ya hay un engine UNO creado, sincronizarlo con los jugadores reales de la partida.
@@ -2036,6 +2300,7 @@ function ServidorWS() {
         if (codigo !== -1) {
           const partida = sistema.partidas[codigo];
           const juego = partida?.juego || datos.juego || "uno";
+          try { if (partida) partida.phase = "inGame"; } catch (e) {}
 
           // Aseguramos que este socket está en la sala
           socket.join(codigo);
@@ -2058,6 +2323,7 @@ function ServidorWS() {
               ts: Date.now(),
             });
             emitMatchUpdate(io, codigo, partida);
+            try { if (partida) indexRoomMembership(codigo, partida); } catch (e) {}
           } catch (e) {}
 
           // Actualizar la lista para TODO el mundo
@@ -2108,25 +2374,33 @@ function ServidorWS() {
           if (codigoReq) socket.leave(codigoReq);
           if (codigoReq && email) untrackSocketFromMatchPresence(codigoReq, email, socket);
         } catch (e) {}
-        if (deletedRoom && codigoReq) {
-          try { io.to(codigoReq).emit("room:deleted", { codigo: codigoReq }); } catch (e) {}
+          if (deletedRoom && codigoReq) {
+            try { io.to(codigoReq).emit("room:deleted", { codigo: codigoReq }); } catch (e) {}
+            try {
+              emitMatchEnded(io, { matchCode: codigoReq, gameKey: partidaBefore?.juego || datos?.juego, reason: "DELETED" });
+            } catch (e) {}
+          }
+
           try {
-            emitMatchEnded(io, { matchCode: codigoReq, gameKey: partidaBefore?.juego || datos?.juego, reason: "DELETED" });
+            if (codigoReq) {
+              const partidaNow = sistema.partidas?.[codigoReq] || null;
+              if (partidaNow) indexRoomMembership(codigoReq, partidaNow);
+              else purgeRoomFromActiveIndex(codigoReq);
+            }
           } catch (e) {}
-        }
 
-        if (codigo !== -1 && !sistema.partidas[codigo]) {
-          cleanupCodigoState(io, codigo);
-        }
+          if (codigo !== -1 && !sistema.partidas[codigo]) {
+            cleanupCodigoState(io, codigo);
+          }
 
-        if (codigoReq && partidaBefore && wasPlayer && !wasHost) {
-          const playerNick = pickDisplayName(partidaBefore, playerId, "Jugador");
-          emitMatchPlayerLeft(
-            io,
-            { matchCode: codigoReq, gameKey: partidaBefore.juego || datos?.juego, playerNick },
-            { excludeSocket: socket }
-          );
-        }
+          if (codigoReq && partidaBefore && wasPlayer && !wasHost) {
+            const playerNick = pickDisplayName(partidaBefore, playerId, "Jugador");
+            emitMatchPlayerLeft(
+              io,
+              { matchCode: codigoReq, gameKey: partidaBefore.juego || datos?.juego, playerNick },
+              { excludeSocket: socket, playerId, reason: "leave" }
+            );
+          }
 
         srv.enviarAlRemitente(socket, "partidaEliminada", { codigo: codigo });
         if (typeof ack === "function") {
@@ -2137,103 +2411,192 @@ function ServidorWS() {
         srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
       });
 
+      const createResumeResponder = (socket, ack, fallbackEvent) => {
+        return (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          try {
+            socket.emit(fallbackEvent, payload);
+          } catch (e) {}
+        };
+      };
+
+        const handleCanResumeRequest = (datos, respond) => {
+          const matchCode = String(datos?.roomId || datos?.matchCode || datos?.codigo || "").trim();
+          const email = datos?.email;
+          const emailId = normalizePlayerId(email);
+          const userId = normalizePlayerId(datos?.userId || datos?.uid || "");
+
+        if (!matchCode || (!emailId && !userId)) {
+          return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[matchCode] || null;
+        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
+        const phase = String(partida?.phase || "").trim();
+        if (phase && phase !== "inGame") return respond({ ok: false, matchCode, reason: "NOT_IN_GAME" });
+          if (getConnectedCount(matchCode) <= 0) {
+            try { scheduleDestroyIfStillZeroConnected(io, sistema, matchCode); } catch (e) {}
+            return respond({ ok: false, matchCode, reason: "MATCH_EMPTY" });
+          }
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => {
+            const e = normalizePlayerId(j?.email);
+            if (emailId && e === emailId) return true;
+            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
+            return false;
+          });
+        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
+        if (userId) {
+          const st = getRoomPlayerStatus(matchCode, userId);
+          if (st === "left") return respond({ ok: false, matchCode, reason: "LEFT" });
+        }
+
+        return respond({
+          ok: true,
+          matchCode,
+          gameKey: String(partida.juego || "uno").trim().toLowerCase(),
+          status: getDerivedMatchStatus(partida),
+          creatorNick: safePublicName(partida.propietario, "Anfitrión"),
+        });
+      };
+
+        const handleResumeRequest = (datos, respond) => {
+          const matchCode = String(datos?.roomId || datos?.matchCode || datos?.codigo || "").trim();
+          const email = datos?.email;
+          const emailId = normalizePlayerId(email);
+          const userId = normalizePlayerId(datos?.userId || datos?.uid || "");
+
+        if (!matchCode || (!emailId && !userId)) {
+          return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[matchCode] || null;
+        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
+        const phase = String(partida?.phase || "").trim();
+        if (phase && phase !== "inGame") return respond({ ok: false, matchCode, reason: "NOT_IN_GAME" });
+          if (getConnectedCount(matchCode) <= 0) {
+            try { scheduleDestroyIfStillZeroConnected(io, sistema, matchCode); } catch (e) {}
+            return respond({ ok: false, matchCode, reason: "MATCH_EMPTY" });
+          }
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => {
+            const e = normalizePlayerId(j?.email);
+            if (emailId && e === emailId) return true;
+            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
+            return false;
+          });
+        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
+        if (userId) {
+          const st = getRoomPlayerStatus(matchCode, userId);
+          if (st === "left") return respond({ ok: false, matchCode, reason: "LEFT" });
+        }
+
+          try {
+            socket.join(matchCode);
+            cancelRoomEmptyTimer(matchCode);
+            cancelZeroConnectedTimer(matchCode);
+            if (email) trackMatchPresence(matchCode, email, socket);
+            indexRoomMembership(matchCode, partida);
+          } catch (e) {}
+
+        return respond({
+          ok: true,
+          matchCode,
+          gameKey: String(partida.juego || "uno").trim().toLowerCase(),
+          status: getDerivedMatchStatus(partida),
+          creatorNick: safePublicName(partida.propietario, "Anfitrión"),
+        });
+      };
+
       // ==========================
       //  MATCH RESUME (GLOBAL)
       // ==========================
 
       socket.on("match:can_resume", function(datos, ack) {
-        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
-        const email = datos?.email;
-        const emailId = normalizePlayerId(email);
-        const userId = normalizePlayerId(datos?.userId || datos?.uid || "");
-
-        const respond = (payload) => {
-          if (typeof ack === "function") return ack(payload);
-          socket.emit("match:can_resume", payload);
-        };
-
-        if (!matchCode || (!emailId && !userId)) {
-          return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
-        }
-
-        const partida = sistema.partidas?.[matchCode] || null;
-        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
-        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
-        if (getConnectedCount(matchCode) <= 0) {
-          // If the match has no connected players, treat it as dead.
-          if (shouldDestroyImmediatelyWhenEmpty(partida)) {
-            try { destroyMatch(io, sistema, matchCode, { reason: "EMPTY" }); } catch (e) {}
-          }
-          return respond({ ok: false, matchCode, reason: "MATCH_EMPTY" });
-        }
-
-        const belongs =
-          Array.isArray(partida.jugadores) &&
-          partida.jugadores.some((j) => {
-            const e = normalizePlayerId(j?.email);
-            if (emailId && e === emailId) return true;
-            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
-            return false;
-          });
-        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
-
-        return respond({
-          ok: true,
-          matchCode,
-          gameKey: String(partida.juego || "uno").trim().toLowerCase(),
-          status: getDerivedMatchStatus(partida),
-          creatorNick: safePublicName(partida.propietario, "Anfitrión"),
-        });
+        handleCanResumeRequest(datos, createResumeResponder(socket, ack, "match:can_resume"));
+      });
+      socket.on("room:canResume", function(datos, ack) {
+        handleCanResumeRequest(datos, createResumeResponder(socket, ack, "room:canResume"));
+      });
+      socket.on("match:resume", function(datos, ack) {
+        handleResumeRequest(datos, createResumeResponder(socket, ack, "match:resume"));
+      });
+      socket.on("room:resume", function(datos, ack) {
+        handleResumeRequest(datos, createResumeResponder(socket, ack, "room:resume"));
       });
 
-      socket.on("match:resume", function(datos, ack) {
-        const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
+      socket.on("resume:list", function(datos, ack) {
+        const userIdRaw = normalizePlayerId(datos?.userId || datos?.uid || "");
         const email = datos?.email;
-        const emailId = normalizePlayerId(email);
-        const userId = normalizePlayerId(datos?.userId || datos?.uid || "");
+        const userId = userIdRaw || (email ? publicUserIdFromEmail(email) : "");
 
         const respond = (payload) => {
           if (typeof ack === "function") return ack(payload);
-          socket.emit("match:resume", payload);
+          socket.emit("resume:list", payload);
         };
 
-        if (!matchCode || (!emailId && !userId)) {
-          return respond({ ok: false, matchCode, reason: "INVALID_REQUEST" });
-        }
+        if (!userId) return respond({ ok: false, reason: "INVALID_REQUEST", rooms: [] });
 
-        const partida = sistema.partidas?.[matchCode] || null;
-        if (!partida) return respond({ ok: false, matchCode, reason: "MATCH_NOT_FOUND" });
-        if (isBotMatch(partida)) return respond({ ok: false, matchCode, reason: "BOT_MATCH" });
-        if (getConnectedCount(matchCode) <= 0) {
-          if (shouldDestroyImmediatelyWhenEmpty(partida)) {
-            try { destroyMatch(io, sistema, matchCode, { reason: "EMPTY" }); } catch (e) {}
+        const byRoom = activeRoomsByUserId.get(userId);
+        const rooms = [];
+
+        if (byRoom && byRoom.size > 0) {
+          for (const [roomId, cached] of byRoom.entries()) {
+            const partida = sistema.partidas?.[roomId] || null;
+            if (!partida) {
+              purgeRoomFromActiveIndex(roomId);
+              continue;
+            }
+            const summary = buildRoomSummary(roomId, partida);
+            if (!summary) {
+              purgeRoomFromActiveIndex(roomId);
+              continue;
+            }
+            if (String(summary.phase || "").trim() !== "inGame") continue;
+            if (summary.connectedCount <= 0) continue;
+
+            const belongs =
+              Array.isArray(partida?.jugadores) &&
+              partida.jugadores.some((j) => publicUserIdFromEmail(j?.email) === userId);
+            if (!belongs) {
+              purgeRoomFromActiveIndex(roomId);
+              continue;
+            }
+
+            const status = getRoomPlayerStatus(roomId, userId);
+            if (status === "left") continue;
+            rooms.push(summary);
           }
-          return respond({ ok: false, matchCode, reason: "MATCH_EMPTY" });
+        } else {
+          // Fallback: derive rooms from in-memory partidas.
+          const partidas = sistema?.partidas || {};
+          for (const roomId of Object.keys(partidas)) {
+            const partida = partidas[roomId];
+            const summary = buildRoomSummary(roomId, partida);
+            if (!summary) continue;
+            if (String(summary.phase || "").trim() !== "inGame") continue;
+            if (summary.connectedCount <= 0) continue;
+
+            const belongs =
+              Array.isArray(partida?.jugadores) &&
+              partida.jugadores.some((j) => publicUserIdFromEmail(j?.email) === userId);
+            if (!belongs) continue;
+
+            const status = getRoomPlayerStatus(roomId, userId);
+            if (status === "left") continue;
+
+            rooms.push(summary);
+          }
         }
 
-        const belongs =
-          Array.isArray(partida.jugadores) &&
-          partida.jugadores.some((j) => {
-            const e = normalizePlayerId(j?.email);
-            if (emailId && e === emailId) return true;
-            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
-            return false;
-          });
-        if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
-
-        try {
-          socket.join(matchCode);
-          cancelRoomEmptyTimer(matchCode);
-          if (email) trackMatchPresence(matchCode, email, socket);
-        } catch (e) {}
-
-        return respond({
-          ok: true,
-          matchCode,
-          gameKey: String(partida.juego || "uno").trim().toLowerCase(),
-          status: getDerivedMatchStatus(partida),
-          creatorNick: safePublicName(partida.propietario, "Anfitrión"),
-        });
+        rooms.sort((a, b) => String(a.roomId).localeCompare(String(b.roomId)));
+        return respond({ ok: true, rooms });
       });
 
       socket.on("matches:my_active", function(datos, ack) {
@@ -2405,7 +2768,9 @@ function ServidorWS() {
         }
 
         const partidaNow = sistema.partidas?.[matchCode] || partida;
+        try { if (partidaNow) partidaNow.phase = "inGame"; } catch (e) {}
         const status = getDerivedMatchStatus(partidaNow);
+        try { if (partidaNow) indexRoomMembership(matchCode, partidaNow); } catch (e) {}
 
         io.to(matchCode).emit("match:started", {
           matchCode,
@@ -2465,21 +2830,175 @@ function ServidorWS() {
           untrackSocketFromMatchPresence(matchCode, email, socket);
         } catch (e) {}
 
-        // If nobody is connected anymore, end the match immediately.
-        if (getConnectedCount(matchCode) <= 0 && shouldDestroyImmediatelyWhenEmpty(partida)) {
-          destroyMatch(io, sistema, matchCode, { reason: "EMPTY" });
-          return respond({ ok: true, matchCode, ended: true });
-        }
+          // If nobody is connected anymore, allow a short grace window for refresh/reconnect.
+          if (getConnectedCount(matchCode) <= 0) {
+            scheduleDestroyIfStillZeroConnected(io, sistema, matchCode);
+            return respond({ ok: true, matchCode, ended: true });
+          }
 
         // Otherwise behave like a disconnect (start TTL removal + notify).
         scheduleRemovePlayerIfStillDisconnected(io, sistema, matchCode, emailId);
         return respond({ ok: true, matchCode, ended: false });
       });
 
+      // ==========================
+      //  ROOM DETACH / LEAVE (NEW API)
+      // ==========================
+
+      socket.on("room:detach", function(datos, ack) {
+        const roomId = String(datos?.roomId || datos?.matchCode || datos?.codigo || "").trim();
+        const userId = normalizePlayerId(datos?.userId || datos?.uid || socket?.data?.userId || "");
+        const emailRaw = datos?.email || socket?.data?.email || null;
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("room:detach", payload);
+        };
+
+        if (!roomId || (!userId && !emailRaw)) {
+          return respond({ ok: false, roomId, reason: "INVALID_REQUEST" });
+        }
+
+        const partida = sistema.partidas?.[roomId] || null;
+        if (!partida) return respond({ ok: false, roomId, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partida)) return respond({ ok: false, roomId, reason: "BOT_MATCH" });
+
+        const emailFromRoom = (() => {
+          if (emailRaw) return String(emailRaw).trim();
+          if (!userId) return null;
+          const jugadores = Array.isArray(partida.jugadores) ? partida.jugadores : [];
+          const found = jugadores.find((j) => publicUserIdFromEmail(j?.email) === userId);
+          return found?.email ? String(found.email).trim() : null;
+        })();
+        const emailId = normalizePlayerId(emailFromRoom);
+
+        const belongs =
+          Array.isArray(partida.jugadores) &&
+          partida.jugadores.some((j) => {
+            const e = normalizePlayerId(j?.email);
+            if (emailId && e === emailId) return true;
+            if (userId && publicUserIdFromEmail(j?.email) === userId) return true;
+            return false;
+          });
+        if (!belongs) return respond({ ok: false, roomId, reason: "NOT_ALLOWED" });
+
+        try {
+          socket.leave(roomId);
+        } catch (e) {}
+        try {
+          if (emailId) untrackSocketFromMatchPresence(roomId, emailId, socket);
+        } catch (e) {}
+
+        // Mark disconnected (NOT left) and notify lobby.
+        const exit = handleExit({ roomId, email: emailId || emailFromRoom, userId, reason: "disconnect" });
+        if (exit.shouldEmit) {
+          try {
+            emitMatchPlayerDisconnected(
+              io,
+              {
+                matchCode: roomId,
+                gameKey: partida.juego,
+                playerNick: emailId ? pickDisplayName(partida, emailId, "Jugador") : "Jugador",
+              },
+              { playerId: emailId || null, reason: "disconnect" }
+            );
+          } catch (e) {}
+        }
+
+        // If nobody is connected anymore, allow a short grace window for refresh/reconnect.
+        if (getConnectedCount(roomId) <= 0) {
+          try {
+            scheduleDestroyIfStillZeroConnected(io, sistema, roomId);
+          } catch (e) {}
+          return respond({ ok: true, roomId, ended: true });
+        }
+
+        // Otherwise behave like a disconnect (start TTL removal).
+        if (emailId) {
+          try {
+            scheduleRemovePlayerIfStillDisconnected(io, sistema, roomId, emailId);
+          } catch (e) {}
+        }
+        return respond({ ok: true, roomId, ended: false });
+      });
+
+      socket.on("room:leave", function(datos, ack) {
+        const roomId = String(datos?.roomId || datos?.matchCode || datos?.codigo || "").trim();
+        const userId = normalizePlayerId(datos?.userId || datos?.uid || socket?.data?.userId || "");
+        const emailRaw = datos?.email || socket?.data?.email || null;
+
+        const respond = (payload) => {
+          if (typeof ack === "function") return ack(payload);
+          socket.emit("room:leave", payload);
+        };
+
+        if (!roomId || (!userId && !emailRaw)) {
+          return respond({ ok: false, roomId, reason: "INVALID_REQUEST" });
+        }
+
+        const partidaBefore = sistema.partidas?.[roomId] || null;
+        if (!partidaBefore) return respond({ ok: false, roomId, reason: "MATCH_NOT_FOUND" });
+        if (isBotMatch(partidaBefore)) return respond({ ok: false, roomId, reason: "BOT_MATCH" });
+
+        const emailFromRoom = (() => {
+          if (emailRaw) return String(emailRaw).trim();
+          if (!userId) return null;
+          const jugadores = Array.isArray(partidaBefore.jugadores) ? partidaBefore.jugadores : [];
+          const found = jugadores.find((j) => publicUserIdFromEmail(j?.email) === userId);
+          return found?.email ? String(found.email).trim() : null;
+        })();
+        const emailId = normalizePlayerId(emailFromRoom);
+
+        if (!emailId) return respond({ ok: false, roomId, reason: "INVALID_REQUEST" });
+
+        const belongs =
+          Array.isArray(partidaBefore.jugadores) &&
+          partidaBefore.jugadores.some((j) => normalizePlayerId(j?.email) === emailId);
+        if (!belongs) return respond({ ok: false, roomId, reason: "NOT_ALLOWED" });
+
+        const playerNick = pickDisplayName(partidaBefore, emailId, "Jugador");
+        const gameKey = partidaBefore.juego || null;
+
+        try {
+          untrackSocketFromMatchPresence(roomId, emailId, socket);
+        } catch (e) {}
+        try {
+          socket.leave(roomId);
+        } catch (e) {}
+
+        const res = sistema.eliminarPartida(emailId, roomId);
+        const partidaAfter = sistema.partidas?.[roomId] || null;
+
+        const exit = handleExit({ roomId, email: emailId, userId, reason: "leave" });
+        if (exit.shouldEmit) {
+          emitMatchPlayerLeft(
+            io,
+            { matchCode: roomId, gameKey, playerNick },
+            { excludeSocket: socket, playerId: emailId, reason: "leave" }
+          );
+        }
+
+        if (!partidaAfter) {
+          purgeRoomFromActiveIndex(roomId);
+          emitMatchEnded(io, { matchCode: roomId, gameKey, reason: "EMPTY" });
+        } else {
+          indexRoomMembership(roomId, partidaAfter);
+          const playersCount = Array.isArray(partidaAfter.jugadores) ? partidaAfter.jugadores.length : 0;
+          if (playersCount <= 0) {
+            destroyMatch(io, sistema, roomId, { reason: "EMPTY" });
+          } else if (getConnectedCount(roomId) <= 0) {
+            scheduleDestroyIfStillZeroConnected(io, sistema, roomId);
+          }
+        }
+
+        return respond({ ok: true, roomId, codigo: res && typeof res === "object" ? res.codigo : res });
+      });
+
       socket.on("match:leave", function(datos, ack) {
         const matchCode = String(datos?.matchCode || datos?.codigo || "").trim();
         const email = datos?.email;
         const emailId = normalizePlayerId(email);
+        const userIdRaw = normalizePlayerId(datos?.userId || datos?.uid || "");
 
         const respond = (payload) => {
           if (typeof ack === "function") return ack(payload);
@@ -2510,14 +3029,22 @@ function ServidorWS() {
         const res = sistema.eliminarPartida(email, matchCode);
         const partidaAfter = sistema.partidas?.[matchCode] || null;
 
-        emitMatchPlayerLeft(io, { matchCode, gameKey, playerNick }, { excludeSocket: socket });
+        const exit = handleExit({ roomId: matchCode, email, userId: userIdRaw, reason: "leave" });
+        if (exit.shouldEmit) {
+          emitMatchPlayerLeft(io, { matchCode, gameKey, playerNick }, { excludeSocket: socket, playerId: emailId, reason: "leave" });
+        }
 
-        if (!partidaAfter || getConnectedCount(matchCode) <= 0) {
-          if (partidaAfter) {
+        if (!partidaAfter) {
+          // already deleted by model
+          purgeRoomFromActiveIndex(matchCode);
+          emitMatchEnded(io, { matchCode, gameKey, reason: "EMPTY" });
+        } else {
+          indexRoomMembership(matchCode, partidaAfter);
+          const playersCount = Array.isArray(partidaAfter.jugadores) ? partidaAfter.jugadores.length : 0;
+          if (playersCount <= 0) {
             destroyMatch(io, sistema, matchCode, { reason: "EMPTY" });
-          } else {
-            // already deleted by model
-            emitMatchEnded(io, { matchCode, gameKey, reason: "EMPTY" });
+          } else if (getConnectedCount(matchCode) <= 0) {
+            scheduleDestroyIfStillZeroConnected(io, sistema, matchCode);
           }
         }
 
@@ -2718,7 +3245,7 @@ function ServidorWS() {
             emitMatchPlayerLeft(
               io,
               { matchCode: codigo, gameKey: before.juego || datos?.gameType, playerNick },
-              { excludeSocket: socket }
+              { excludeSocket: socket, playerId, reason: "leave" }
             );
           }
         } catch (e) {}
@@ -2766,15 +3293,16 @@ function ServidorWS() {
         } catch (e) {}
 
         if (deleted) {
+          try { purgeRoomFromActiveIndex(codigo); } catch (e) {}
           cleanupCodigoState(io, codigo);
         }
 
-        if (isRoomEmpty(io, codigo) && sistema.partidas?.[codigo]) {
-          const partidaNow = sistema.partidas[codigo];
-          delete sistema.partidas[codigo];
-          cleanupCodigoState(io, codigo);
-          const lista = sistema.obtenerPartidasDisponibles(partidaNow.juego);
-          srv.enviarGlobal(io, "listaPartidas", sanitizeListaPartidasPublic(lista));
+        const partidaAfter = sistema.partidas?.[codigo] || null;
+        if (partidaAfter) {
+          try { indexRoomMembership(codigo, partidaAfter); } catch (e) {}
+          if (getConnectedCount(codigo) <= 0) {
+            scheduleDestroyIfStillZeroConnected(io, sistema, codigo);
+          }
         }
 
         return respond({ ok: true, codigo: res && typeof res === "object" ? res.codigo : res, deleted });

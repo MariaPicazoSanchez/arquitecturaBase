@@ -18,6 +18,39 @@ function ClienteWS() {
         return this.email;
     };
 
+    const normalizeGameKey = (raw) => {
+        const k = String(raw || "uno").trim().toLowerCase();
+        if (k === "checkers") return "damas";
+        return k || "uno";
+    };
+
+    const getMyNick = () => {
+        try {
+            const nickCookie = window.$ && $.cookie ? String($.cookie("nick") || "").trim() : "";
+            if (nickCookie && !nickCookie.includes("@")) {
+                return nickCookie;
+            }
+        } catch (e) {}
+        return "";
+    };
+
+    const persistResumeMatch = ({ matchCode, gameKey, ownerNick }) => {
+        if (!window.resumeManager || !matchCode || !gameKey) return;
+        const entry = {
+            roomId: String(matchCode).trim(),
+            gameKey: normalizeGameKey(gameKey),
+            ownerNick: String(ownerNick || "").trim(),
+            joinedNick: getMyNick(),
+            timestamp: Date.now(),
+        };
+        window.resumeManager.save(entry);
+    };
+
+    const clearResumeMatch = () => {
+        if (!window.resumeManager) return;
+        window.resumeManager.clear();
+    };
+
     this.pedirListaPartidas = function(){
         if (this.socket){
             this.socket.emit("obtenerListaPartidas", {
@@ -62,25 +95,8 @@ function ClienteWS() {
               }
               return;
           }
-          try {
-              const juego = String((datos && datos.juego) || ws.gameType || (window.cw && cw.juegoActual) || "uno").trim().toLowerCase();
-              const normalized = juego === "checkers" ? "damas" : juego;
-              const isBotGame = !!datos.isBotGame;
-              if (isBotGame) {
-                  localStorage.removeItem("activeMatch");
-              } else if (normalized === "4raya" || normalized === "damas") {
-                  localStorage.setItem(
-                      "activeMatch",
-                      JSON.stringify({
-                          matchCode: String(datos.codigo),
-                          gameKey: normalized,
-                          creatorNick: null,
-                          joinedAt: Date.now(),
-                          isBotMatch: false,
-                      })
-                  );
-              }
-          } catch(e) {}
+          // No guardar “continuar” al crear: solo se muestra cuando la partida está iniciada
+          // y el usuario se ha desconectado/recargado.
           if (window.cw && typeof cw.renderContinueGamesBar === "function") {
               cw.renderContinueGamesBar();
           }
@@ -105,26 +121,8 @@ function ClienteWS() {
               ws.pedirListaPartidas();
               return;
           }
-          try {
-              const juego = String((datos && datos.juego) || ws.gameType || (window.cw && cw.juegoActual) || "uno").trim().toLowerCase();
-              const normalized = juego === "checkers" ? "damas" : juego;
-              const isBotGame = !!datos.isBotGame;
-              const creatorNick = (datos && typeof datos.creatorNick === "string") ? String(datos.creatorNick).trim() : "";
-              if (isBotGame) {
-                  localStorage.removeItem("activeMatch");
-              } else if (normalized === "4raya" || normalized === "damas") {
-                  localStorage.setItem(
-                      "activeMatch",
-                      JSON.stringify({
-                          matchCode: String(datos.codigo),
-                          gameKey: normalized,
-                          creatorNick: creatorNick || null,
-                          joinedAt: Date.now(),
-                          isBotMatch: false,
-                      })
-                  );
-              }
-          } catch(e) {}
+          // No guardar “continuar” al unirse: solo se muestra cuando la partida está iniciada
+          // y el usuario se ha desconectado/recargado.
           if (window.cw && typeof cw.renderContinueGamesBar === "function") {
               cw.renderContinueGamesBar();
           }
@@ -158,6 +156,9 @@ function ClienteWS() {
             const normalized = normalizedRaw === "checkers" ? "damas" : normalizedRaw;
             const isBotGame = !!datos.isBotGame;
             const creatorNick = (datos && typeof datos.creatorNick === "string") ? String(datos.creatorNick).trim() : "";
+            const ownerNick =
+                creatorNick ||
+                (datos && typeof datos.propietario === "string" ? String(datos.propietario).trim() : "");
             const key =
                 normalized === "uno" ? "activeGame:UNO" :
                 normalized === "damas" ? "activeGame:DAMAS" :
@@ -171,21 +172,7 @@ function ClienteWS() {
                 }
             }
 
-            // New resumable-match payload (used by Home banner).
-            if (isBotGame) {
-                localStorage.removeItem("activeMatch");
-            } else {
-                localStorage.setItem(
-                    "activeMatch",
-                    JSON.stringify({
-                        matchCode: String(datos.codigo),
-                        gameKey: normalized,
-                        creatorNick: creatorNick || null,
-                        joinedAt: Date.now(),
-                        isBotMatch: false,
-                    })
-                );
-            }
+            // No persistimos “continuar” aquí: el lobby se basa en `resume:list` del servidor.
         } catch(e) {}
         if (window.cw && typeof cw.renderContinueGamesBar === "function") {
             cw.renderContinueGamesBar();
@@ -222,9 +209,8 @@ function ClienteWS() {
 
       const getActiveMatchCode = () => {
         try {
-          const raw = localStorage.getItem("activeMatch");
-          const parsed = raw ? JSON.parse(raw) : null;
-          return parsed && parsed.matchCode ? String(parsed.matchCode).trim() : "";
+          const entry = window.resumeManager ? window.resumeManager.get() : null;
+          return entry && entry.roomId ? String(entry.roomId).trim() : "";
         } catch (e) {
           return "";
         }
@@ -249,7 +235,35 @@ function ClienteWS() {
         return code === current || code === active;
       };
 
+      const seenSystemEventIds = new Set();
+      const shouldRenderLobbyToasts = () => {
+        try {
+          // Only show system toasts in the lobby (not inside the embedded game).
+          if (window.cw && (cw._activeCodigo || cw._activeGameType)) return false;
+          const $zona = window.$ ? $("#zona-juego") : null;
+          if ($zona && $zona.length && $zona.is(":visible")) return false;
+        } catch (e) {}
+        return true;
+      };
+      const dedupeEvent = (payload) => {
+        const id = payload && payload.eventId ? String(payload.eventId).trim() : "";
+        if (!id) return false;
+        if (seenSystemEventIds.has(id)) return true;
+        seenSystemEventIds.add(id);
+        // best-effort pruning
+        if (seenSystemEventIds.size > 250) {
+          let n = 0;
+          for (const v of seenSystemEventIds) {
+            seenSystemEventIds.delete(v);
+            if ((n += 1) >= 100) break;
+          }
+        }
+        return false;
+      };
+
       this.socket.on("match:player_left", function(payload){
+        if (!shouldRenderLobbyToasts()) return;
+        if (dedupeEvent(payload)) return;
         const nick = payload && payload.playerNick ? String(payload.playerNick).trim() : "";
         const codigo = payload && payload.matchCode ? String(payload.matchCode).trim() : "";
         const juego = payload && payload.gameKey ? prettyGameName(payload.gameKey) : "";
@@ -264,6 +278,8 @@ function ClienteWS() {
       });
 
       this.socket.on("match:player_disconnected", function(payload){
+        if (!shouldRenderLobbyToasts()) return;
+        if (dedupeEvent(payload)) return;
         const nick = payload && payload.playerNick ? String(payload.playerNick).trim() : "";
         const codigo = payload && payload.matchCode ? String(payload.matchCode).trim() : "";
         const juego = payload && payload.gameKey ? prettyGameName(payload.gameKey) : "";
@@ -283,7 +299,7 @@ function ClienteWS() {
         if (!shouldShowMatchToast(codigo)) return;
         try {
           const saved = getActiveMatchCode();
-          if (saved && saved === codigo) localStorage.removeItem("activeMatch");
+          if (saved && saved === codigo) clearResumeMatch();
         } catch (e) {}
         try {
           if (window.cw && typeof cw.renderContinueGamesBar === "function") cw.renderContinueGamesBar();

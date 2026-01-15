@@ -38,6 +38,31 @@ function ControlWeb() {
         return t;
     };
 
+    const clearResumeEntry = () => {
+        if (window.resumeManager) {
+            window.resumeManager.clear();
+        }
+    };
+
+    this.getStableUserId = function(){
+        const norm = (v) => String(v || "").trim().toLowerCase();
+        try {
+            const uid = norm(window.$ && $.cookie && $.cookie("uid"));
+            if (uid) return uid;
+        } catch (e) {}
+
+        try {
+            const existing = norm(localStorage.getItem("guestId"));
+            if (existing) return existing;
+            const created = ("g_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).toLowerCase();
+            localStorage.setItem("guestId", created);
+            try { if (window.$ && $.cookie) $.cookie("uid", created); } catch (e2) {}
+            return created;
+        } catch (e) {
+            return "";
+        }
+    };
+
     this._updateMainVisibility = function(){
         const a = $.trim($("#au").html());
         const r = $.trim($("#registro").html());
@@ -124,7 +149,7 @@ function ControlWeb() {
                 if (key) {
                     try { localStorage.removeItem(key); } catch(e) {}
                 }
-                try { localStorage.removeItem("activeMatch"); } catch(e) {}
+                clearResumeEntry();
 
                 if (window.ws && ws.socket && gameId && email) {
                     ws.socket.emit("game:leave", { gameType, gameId, email }, function(){
@@ -134,25 +159,14 @@ function ControlWeb() {
                     });
                 }
             } else {
-                // Soft exit: keep `activeMatch` for PVP games to allow "Continuar partida".
-                if (key) {
-                    // legacy keys only (UNO/DAMAS) - keep them for Damas to avoid breaking old banner logic
-                    // (activeMatch is the source of truth for resume UI).
+                const resumeEntry = window.resumeManager ? window.resumeManager.get() : null;
+                const matchCode = String(resumeEntry?.roomId || gameId || "").trim();
+                const isBotMatch = !!resumeEntry?.isBotMatch;
+                const isPvpResumable =
+                    !isBotMatch && (gameType === "damas" || gameType === "4raya");
+                if (isPvpResumable && matchCode && email && window.ws && ws.socket) {
+                    ws.socket.emit("match:soft_disconnect", { matchCode, email });
                 }
-                // Inform server we left the match UI (disconnect semantics) so that:
-                // - other players get a system notification
-                // - matches with 0 connected players get destroyed (no "continuar" ghost)
-                try {
-                    const activeRaw = localStorage.getItem("activeMatch");
-                    const active = activeRaw ? JSON.parse(activeRaw) : null;
-                    const matchCode = String(active?.matchCode || gameId || "").trim();
-                    const isBotMatch = !!active?.isBotMatch;
-                    const isPvpResumable =
-                        !isBotMatch && (gameType === "damas" || gameType === "4raya");
-                    if (isPvpResumable && matchCode && email && window.ws && ws.socket) {
-                        ws.socket.emit("match:soft_disconnect", { matchCode, email });
-                    }
-                } catch(e) {}
                 if (window.cw && typeof cw.renderContinueGamesBar === "function") {
                     cw.renderContinueGamesBar();
                 }
@@ -171,6 +185,91 @@ function ControlWeb() {
         $("#panel-partidas").show();
 
         // Refrescamos la lista de partidas por si ha cambiado algo
+        if (window.ws && typeof ws.pedirListaPartidas === "function"){
+            ws.pedirListaPartidas();
+        }
+        if (window._ultimaListaPartidas){
+            this.pintarPartidas(window._ultimaListaPartidas);
+        }
+
+        this._updateMainVisibility();
+        if (typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
+    };
+
+    // Salida desde la pantalla del juego (sin abandonar): permite "Continuar partida".
+    this.salirAlLobbyDesdeJuego = function(){
+        try {
+            const roomId = String(cw._activeCodigo || (window.ws && ws.codigo) || "").trim();
+            const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+            const email =
+                cw.email ||
+                (window.ws && ws.email) ||
+                (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+                null;
+
+            if (window.ws && ws.socket && roomId && userId) {
+                ws.socket.emit("room:detach", { roomId, userId, email: email || undefined });
+            }
+        } catch(e) {}
+
+        cw._activeCodigo = null;
+        cw._activeGameType = null;
+
+        $("#iframe-juego").attr("src", "");
+        $("#zona-juego").hide();
+        $("#selector-juegos").show();
+        $("#panel-partidas").show();
+
+        if (window.ws && typeof ws.pedirListaPartidas === "function"){
+            ws.pedirListaPartidas();
+        }
+        if (window._ultimaListaPartidas){
+            this.pintarPartidas(window._ultimaListaPartidas);
+        }
+
+        this._updateMainVisibility();
+        if (typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
+    };
+
+    // Abandono real: marca "left" y nunca permite continuar.
+    this.abandonarDesdeJuego = function(){
+        try {
+            const roomId = String(cw._activeCodigo || (window.ws && ws.codigo) || "").trim();
+            const gameType = cw._normalizeResumeGameType(cw._activeGameType || cw.juegoActual);
+            const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+            const email =
+                cw.email ||
+                (window.ws && ws.email) ||
+                (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+                null;
+
+            const key = cw._activeGameStorageKeyFor(gameType);
+            if (key) {
+                try { localStorage.removeItem(key); } catch(e2) {}
+            }
+            clearResumeEntry();
+
+            if (window.ws && ws.socket && roomId && userId) {
+                ws.socket.emit("room:leave", { roomId, userId, email: email || undefined }, function(){
+                    if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                        cw.renderContinueGamesBar();
+                    }
+                });
+            }
+        } catch(e) {}
+
+        cw._activeCodigo = null;
+        cw._activeGameType = null;
+
+        $("#iframe-juego").attr("src", "");
+        $("#zona-juego").hide();
+        $("#selector-juegos").show();
+        $("#panel-partidas").show();
+
         if (window.ws && typeof ws.pedirListaPartidas === "function"){
             ws.pedirListaPartidas();
         }
@@ -337,8 +436,15 @@ function ControlWeb() {
     };
 
     this.renderContinueGamesBar = function(){
-        const $host = $("#continue-games-bar");
-        if (!$host.length) return;
+        const $hosts = $("#continue-games-bar, #continue-games-bar-partidas");
+        if (!$hosts.length) return;
+
+        const renderEmpty = () => $hosts.hide().empty();
+        const setLoading = (msg) => {
+            const text = msg || "Comprobando partidas para continuar...";
+            $hosts.show().html('<div class="text-muted small"></div>');
+            $hosts.find("div").text(text);
+        };
 
         const email =
             cw.email ||
@@ -346,63 +452,25 @@ function ControlWeb() {
             (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
             null;
 
-        if (!email) {
-            $host.hide().empty();
-            return;
-        }
+        const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+        if (!userId) return renderEmpty();
 
         if (!window.ws || !ws.socket) {
             setTimeout(() => cw.renderContinueGamesBar(), 150);
             return;
         }
 
-        const safeJsonParse = (raw) => {
-            try { return JSON.parse(raw); } catch(e){ return null; }
-        };
+        setLoading("Comprobando partidas para continuar...");
 
-        // Legacy migration: activeGame:* -> activeMatch (best-effort, without creatorNick).
-        try {
-            const existing = localStorage.getItem("activeMatch");
-            if (!existing) {
-                const legacyUno = safeJsonParse(localStorage.getItem("activeGame:UNO"));
-                const legacyDamas = safeJsonParse(localStorage.getItem("activeGame:DAMAS"));
-                const legacy = legacyUno?.gameId ? { gameKey: "uno", matchCode: legacyUno.gameId } :
-                               legacyDamas?.gameId ? { gameKey: "damas", matchCode: legacyDamas.gameId } :
-                               null;
-                if (legacy?.matchCode) {
-                    localStorage.setItem("activeMatch", JSON.stringify({
-                        matchCode: String(legacy.matchCode),
-                        gameKey: legacy.gameKey,
-                        creatorNick: null,
-                        joinedAt: Date.now(),
-                        isBotMatch: false,
-                    }));
-                }
-            }
-        } catch(e) {}
-
-        const active = safeJsonParse((() => {
-            try { return localStorage.getItem("activeMatch"); } catch(e){ return null; }
-        })());
-        const matchCode = String(active?.matchCode || "").trim();
-        const savedGameKey = String(active?.gameKey || "").trim().toLowerCase();
-        const isBotMatch = !!active?.isBotMatch;
-        if (isBotMatch) {
-            $host.hide().empty();
-            return;
-        }
-
-        $host
-            .show()
-            .html('<div class="text-muted small">Comprobando partidas para continuar…</div>');
-
-        const emitWithTimeout = (event, payload, timeoutMs = 2500) =>
+        const TRANSIENT_FAILURE_REASONS = new Set(["TIMEOUT", "CLIENT_ERROR", "NO_RESPONSE"]);
+        const CAN_RESUME_TIMEOUT_MS = 6000;
+        const emitWithTimeout = (event, payload, timeoutMs = CAN_RESUME_TIMEOUT_MS) =>
             new Promise((resolve) => {
                 let done = false;
                 const t = setTimeout(() => {
                     if (done) return;
                     done = true;
-                    resolve({ canResume: false, ...payload, reason: "TIMEOUT" });
+                    resolve({ ok: false, reason: "TIMEOUT", ...payload });
                 }, timeoutMs);
 
                 try {
@@ -410,145 +478,76 @@ function ControlWeb() {
                         if (done) return;
                         done = true;
                         clearTimeout(t);
-                        resolve(res || { canResume: false, ...payload, reason: "NO_RESPONSE" });
+                        resolve(res || { ok: false, reason: "NO_RESPONSE", ...payload });
                     });
                 } catch (e) {
                     if (done) return;
                     done = true;
                     clearTimeout(t);
-                    resolve({ canResume: false, ...payload, reason: "CLIENT_ERROR" });
+                    resolve({ ok: false, reason: "CLIENT_ERROR", ...payload });
                 }
             });
 
-        let didRenderFromActiveList = false;
-        const userId = String((window.$ && $.cookie && $.cookie("uid")) || "").trim().toLowerCase();
+        const prettyGameName = (gameKey) => {
+            const key = String(gameKey || "").trim().toLowerCase();
+            if (key === "uno") return "Última Carta";
+            if (key === "4raya") return "4 en raya";
+            if (key === "damas" || key === "checkers") return "Damas";
+            return key || "Juego";
+        };
 
-        // Prefer server authoritative list (PVP only) when available.
-        emitWithTimeout("matches:my_active", { email, userId }, 2500)
-            .then((res) => {
-                const gotList = !!(res && res.ok && Array.isArray(res.matches));
-                const matches = gotList ? res.matches : [];
-                // If server returns an authoritative list, remove stale local storage entries
-                // that aren't returned (prevents "Continuar" ghosts).
-                if (gotList) {
-                    try {
-                        if (matchCode && Array.isArray(matches)) {
-                            const hasSaved = matches.some((m) =>
-                                String(m?.matchCode || "").trim() === String(matchCode).trim()
-                            );
-                            if (!hasSaved) localStorage.removeItem("activeMatch");
-                        }
-                    } catch(e) {}
-                }
-                if (gotList) didRenderFromActiveList = true;
+        const renderRooms = (rooms) => {
+            if (!Array.isArray(rooms) || rooms.length === 0) return renderEmpty();
 
-                if (matches.length === 0) {
-                    // Server is the source of truth: if it returns 0 active matches,
-                    // hide the bar and skip legacy `match:can_resume` fallback.
-                    $host.hide().empty();
-                    return;
-                }
-
-                didRenderFromActiveList = true;
-                $host.empty();
-
-                const prettyGame = (k) => {
-                    const key = String(k || "").trim().toLowerCase();
-                    if (key === "4raya") return "4 en raya";
-                    if (key === "damas" || key === "checkers") return "Damas";
-                    return key || "Juego";
-                };
-
-                matches.forEach((m) => {
-                    const mc = String(m?.matchCode || "").trim();
-                    const gk = String(m?.gameKey || "").trim().toLowerCase();
-                    const st = String(m?.status || "").trim().toUpperCase();
-                    const creatorNick = String(m?.creatorNick || "Anfitrion").trim();
-                    const subtitle =
-                        st === "IN_PROGRESS" ? "En curso" :
-                        st === "WAITING_START" ? "Sala completa (esperando inicio)" :
-                        "";
-                    if (!mc || !gk) return;
-
-                    const $card = $('<div class="card shadow-sm mb-2"></div>');
-                    const $body = $('<div class="card-body py-2"></div>');
-                    const $row = $('<div class="d-flex flex-wrap align-items-center justify-content-between"></div>');
-                    const $left = $('<div class="text-muted small mb-2 mb-md-0"></div>')
-                        .text(`Continuar partida: ${prettyGame(gk)} - Codigo: ${mc} - Creador: ${creatorNick}${subtitle ? " - " + subtitle : ""}`);
-                    const $btn = $('<button type="button" class="btn btn-outline-primary btn-sm mb-2 continue-match-btn"></button>');
-                    $btn.attr("data-game-key", gk);
-                    $btn.attr("data-match-code", mc);
-                    $btn.text("Continuar");
-
-                    $row.append($left);
-                    $row.append($btn);
-                    $body.append($row);
-                    $card.append($body);
-                    $host.append($card);
-                });
-
-                $host.show();
-            })
-            .catch(() => {});
-
-        if (!matchCode) return;
-        emitWithTimeout("match:can_resume", { matchCode, email, userId }, 2500)
-            .then((res) => {
-                if (didRenderFromActiveList) return;
-                $host.empty();
-
-                if (!res || !res.ok) {
-                    const reason = res && res.reason;
-                    if (reason && reason !== "TIMEOUT" && reason !== "NO_RESPONSE") {
-                        try { localStorage.removeItem("activeMatch"); } catch(e) {}
-                    }
-                    $host.hide();
-                    return;
-                }
-
-                const resolvedGameKey = String(res.gameKey || savedGameKey || "").trim().toLowerCase();
-                const creatorNick = String(res.creatorNick || active?.creatorNick || "Anfitrión").trim();
-                const prettyGame =
-                    resolvedGameKey === "uno"    ? "Última Carta" :
-                    resolvedGameKey === "4raya"  ? "4 en raya" :
-                    (resolvedGameKey === "damas" || resolvedGameKey === "checkers") ? "Damas" :
-                    resolvedGameKey || "Juego";
-
-                try {
-                    localStorage.setItem("activeMatch", JSON.stringify({
-                        matchCode,
-                        gameKey: resolvedGameKey || null,
-                        creatorNick: creatorNick || null,
-                        joinedAt: active?.joinedAt || Date.now(),
-                        isBotMatch: false,
-                    }));
-                } catch(e) {}
+            const $wrap = $('<div class="d-flex flex-column" style="gap:0.5rem;"></div>');
+            rooms.forEach((r) => {
+                const roomId = String(r.roomId || r.matchCode || r.codigo || "").trim();
+                const gameKey = String(r.gameType || r.gameKey || r.juego || "").trim().toLowerCase();
+                if (!roomId) return;
+                const creatorNick = String(r.ownerNick || r.creatorNick || r.propietario || "Anfitrión").trim();
+                const prettyGame = prettyGameName(gameKey);
 
                 const $card = $('<div class="card shadow-sm"></div>');
                 const $body = $('<div class="card-body py-2"></div>');
                 const $row = $('<div class="d-flex flex-wrap align-items-center justify-content-between"></div>');
                 const $left = $('<div class="text-muted small mb-2 mb-md-0"></div>')
-                    .text(`Continuar partida: ${prettyGame} — Código: ${matchCode} — Creador: ${creatorNick || "Anfitrión"}`);
-                const $btn = $('<button type="button" class="btn btn-outline-primary btn-sm mb-2 continue-match-btn"></button>');
-                $btn.attr("data-game-key", resolvedGameKey);
-                $btn.attr("data-match-code", matchCode);
+                    .text(`Continuar partida: ${prettyGame} · Código: ${roomId} · Creador: ${creatorNick}`);
+                const $btn = $('<button type="button" class="btn btn-outline-primary btn-sm mb-2 continue-room-btn"></button>');
+                $btn.attr("data-game-key", gameKey);
+                $btn.attr("data-room-id", roomId);
                 $btn.text("Continuar");
 
                 $row.append($left);
                 $row.append($btn);
                 $body.append($row);
                 $card.append($body);
-                $host.append($card).show();
-            })
-            .catch(() => {
-                $host.hide().empty();
+                $wrap.append($card);
             });
-    };
 
-    $(document).on("click", ".continue-match-btn", function(){
+            $hosts.empty().append($wrap).show();
+        };
+
+        emitWithTimeout("resume:list", { userId, email: email || undefined })
+            .then((res) => {
+                if (res && res.ok && Array.isArray(res.rooms)) {
+                    return renderRooms(res.rooms);
+                }
+
+                const reason = (res && typeof res.reason === "string" ? res.reason : "");
+                if (TRANSIENT_FAILURE_REASONS.has(reason)) {
+                    setLoading("No se pudo verificar la partida. Reintentando...");
+                    setTimeout(() => cw.renderContinueGamesBar(), 3000);
+                    return;
+                }
+
+                return renderEmpty();
+            })
+            .catch(() => renderEmpty());
+    };
+    $(document).on("click", ".continue-room-btn", function(){
         const gameKey = String($(this).data("game-key") || "").trim().toLowerCase();
-        const matchCode = String($(this).data("match-code") || "").trim();
-        if (!gameKey || !matchCode) return;
+        const roomId = String($(this).data("room-id") || $(this).data("match-code") || "").trim();
+        if (!roomId) return;
 
         const email =
             cw.email ||
@@ -556,62 +555,87 @@ function ControlWeb() {
             (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
             null;
 
-        const userId = String((window.$ && $.cookie && $.cookie("uid")) || "").trim().toLowerCase();
+        const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
 
-        try {
-            const raw = localStorage.getItem("activeMatch");
-            const parsed = raw ? JSON.parse(raw) : null;
-            localStorage.setItem("activeMatch", JSON.stringify({
-                matchCode,
-                gameKey,
-                creatorNick: parsed?.creatorNick || null,
-                joinedAt: parsed?.joinedAt || Date.now(),
-                isBotMatch: false,
-            }));
-        } catch(e) {}
+        if (!window.ws || !ws.socket) return;
 
-        if (window.ws && ws.socket) {
-            ws.socket.emit("match:rejoin", { matchCode, email, userId }, function(res){
-                if (!res || !res.ok) {
-                    const reason = res && res.reason ? String(res.reason) : "NO_RESPONSE";
-                    if (reason === "MATCH_NOT_FOUND" || reason === "MATCH_EMPTY") {
-                        try { localStorage.removeItem("activeMatch"); } catch(e) {}
-                        if (window.cw && typeof cw.renderContinueGamesBar === "function") {
-                            cw.renderContinueGamesBar();
-                        }
-                    }
-                    if (window.cw && cw.mostrarAviso) {
-                        cw.mostrarAviso("No se pudo continuar la partida.", "error", 4000);
-                    }
-                    return;
-                }
-
-                const status = String(res.status || "").trim().toUpperCase();
-                const resolvedGameKey = String(res.gameKey || gameKey || "").trim().toLowerCase();
-                if (window.ws){
-                    ws.gameType = resolvedGameKey;
-                    ws.codigo = matchCode;
-                }
-
-                if (status === "IN_PROGRESS") {
-                    if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
-                        cw.mostrarJuegoEnApp(resolvedGameKey, matchCode);
-                    }
-                } else {
-                    if (window.cw && typeof cw.seleccionarJuego === "function") {
-                        cw.seleccionarJuego(resolvedGameKey);
-                    }
-                    if (window.cw && cw.mostrarAviso) {
-                        cw.mostrarAviso(
-                            status === "WAITING_START"
-                                ? "Sala completa. Esperando a que el creador inicie..."
-                                : "Partida aún no iniciada.",
-                            "info"
-                        );
+        ws.socket.emit("room:resume", { roomId, matchCode: roomId, gameKey, email, userId }, function(res){
+            if (!res || !res.ok) {
+                const reason = res && res.reason ? String(res.reason) : "NO_RESPONSE";
+                if (reason === "MATCH_NOT_FOUND" || reason === "MATCH_EMPTY") {
+                    clearResumeEntry();
+                    if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                        cw.renderContinueGamesBar();
                     }
                 }
-            });
-        }
+                if (window.cw && cw.mostrarAviso) {
+                    cw.mostrarAviso("No se pudo continuar la partida.", "error", 5000);
+                }
+                return;
+            }
+
+            const status = String(res.status || "").trim().toUpperCase();
+            const resolvedGameKey = String(res.gameKey || gameKey || "").trim().toLowerCase();
+            if (window.ws){
+                ws.gameType = resolvedGameKey;
+                ws.codigo = roomId;
+            }
+
+            if (status === "IN_PROGRESS") {
+                if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
+                    cw.mostrarJuegoEnApp(resolvedGameKey, roomId);
+                }
+            } else {
+                if (window.cw && typeof cw.seleccionarJuego === "function") {
+                    cw.seleccionarJuego(resolvedGameKey);
+                }
+                if (window.cw && cw.mostrarAviso) {
+                    cw.mostrarAviso(
+                        status === "WAITING_START"
+                            ? "Sala completa. Esperando a que el creador inicie..."
+                            : "Partida aún no iniciada.",
+                        "info"
+                    );
+                }
+            }
+        });
+    });
+
+    $(document).on("click", ".btn-abandonar", function(event){
+        event.preventDefault();
+        const matchCode = String($(this).data("codigo") || "").trim();
+        if (!matchCode) return;
+
+        const email =
+            cw.email ||
+            (window.ws && ws.email) ||
+            (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+            null;
+        if (!email || !window.ws || !ws.socket) return;
+
+        const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+        ws.socket.emit("room:leave", { roomId: matchCode, userId, email }, function(res){
+            if (!res || !res.ok) {
+                const reason = res && typeof res.reason === "string" ? res.reason : "";
+                const message =
+                    reason === "NOT_ALLOWED"
+                        ? "No puedes abandonar esa partida."
+                        : "No se pudo abandonar la partida.";
+                if (window.cw && cw.mostrarAviso) cw.mostrarAviso(message, "error");
+                return;
+            }
+
+            clearResumeEntry();
+            if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                cw.renderContinueGamesBar();
+            }
+            if (window.ws && typeof ws.pedirListaPartidas === "function") {
+                ws.pedirListaPartidas();
+            }
+            if (window.cw && cw.mostrarAviso) {
+                cw.mostrarAviso("Has abandonado la partida.", "info");
+            }
+        });
     });
 
     this.seleccionarJuego = function(juegoId){

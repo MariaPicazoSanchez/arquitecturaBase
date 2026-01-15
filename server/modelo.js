@@ -1313,6 +1313,8 @@ function Partida(codigo, propietario, juego, maxJug) {
   this.playersCount = 0;
   this.status = "OPEN"; // OPEN|FULL|STARTED
   this.estado = 'pendiente';
+  // Sistema (no lógica del juego): fase de la sala.
+  this.phase = "lobby"; // lobby|inGame|finished
   this.juego = juego || 'uno' ;
   this.vsBot = false;
   this.mode = "PVP"; // PVP|PVBOT

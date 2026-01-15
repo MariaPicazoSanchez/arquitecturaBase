@@ -30,6 +30,7 @@
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
   <script src="./logger.js"></script>
   <script src="./toast.js"></script>
+  <script src="./resumeManager.js"></script>
 
 
   <!-- jQuery -->
@@ -263,20 +264,6 @@
         }
       });
 
-      $('#tbody-partidas').on('click', '.btn-abandonar', function() {
-        const codigo = $(this).data('codigo');
-        try {
-          const raw = localStorage.getItem('activeMatch');
-          const parsed = raw ? JSON.parse(raw) : null;
-          if (parsed && String(parsed.matchCode || '').trim() === String(codigo || '').trim()) {
-            localStorage.removeItem('activeMatch');
-          }
-        } catch(e) {}
-        if (ws && ws.eliminarPartida) {
-          ws.eliminarPartida(codigo);
-        }
-      });
-
       $('#tbody-partidas').on('click', '.btn-copiar-codigo', function() {
         const codigo = $(this).data('codigo');
         if (!codigo) return;
@@ -296,10 +283,17 @@
       });
     });
 
-    // Botón "← Volver a las partidas" en la vista de juego
-    $(document).on("click", "#btn-volver-juegos", function(){
-        if (window.cw && typeof cw.volverDesdeJuego === "function") {
+    // Botones en la vista de juego
+    $(document).on("click", "#btn-salir-lobby", function(){
+        if (window.cw && typeof cw.salirAlLobbyDesdeJuego === "function") {
+            cw.salirAlLobbyDesdeJuego();
+        } else if (window.cw && typeof cw.volverDesdeJuego === "function") {
             cw.volverDesdeJuego();
+        }
+    });
+    $(document).on("click", "#btn-abandonar-partida", function(){
+        if (window.cw && typeof cw.abandonarDesdeJuego === "function") {
+            cw.abandonarDesdeJuego();
         }
     });
 
@@ -396,6 +390,9 @@
             <p class="page-subtitle">Crea una nueva partida o únete con un código.</p>
           </div>
         </div>
+
+        <!-- ContinueGamesBar (visible only when a resumable match exists) -->
+        <div id="continue-games-bar-partidas" class="mb-3" style="display:none;"></div>
 
         <!-- Botones crear / unirse -->
         <div class="d-flex flex-wrap align-items-center mb-3">
@@ -633,9 +630,14 @@
           <h5 id="titulo-juego-actual" class="card-title mb-0">
             Juego: Última carta
           </h5>
-          <button id="btn-volver-juegos" class="btn btn-outline-secondary btn-sm">
-            ← Volver a las partidas
-          </button>
+          <div class="d-flex flex-wrap" style="gap:0.5rem;">
+            <button id="btn-salir-lobby" class="btn btn-outline-secondary btn-sm">
+              Salir al lobby
+            </button>
+            <button id="btn-abandonar-partida" class="btn btn-outline-danger btn-sm">
+              Abandonar
+            </button>
+          </div>
         </div>
 
         <div class="uno-game-wrapper mt-2">
