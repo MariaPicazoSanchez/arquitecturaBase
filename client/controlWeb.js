@@ -1417,6 +1417,13 @@ function ControlWeb() {
             }
             let propietarioTexto = p.propietario || 'Anfitrión';
             if (propietarioTexto.includes('@')) propietarioTexto = 'Anfitrión';
+            const playerList = Array.isArray(p.players)
+                ? p.players.filter((pl) => pl && !pl.isBot).map((pl) => String(pl.displayName || "").trim()).filter(Boolean)
+                : [];
+            const playerListMarkup = playerList.length && juego === 'uno'
+                ? `<div class="text-muted small mb-1">Jugadores: ${playerList.join(", ")}</div>`
+                : '';
+
             const card = `
               <tr><td colspan="2" style="padding:0; border:none; background:transparent;">
                 <div class="partida-card-row">
@@ -1428,6 +1435,7 @@ function ControlWeb() {
                     <small class="text-muted">
                       ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto} · ${jugadores}/${maxPlayers} · <span class="badge-status ${statusClass}">${status}</span>
                     </small>
+                    ${playerListMarkup}
                   </div>
                   <div class="partida-acciones">${acciones}</div>
                 </div>

@@ -2257,7 +2257,7 @@ function ServidorWS() {
           if (isBotMatch(partida)) continue;
 
           const gameKey = String(partida.juego || "").trim().toLowerCase();
-          if (gameKey !== "4raya" && gameKey !== "damas" && gameKey !== "checkers") continue;
+          if (gameKey !== "4raya" && gameKey !== "damas" && gameKey !== "checkers" && gameKey !== "uno") continue;
           if (getConnectedCount(codigo) <= 0) continue;
 
           const belongs =
