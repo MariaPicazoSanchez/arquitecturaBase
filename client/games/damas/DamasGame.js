@@ -26,6 +26,8 @@ import { createSfx } from "./utils/sfx.js";
 import { PanelInfo } from "./components/PanelInfo.js";
 import { TableroDamas } from "./components/TableroDamas.js";
 import { ModalFinal } from "./components/ModalFinal.js";
+import { createDamasEngine } from "./src/engine/damasEngine.js";
+import { createDamasSocket } from "./src/net/damasSocket.js";
 
 function normalizeId(value) {
   return String(value || "").trim().toLowerCase();
@@ -62,19 +64,13 @@ function posEq(a, b) {
 export class DamasGame {
   constructor() {
     this.socket = null;
+    this.net = null;
     this.codigo = null;
     this.email = null;
     this.myId = null;
+    this.engine = null;
 
-    this.state = null; // statePublic del servidor
-    this.myColor = null; // "white"|"black"|null
-    this.selectedFrom = null;
-    this.endSoundKey = null;
-    this.restartPending = false;
-    this.rematch = null; // { active, voters: [uid], required }
-    this.rematchCancelledReason = null;
     this.isMuted = false;
-    this.isReviewingEnd = false;
     this._stateWaitTimer = null;
     this._stateErrorTimer = null;
 
@@ -97,6 +93,68 @@ export class DamasGame {
       onExit: () => this.exitToLobby(),
       onViewBoard: () => this.enterEndReview(),
     });
+  }
+
+  get state() {
+    return this.engine?.state ?? null;
+  }
+
+  get myColor() {
+    return this.engine?.myColor ?? null;
+  }
+
+  get selectedFrom() {
+    return this.engine?.selectedFrom ?? null;
+  }
+
+  set selectedFrom(value) {
+    if (!this.engine) return;
+    this.engine.selectedFrom = value;
+  }
+
+  get rematch() {
+    return this.engine?.rematch ?? null;
+  }
+
+  set rematch(value) {
+    if (!this.engine) return;
+    this.engine.rematch = value;
+  }
+
+  get rematchCancelledReason() {
+    return this.engine?.rematchCancelledReason ?? null;
+  }
+
+  set rematchCancelledReason(value) {
+    if (!this.engine) return;
+    this.engine.rematchCancelledReason = value;
+  }
+
+  get restartPending() {
+    return this.engine?.restartPending ?? false;
+  }
+
+  set restartPending(value) {
+    if (!this.engine) return;
+    this.engine.restartPending = !!value;
+  }
+
+  get endSoundKey() {
+    return this.engine?.endSoundKey ?? null;
+  }
+
+  set endSoundKey(value) {
+    if (!this.engine) return;
+    this.engine.endSoundKey = value;
+  }
+
+  get isReviewingEnd() {
+    return this.engine?.isReviewingEnd ?? false;
+  }
+
+  set isReviewingEnd(value) {
+    if (!this.engine) return;
+    this.engine.isReviewingEnd = !!value;
   }
 
   mount(root) {
@@ -179,162 +237,127 @@ export class DamasGame {
     this.isMuted = this.sfx.isMuted?.() ?? false;
     this.panel.setMuted?.(this.isMuted);
 
+    this.engine = createDamasEngine({
+      codigo: this.codigo,
+      myPlayerId: this.myId,
+    });
+
     this.socket = window.io(window.location.origin, {
       path: "/socket.io",
       withCredentials: true,
     });
 
-    this.socket.on("connect", () => {
-      this.panel.setError("");
-      this.panel.setSubtitle(CONECTADO_ESPERANDO);
-      const join = () => {
-        this.socket.emit("damas_join", { codigo: this.codigo, email: this.email });
-      };
-
-      let settled = false;
-      const t = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        join();
-      }, 1200);
-
-      this.socket.emit(
-        "game:resume",
-        { gameType: "damas", gameId: this.codigo, email: this.email },
-        (res) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(t);
-          if (res && res.ok) return;
-          join();
-        }
-      );
-
-      this._clearStateTimers();
-      this._stateWaitTimer = setTimeout(() => {
-        if (this.state) return;
-        this.requestState({ silent: true });
-      }, 1400);
-      this._stateErrorTimer = setTimeout(() => {
-        if (this.state) return;
-        this.requestState({
-          silent: true,
-          onResult: (res) => {
-            if (this.state) return;
-            const reason = res && res.reason ? String(res.reason) : "NO_RESPONSE";
-            this.panel.setNotice({
-              text: reason === "WAITING_FOR_PLAYERS" ? "Esperando al otro jugador..." : "No llega el estado. Puedes reintentar.",
-              actionLabel: "Reintentar",
-              onAction: () => this.requestState({ silent: false }),
-            });
-          },
-        });
-      }, 2600);
+    this.net = createDamasSocket(this.socket, {
+      codigo: this.codigo,
+      email: this.email,
+      handlers: {
+        onConnect: () => this.handleSocketConnect(),
+        onState: (payload) => this.handleSocketState(payload),
+        onGameState: (payload) => this.handleSocketGameState(payload),
+        onRematchState: (payload) => this.handleSocketRematchState(payload),
+        onRematchCancelled: (payload) => this.handleSocketRematchCancelled(payload),
+        onRematchStart: (payload) => this.handleSocketRematchStart(payload),
+        onRestart: (payload) => this.handleSocketRestart(payload),
+        onError: (payload) => this.handleSocketError(payload),
+        onConnectError: () => this.handleSocketConnectError(),
+      },
     });
 
-    this.socket.on("damas_state", (payload) => {
-      if (!payload || payload.codigo !== this.codigo) return;
-      const st = payload.statePublic || payload.state || null;
-      if (!st) return;
-      this.state = st;
-      this.restartPending = false;
-      this.rematch = null;
-      this.rematchCancelledReason = null;
-      this.selectedFrom = null;
-      this.isReviewingEnd = false;
-      this._clearStateTimers();
-      this.render();
-    });
+    this.net.subscribe();
+  }
 
-    this.socket.on("game:state", (payload) => {
-      const code = String(payload?.matchCode || payload?.codigo || "").trim();
-      const key = String(payload?.gameKey || "").trim().toLowerCase();
-      if (!code || code !== String(this.codigo)) return;
-      if (key && key !== "damas" && key !== "checkers") return;
-      const st = payload?.state || null;
-      if (!st) return;
-      this.state = st;
-      this.restartPending = false;
-      this.rematch = null;
-      this.rematchCancelledReason = null;
-      this.selectedFrom = null;
-      this.isReviewingEnd = false;
-      this._clearStateTimers();
-      this.render();
-    });
+  handleSocketConnect() {
+    this.panel.setError("");
+    this.panel.setSubtitle(CONECTADO_ESPERANDO);
+    this._clearStateTimers();
+    this._stateWaitTimer = setTimeout(() => {
+      if (this.engine?.state) return;
+      this.requestState({ silent: true });
+    }, 1400);
+    this._stateErrorTimer = setTimeout(() => {
+      if (this.engine?.state) return;
+      this.requestState({
+        silent: true,
+        onResult: (res) => {
+          if (this.engine?.state) return;
+          const reason = res && res.reason ? String(res.reason) : "NO_RESPONSE";
+          this.panel.setNotice({
+            text:
+              reason === "WAITING_FOR_PLAYERS"
+                ? "Esperando al otro jugador..."
+                : "No llega el estado. Puedes reintentar.",
+            actionLabel: "Reintentar",
+            onAction: () => this.requestState({ silent: false }),
+          });
+        },
+      });
+    }, 2600);
+  }
 
-    const onRematchState = (payload) => {
-      const code = String(payload?.matchCode || payload?.codigo || "").trim();
-      if (!code || code !== String(this.codigo)) return;
-      const active = payload?.active === true;
-      const voters = Array.isArray(payload?.voters) ? payload.voters.map((v) => String(v)) : [];
-      const required = Number(payload?.required ?? 2);
-      this.rematch = { active, voters, required };
-      this.rematchCancelledReason = null;
-      this.render();
-    };
-    this.socket.on("checkers:rematch_state", onRematchState);
-    this.socket.on("damas:rematch_state", onRematchState);
+  handleSocketState(payload) {
+    if (!this.engine) return;
+    const updated = this.engine.applyServerState(payload);
+    if (!updated) return;
+    this._clearStateTimers();
+    this.render();
+  }
 
-    const onRematchCancelled = (payload) => {
-      const code = String(payload?.matchCode || payload?.codigo || "").trim();
-      if (!code || code !== String(this.codigo)) return;
-      this.rematch = null;
-      this.rematchCancelledReason = String(payload?.reason || "player_left");
-      this.render();
-    };
-    this.socket.on("checkers:rematch_cancelled", onRematchCancelled);
-    this.socket.on("damas:rematch_cancelled", onRematchCancelled);
+  handleSocketGameState(payload) {
+    if (!this.engine) return;
+    const updated = this.engine.applyGameState(payload);
+    if (!updated) return;
+    this._clearStateTimers();
+    this.render();
+  }
 
-    const onRematchStart = (payload) => {
-      const code = String(payload?.matchCode || payload?.codigo || "").trim();
-      if (!code || code !== String(this.codigo)) return;
-      const newState = payload?.newState || payload?.state || null;
-      if (newState) {
-        this.state = newState;
-        this.selectedFrom = null;
-        this._clearStateTimers();
-      }
-      this.rematch = null;
-      this.rematchCancelledReason = null;
-      this.restartPending = false;
-      this.modal.hide();
-      this.render();
-    };
-    this.socket.on("checkers:rematch_start", onRematchStart);
-    this.socket.on("damas:rematch_start", onRematchStart);
+  handleSocketRematchState(payload) {
+    if (!this.engine) return;
+    if (!this.engine.handleRematchState(payload)) return;
+    this.render();
+  }
 
-    this.socket.on("damas_restart", (payload) => {
-      if (!payload || payload.codigo !== this.codigo) return;
-      if (payload.newCodigo) {
-        const nextUrl = `${window.location.origin}/damas?codigo=${encodeURIComponent(payload.newCodigo)}`;
-        window.location.assign(nextUrl);
-        return;
-      }
-      this.restartPending = false;
-      this.rematch = null;
-      this.rematchCancelledReason = null;
-      this.endSoundKey = null;
-      this.selectedFrom = null;
-      this.isReviewingEnd = false;
-      this.modal.hide();
-      this.render();
-    });
+  handleSocketRematchCancelled(payload) {
+    if (!this.engine) return;
+    if (!this.engine.handleRematchCancelled(payload)) return;
+    this.render();
+  }
 
-    this.socket.on("damas_error", (payload) => {
-      if (!payload || payload.codigo !== this.codigo) return;
-      this.restartPending = false;
-      this.rematch = null;
-      this.rematchCancelledReason = null;
-      const msg = payload.message || "Movimiento inválido.";
-      this.panel.setError(msg);
-      this.render();
-    });
+  handleSocketRematchStart(payload) {
+    if (!this.engine) return;
+    const result = this.engine.handleRematchStart(payload);
+    if (!result.handled) return;
+    if (result.updated) this._clearStateTimers();
+    this.modal.hide();
+    this.render();
+  }
 
-    this.socket.on("connect_error", () => {
-      this.panel.setError(ERROR_CONEXION);
-      this.panel.setSubtitle(ERROR_CONEXION);
-    });
+  handleSocketRestart(payload) {
+    if (!payload || String(payload.codigo || "").trim() !== String(this.codigo)) return;
+    if (payload.newCodigo) {
+      const nextUrl = `${window.location.origin}/damas?codigo=${encodeURIComponent(payload.newCodigo)}`;
+      window.location.assign(nextUrl);
+      return;
+    }
+    if (this.engine) {
+      this.engine.resetAfterRestart();
+    }
+    this.modal.hide();
+    this.render();
+  }
+
+  handleSocketError(payload) {
+    if (!payload || String(payload.codigo || "").trim() !== String(this.codigo)) return;
+    if (this.engine) {
+      this.engine.resetAfterError();
+    }
+    const msg = payload.message || "Movimiento inválido.";
+    this.panel.setError(msg);
+    this.render();
+  }
+
+  handleSocketConnectError() {
+    this.panel.setError(ERROR_CONEXION);
+    this.panel.setSubtitle(ERROR_CONEXION);
   }
 
   toggleMute() {
@@ -359,7 +382,7 @@ export class DamasGame {
   }
 
   requestState({ silent = false, onResult } = {}) {
-    if (!this.socket || !this.codigo || !this.email) return;
+    if (!this.net || !this.codigo || !this.email) return;
     if (!silent) {
       this.panel.setNotice({
         text: "Reintentando estado...",
@@ -367,33 +390,18 @@ export class DamasGame {
         onAction: () => this.requestState({ silent: false }),
       });
     }
-    this.socket.emit(
-      "game:get_state",
-      { matchCode: this.codigo, gameKey: "damas", email: this.email },
-      (res) => {
-        if (typeof onResult === "function") onResult(res);
-        if (res && res.ok) return;
-        if (!silent) {
-          const reason = res && res.reason ? String(res.reason) : "NO_RESPONSE";
-          this.panel.setNotice({
-            text: reason === "WAITING_FOR_PLAYERS" ? "Esperando al otro jugador..." : "No se pudo obtener el estado.",
-            actionLabel: "Reintentar",
-            onAction: () => this.requestState({ silent: false }),
-          });
-        }
+    this.net.requestState((res) => {
+      if (typeof onResult === "function") onResult(res);
+      if (res && res.ok) return;
+      if (!silent) {
+        const reason = res && res.reason ? String(res.reason) : "NO_RESPONSE";
+        this.panel.setNotice({
+          text: reason === "WAITING_FOR_PLAYERS" ? "Esperando al otro jugador..." : "No se pudo obtener el estado.",
+          actionLabel: "Reintentar",
+          onAction: () => this.requestState({ silent: false }),
+        });
       }
-    );
-  }
-
-  updateMyColor() {
-    const players = Array.isArray(this.state?.players) ? this.state.players : [];
-    this.myColor = null;
-    for (const p of players) {
-      if (!p) continue;
-      if (normalizeId(p.id) !== this.myId) continue;
-      this.myColor = p.color;
-      break;
-    }
+    });
   }
 
   isMyTurn() {
@@ -425,7 +433,6 @@ export class DamasGame {
 
   render() {
     if (!this.state) return;
-    this.updateMyColor();
 
     const turnText = this.state.currentPlayer === "white" ? BLANCAS : NEGRAS;
     this.panel.setTurnLabel(`${TURNO}: ${turnText}`);
@@ -597,9 +604,7 @@ export class DamasGame {
       const destinations = this.movesForFrom(this.selectedFrom);
       const chosen = destinations.find((m) => m.to.r === r && m.to.c === c);
       if (chosen) {
-        this.socket?.emit("damas_move", {
-          codigo: this.codigo,
-          email: this.email,
+        this.net?.sendAction({
           from: { ...this.selectedFrom },
           to: { r, c },
         });
@@ -637,27 +642,27 @@ export class DamasGame {
   }
 
   requestRestart() {
-    if (!this.socket || !this.codigo || !this.email) return;
+    if (!this.net || !this.codigo || !this.email) return;
     if (!this.state || this.state.status !== "finished") return;
     this.endSoundKey = null;
     if (this.isBotMatch()) {
       this.restartPending = true;
       this.modal.setRestartDisabled(true, REINICIANDO);
-      this.socket.emit("damas_restart", { codigo: this.codigo, email: this.email });
+      this.net.requestRestart();
     } else {
       // PVP ready-check: only the accepter sees "esperando".
       this.rematch = { active: true, voters: [String(this.myId || "")], required: 2 };
       this.rematchCancelledReason = null;
-      this.socket.emit("checkers:rematch_request", {
-        matchCode: this.codigo,
-        codigo: this.codigo,
-        email: this.email,
-      });
+      this.net.requestRematch();
       this.render();
     }
   }
 
   exitToLobby() {
+    this.net?.dispose?.();
+    try {
+      this.socket?.disconnect?.();
+    } catch {}
     try {
       if (window.parent && window.parent !== window && window.parent.cw?.volverDesdeJuego) {
         window.parent.cw.volverDesdeJuego();

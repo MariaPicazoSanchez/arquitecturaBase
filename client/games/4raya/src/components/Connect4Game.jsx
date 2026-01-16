@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createConnect4Socket } from '../network/connect4Socket';
+import { create4RayaSocket } from '../net/4rayaSocket';
 import GameResultModal from './GameResultModal.jsx';
 import {
   initSfxFromStorage,
@@ -10,6 +10,12 @@ import {
   sfxWin,
   sfxLose,
 } from '../sfx';
+import {
+  createInitialEngineState,
+  deriveStatusText,
+  buildEmptyBoard,
+  buildWinningSet,
+} from '../engine/4rayaEngine';
 
 function normalizeId(value) {
   return String(value || '')
@@ -63,21 +69,9 @@ function resolveNickOrEmail() {
   }
 }
 
-function buildEmptyBoard() {
-  return Array.from({ length: 6 }, () => Array(7).fill(null));
-}
-
 export default function Connect4Game() {
   const codigoFromUrl = new URLSearchParams(window.location.search).get('codigo');
-  const [engine, setEngine] = useState(() => ({
-    players: [],
-    board: buildEmptyBoard(),
-    currentPlayerIndex: 0,
-    status: 'playing',
-    winnerIndex: null,
-    lastMove: null,
-    winningCells: null,
-  }));
+  const [engine, setEngine] = useState(() => createInitialEngineState());
   const [statusText, setStatusText] = useState('Conectando a la partida...');
   const [rematch, setRematch] = useState(null);
   const [isReviewingEnd, setIsReviewingEnd] = useState(false);
@@ -126,33 +120,38 @@ export default function Connect4Game() {
       return;
     }
 
-    const api = createConnect4Socket({
+    const api = create4RayaSocket({
       codigo: codigoFromUrl,
       email,
-      onState: (nextEngine) => {
-        if (!nextEngine) return;
-        hasStateRef.current = true;
-        setEngine(nextEngine);
-        setStateError('');
-      },
-      onRematchReady: (newCodigo, error) => {
-        if (error) {
-          setRematch(null);
-          setStatusText(error);
-          return;
-        }
-        if (!newCodigo) return;
-        const nextUrl = `${window.location.origin}/4raya?codigo=${encodeURIComponent(newCodigo)}`;
-        window.location.assign(nextUrl);
-      },
-      onError: () => {
-        setStatusText('Error de conexión con el servidor.');
+      handlers: {
+        onConnect: () => {
+          setStatusText('Conectado. Esperando estado...');
+          hasStateRef.current = false;
+          setStateError('');
+        },
+        onState: (nextEngine) => {
+          if (!nextEngine) return;
+          hasStateRef.current = true;
+          setEngine(nextEngine);
+          setStateError('');
+        },
+        onRematchReady: (newCodigo, error) => {
+          if (error) {
+            setRematch(null);
+            setStatusText(error);
+            return;
+          }
+          if (!newCodigo) return;
+          const nextUrl = `${window.location.origin}/4raya?codigo=${encodeURIComponent(newCodigo)}`;
+          window.location.assign(nextUrl);
+        },
+        onError: () => {
+          setStatusText('Error de conexión con el servidor.');
+        },
       },
     });
     apiRef.current = api;
-    setStatusText('Conectado. Esperando estado...');
     hasStateRef.current = false;
-    setStateError('');
 
     const t = setTimeout(() => {
       if (hasStateRef.current) return;
@@ -174,7 +173,7 @@ export default function Connect4Game() {
     return () => {
       clearTimeout(t);
       try {
-        api.disconnect();
+        api.dispose?.();
       } catch {
         // ignore
       }
@@ -201,20 +200,7 @@ export default function Connect4Game() {
   }, [engine.lastMove]);
 
   useEffect(() => {
-    if (engine.status === 'finished') {
-      if (engine.winnerIndex == null) setStatusText('Empate.');
-      else if (myIndex != null && engine.winnerIndex === myIndex) setStatusText('¡Has ganado!');
-      else setStatusText('Has perdido.');
-      return;
-    }
-
-    const players = engine.players || [];
-    const turnName = players[engine.currentPlayerIndex]?.name ?? '—';
-    if (myIndex == null) {
-      setStatusText(players.length < 2 ? 'Esperando al segundo jugador...' : `Turno de ${turnName}`);
-      return;
-    }
-    setStatusText(isMyTurn ? 'Tu turno' : `Turno de ${turnName}`);
+    setStatusText(deriveStatusText(engine, myIndex, isMyTurn));
   }, [engine.status, engine.winnerIndex, engine.currentPlayerIndex, engine.players, myIndex, isMyTurn]);
 
   useEffect(() => {
@@ -277,11 +263,11 @@ export default function Connect4Game() {
           ? 'won'
           : 'lost';
 
-  const winningSet = useMemo(() => {
-    const arr = Array.isArray(engine.winningCells) ? engine.winningCells : null;
-    if (!arr || arr.length === 0) return null;
-    return new Set(arr.map((p) => `${p.r},${p.c}`));
-  }, [engine.winningCells]);
+  const winningSet = useMemo(() => buildWinningSet(engine, isReviewingEnd), [
+    engine.winningCells,
+    engine.status,
+    isReviewingEnd,
+  ]);
 
   return (
     <div className="c4-game" onPointerDown={handleUserGesture}>
