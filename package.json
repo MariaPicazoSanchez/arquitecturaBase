@@ -6,8 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "build": "npm --prefix client/games/uno ci && npm --prefix client/games/uno run build && npm --prefix client/games/4raya ci && npm --prefix client/games/4raya run build",
-    "test": "npx jasmine-node server",
-    "dev": "node --env-file .env index.js"
+    "test": "npm --prefix server test",
+    "dev": "node --env-file .env index.js",
+    "test:all": "npm --prefix server test && npm --prefix client test"
   },
   "author": "María Picazo Sánchez",
   "license": "ISC",

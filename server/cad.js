@@ -9,6 +9,8 @@ function CAD() {
   this.usuarios = undefined;
   this.logs = undefined;
   this.passwordResetTokens = undefined;
+  this._memLogs = [];
+  this._memLogsWarned = false;
 
   // ---------- CONEXIÓN ÚNICA, CON TIMEOUTS ----------
   this.conectar = async (callback) => {
@@ -290,16 +292,26 @@ function CAD() {
   };
 
   this.insertarLog = async function (tipoOperacion, usuario) {
-    if (!this.logs) {
-      logger.error("[cad.insertarLog] Coleccion logs no inicializada");
-      return;
-    }
-
     const logDoc = {
       "tipo-operacion": tipoOperacion,
       usuario: usuario,
       "fecha-hora": new Date().toISOString(),
     };
+
+    // Fallback a memoria cuando no hay colección de logs inicializada (MODO MEMORIA)
+    if (!this.logs) {
+      try {
+        this._memLogs.push(logDoc);
+        if (!this._memLogsWarned) {
+          logger.warn("[cad.insertarLog] MODO MEMORIA: log guardado en memoria (no persistente)");
+          this._memLogsWarned = true;
+        }
+        return { insertedId: `mem-${this._memLogs.length}` };
+      } catch (e) {
+        // En el peor caso, silenciar para no contaminar la salida
+        return { insertedId: undefined };
+      }
+    }
 
     try {
       const resultado = await this.logs.insertOne(logDoc, { maxTimeMS: 5000 });

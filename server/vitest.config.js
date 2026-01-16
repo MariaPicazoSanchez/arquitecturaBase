@@ -5,7 +5,7 @@ module.exports = defineConfig({
     environment: 'node',
     globals: true,
     passWithNoTests: false,
-    include: ['test/**/*.test.js'],
+    include: ['test/**/*.test.js', 'game/**/*.test.js'],
     setupFiles: [],
   },
 });
