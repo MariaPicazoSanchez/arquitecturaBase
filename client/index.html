@@ -12,6 +12,7 @@
         t = (t === 'dark') ? 'dark' : 'light';
         localStorage.setItem('theme', t);
         document.documentElement.dataset.theme = t;
+        document.documentElement.setAttribute('data-theme', t);
       } catch (e) {}
     })();
   </script>
@@ -22,9 +23,9 @@
   <!-- Bootstrap -->
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
   <!-- Tema Ignition -->
-  <link rel="stylesheet" href="css/ignition.css">
+  <link rel="stylesheet" href="css/ignition.css?v=2">
   <!-- Theme overrides (load after Bootstrap + ignition) -->
-  <link rel="stylesheet" href="assets/css/theme.css">
+  <link rel="stylesheet" href="assets/css/theme.css?v=2">
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
