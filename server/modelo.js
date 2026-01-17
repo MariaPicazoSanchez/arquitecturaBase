@@ -552,6 +552,15 @@ function Sistema() {
       return;
     }
 
+    // Validar formato de email con una expresión regular estricta
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(obj.email)) {
+      logger.warn(`[modelo.registrarUsuario] Email inválido: ${obj.email}`);
+      modelo.registrarActividad("registrarUsuarioFallido", obj.email);
+      callback({ email: -1, reason: "email_formato_invalido" });
+      return;
+    }
+
     // Normalizar nick a formato visible (letras, números y guiones bajos)
     obj.nick = String(obj.nick).trim();
     if (!obj.nick) {
