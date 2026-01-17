@@ -1,4 +1,4 @@
-    // Verifica si el usuario tiene una partida activa (no usar email en UI).
+// Verifica si el usuario tiene una partida activa (no usar email en UI).
     this.tienePartidaPropia = function(lista) {
         const norm = (v) => String(v || "").trim().toLowerCase();
         const myUserId = norm($.cookie && $.cookie("uid"));
@@ -920,6 +920,11 @@ function ControlWeb() {
 
         $("#account-nombre").text(name || "—");
         $("#account-nick").text(nick || "—");
+        $("#account-email").text(user.email || "Correo no disponible");
+
+        // Mostrar la primera letra del nick en el avatar
+        const avatarLetter = user.nick ? user.nick.charAt(0).toUpperCase() : "?";
+        $(".avatar").text(avatarLetter);
 
         $("#input-nombre").val(name);
         $("#input-nick").val(nick);
