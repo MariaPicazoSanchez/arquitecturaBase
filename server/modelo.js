@@ -541,82 +541,19 @@ function Sistema() {
   // ===========================
   // REGISTRO con confirmación
   // ===========================
-  this.registrarUsuario = function (obj, callback) {
-    logger.debug("[modelo.registrarUsuario] entrada:", obj);
-    let modelo = this;
-
-    if (!obj || !obj.email || !obj.password || !obj.nick) {
-      logger.warn("[modelo.registrarUsuario] datos inválidos");
-      modelo.registrarActividad("registrarUsuarioFallido", obj ? obj.email : null);
-      callback({ email: -1 });
-      return;
+  this.registrarUsuario = async function (nick, email, password) {
+    if (this.usuarios[email]) {
+      throw new Error('El email ya está registrado');
+    }
+    if (Object.values(this.usuarios).some(user => user.nick === nick)) {
+      throw new Error('El nick ya está en uso');
     }
 
-    // Validar formato de email con una expresión regular estricta
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!emailRegex.test(obj.email)) {
-      logger.warn(`[modelo.registrarUsuario] Email inválido: ${obj.email}`);
-      modelo.registrarActividad("registrarUsuarioFallido", obj.email);
-      callback({ email: -1, reason: "email_formato_invalido" });
-      return;
-    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    this.usuarios[email] = { nick, email, password: hashedPassword };
 
-    // Normalizar nick a formato visible (letras, números y guiones bajos)
-    obj.nick = String(obj.nick).trim();
-    if (!obj.nick) {
-      callback({ email: -1, reason: "nick_vacio" });
-      return;
-    }
-
-    // Comprobar duplicados por email
-    this.cad.buscarUsuario({ email: obj.email }, function (usr) {
-      logger.debug("[modelo.registrarUsuario] resultado buscarUsuario:", usr ? { _id: usr._id } : null);
-      if (usr) {
-        logger.warn("[modelo.registrarUsuario] duplicado (email)");
-        modelo.registrarActividad("registrarUsuarioFallido", obj.email);
-        callback({ email: -1, reason: "email_ya_registrado" });
-        return;
-      }
-
-      // Comprobar duplicados por nick
-      modelo.cad.buscarUsuario({ nick: obj.nick }, function (usrNick) {
-        if (usrNick) {
-          logger.warn("[modelo.registrarUsuario] nick duplicado:", obj.nick);
-          modelo.registrarActividad("registrarUsuarioFallido", obj.email);
-          callback({ email: -1, reason: "nick_ya_registrado" });
-          return;
-        }
-
-      const key = Date.now().toString();
-
-      const hash = bcrypt.hashSync(obj.password, 10);
-
-      const nuevoUsuario = {
-        email: obj.email,
-        nick: obj.nick,
-        displayName: obj.displayName ? String(obj.displayName).trim() : undefined,
-        password: hash,
-        key: key,
-        confirmada: false,
-        createdAt: new Date().toISOString(),
-      };
-
-      modelo.cad.insertarUsuario(nuevoUsuario, function (res) {
-        logger.debug("[modelo.registrarUsuario] resultado insertarUsuario:", res);
-        modelo.registrarActividad("registroUsuario", nuevoUsuario.email);
-
-        Promise.resolve()
-          .then(() => correo.enviarEmail(obj.email, key, "Confirmar cuenta"))
-          .catch((e) => {
-            logger.warn("[registrarUsuario] Fallo enviando email:", e.message);
-            modelo.registrarActividad("registroUsuarioFallido", nuevoUsuario.email);
-          });
-
-        callback(res);
-      });
-    });
-    // cierre de la búsqueda por email
-    });
+    // Simular redirección exitosa
+    return { success: true, redirect: 'Inicio de sesión' };
   };
 
   // ===========================

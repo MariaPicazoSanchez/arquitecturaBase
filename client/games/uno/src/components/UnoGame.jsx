@@ -75,6 +75,7 @@ export default function UnoGame() {
   const prevEngineForRulesRef = useRef(null);
   const prevPlayersRef = useRef(null);
   const prevEngineForLeaveRef = useRef(null);
+  const prevPublicPlayersRef = useRef(null);
 
   const [lastCardRequiredForPlayerId, setLastCardRequiredForPlayerId] =
     useState(null);
@@ -96,6 +97,19 @@ export default function UnoGame() {
       const next = [{ id: `${Date.now()}-${Math.random()}`, text }, ...prev];
       return next.slice(0, 12);
     });
+  }, []);
+
+  const toastTimerRef = useRef(null);
+  const showToast = useCallback((text, durationMs = 4500) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setGame((prev) => ({ ...prev, message: text }));
+    toastTimerRef.current = setTimeout(() => {
+      setGame((prev) => ({ ...prev, message: '' }));
+      toastTimerRef.current = null;
+    }, durationMs);
   }, []);
 
   const [isLogOpen, setIsLogOpen] = useState(false);
@@ -638,6 +652,10 @@ export default function UnoGame() {
         clearTimeout(reactionCooldownTimerRef.current);
         reactionCooldownTimerRef.current = null;
       }
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = null;
+      }
       for (const key of Object.keys(reactionTimeoutsRef.current || {})) {
         clearTimeout(reactionTimeoutsRef.current[key]);
         delete reactionTimeoutsRef.current[key];
@@ -1036,6 +1054,69 @@ export default function UnoGame() {
     };
   }, []);
 
+  // ---------- System toasts inside UNO: salir / volvió / abandonó ----------
+  useEffect(() => {
+    if (!isMultiplayer) return;
+    const api = unoNetRef.current;
+    const sock = api && api.socket ? api.socket : null;
+    if (!sock) return;
+
+    const currentId = String(codigoFromUrl || '').trim();
+
+    const onDisconnected = (payload) => {
+      try {
+        const matchCode = String(payload?.matchCode || '').trim();
+        if (matchCode && matchCode !== currentId) return;
+        const name = String(payload?.playerNick || 'Jugador').trim() || 'Jugador';
+        const msg = `${name} salió de la partida.`;
+        pushEvent(msg);
+        showToast(msg);
+      } catch (e) {
+        if (import.meta?.env?.DEV) console.warn('[UNO] error handling player_disconnected', e);
+      }
+    };
+
+    const onLeft = (payload) => {
+      try {
+        const matchCode = String(payload?.matchCode || '').trim();
+        if (matchCode && matchCode !== currentId) return;
+        const name = String(payload?.playerNick || 'Jugador').trim() || 'Jugador';
+        const msg = `${name} abandonó la partida.`;
+        pushEvent(msg);
+        showToast(msg);
+      } catch (e) {
+        if (import.meta?.env?.DEV) console.warn('[UNO] error handling player_left', e);
+      }
+    };
+
+    const onReconnected = (payload) => {
+      try {
+        const matchCode = String(payload?.matchCode || '').trim();
+        if (matchCode && matchCode !== currentId) return;
+        const name = String(payload?.playerNick || 'Jugador').trim() || 'Jugador';
+        const msg = `${name} volvió a la partida.`;
+        pushEvent(msg);
+        showToast(msg);
+      } catch (e) {
+        if (import.meta?.env?.DEV) console.warn('[UNO] error handling player_reconnected', e);
+      }
+    };
+
+    sock.on('match:player_disconnected', onDisconnected);
+    sock.on('match:player_left', onLeft);
+    sock.on('match:player_reconnected', onReconnected);
+
+    return () => {
+      try {
+        sock.off('match:player_disconnected', onDisconnected);
+        sock.off('match:player_left', onLeft);
+        sock.off('match:player_reconnected', onReconnected);
+      } catch (e) {
+        if (import.meta?.env?.DEV) console.warn('[UNO] error cleaning UNO socket handlers', e);
+      }
+    };
+  }, [isMultiplayer, codigoFromUrl, pushEvent, showToast]);
+
   // ---------- Regla: "Última carta" obligatoria ----------
 
   useEffect(() => {
@@ -1202,6 +1283,44 @@ export default function UnoGame() {
   ]);
 
   // ---------- Notificación: jugador abandona (diff players) ----------
+
+  useEffect(() => {
+    if (!isMultiplayer) return;
+    const curr = Array.isArray(tableState?.playersPublic) ? tableState.playersPublic : null;
+    if (!curr) return;
+
+    const prev = prevPublicPlayersRef.current;
+    const snapshot = curr.map((p) => ({
+      playerId: String(p?.playerId ?? ''),
+      isConnected: !!p?.isConnected,
+      nick: String(p?.nick ?? 'Jugador').trim() || 'Jugador',
+      isBot: !!p?.isBot,
+    }));
+
+    if (!prev) {
+      prevPublicPlayersRef.current = snapshot;
+      return;
+    }
+
+    const prevMap = new Map(prev.map((p) => [String(p.playerId), p]));
+    const myId = tableState?.myPlayerId != null ? String(tableState.myPlayerId) : null;
+
+    for (const p of snapshot) {
+      if (p.isBot) continue;
+      if (!p.playerId) continue;
+      if (myId && p.playerId === myId) continue;
+      const prevEntry = prevMap.get(p.playerId);
+      const prevConn = prevEntry ? !!prevEntry.isConnected : null;
+      const nowConn = !!p.isConnected;
+      if (prevConn === true && nowConn === false) {
+        pushEvent(`${p.nick} salió de la partida.`);
+      } else if (prevConn === false && nowConn === true) {
+        pushEvent(`${p.nick} volvió a la partida.`);
+      }
+    }
+
+    prevPublicPlayersRef.current = snapshot;
+  }, [isMultiplayer, tableState, pushEvent]);
 
   useEffect(() => {
     if (!engine?.players) return;

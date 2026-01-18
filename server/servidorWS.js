@@ -546,6 +546,31 @@ function ServidorWS() {
     } catch (e) {}
   };
 
+  const emitMatchPlayerReconnected = (
+    io,
+    { matchCode, gameKey, playerNick },
+    { playerId = null } = {}
+  ) => {
+    const codigo = String(matchCode || "").trim();
+    if (!codigo) return;
+    const payload = {
+      eventId: crypto.randomUUID(),
+      matchCode: codigo,
+      gameKey: String(gameKey || "").trim().toLowerCase() || null,
+      playerNick: safePublicName(playerNick, "Jugador"),
+      ts: Date.now(),
+    };
+    try {
+      io.to(codigo).emit("match:player_reconnected", payload);
+    } catch (e) {
+      // best-effort
+    }
+    // Also emit globally
+    try {
+      io.emit("match:player_reconnected", payload);
+    } catch (e) {}
+  };
+
   const getConnectedCount = (codigo) => {
     const room = String(codigo || "").trim();
     if (!room) return 0;
@@ -771,6 +796,7 @@ function ServidorWS() {
     }
 
     let sockets = byPlayer.get(playerId);
+    const wasDisconnected = !sockets || sockets.size === 0;
     if (!sockets) {
       sockets = new Set();
       byPlayer.set(playerId, sockets);
@@ -787,9 +813,22 @@ function ServidorWS() {
         if (!socket.data.roomIds) socket.data.roomIds = new Set();
         socket.data.roomIds.add(room);
         const st = ensureRoomPlayerState(room, socket.data.userId);
+        const previousStatus = st ? st.status : null;
         if (st) {
           st.status = "connected";
           st.lastExitAt = 0;
+        }
+
+        // Emit reconnected if player was disconnected
+        if (wasDisconnected && previousStatus === "disconnected") {
+          try {
+            const partida = sistema.partidas?.[room] || null;
+            if (partida) {
+              const gameKey = String(partida.juego || "").trim().toLowerCase();
+              const playerNick = pickDisplayName(partida, playerId, "Jugador");
+              emitMatchPlayerReconnected(io, { matchCode: room, gameKey, playerNick }, { playerId });
+            }
+          } catch (e) {}
         }
       } catch (e) {}
 
@@ -2702,6 +2741,9 @@ function ServidorWS() {
           });
         if (!belongs) return respond({ ok: false, matchCode, reason: "NOT_ALLOWED" });
 
+        const playerNick = pickDisplayName(partida, emailId || email, "Jugador");
+        const wasDisconnected = getRoomPlayerStatus(matchCode, userId) === "disconnected";
+
         try {
           socket.join(matchCode);
           cancelRoomEmptyTimer(matchCode);
@@ -2710,6 +2752,13 @@ function ServidorWS() {
 
         const gameKey = String(partida.juego || "").trim().toLowerCase();
         const status = getDerivedMatchStatus(partida);
+
+        // Emit reconnected event if player was disconnected
+        if (wasDisconnected && status === "IN_PROGRESS") {
+          try {
+            emitMatchPlayerReconnected(io, { matchCode, gameKey, playerNick }, { playerId: emailId });
+          } catch (e) {}
+        }
 
         // Best-effort: keep lobby UI in sync.
         emitMatchUpdate(io, matchCode, partida);

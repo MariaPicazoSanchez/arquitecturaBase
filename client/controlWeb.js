@@ -131,7 +131,7 @@ function ControlWeb() {
 
     this.volverDesdeJuego = function(){
         // Voluntary leave:
-        // - UNO: se comporta como "abandonar" (histórico).
+        // - UNO: salida blanda (permite "Continuar partida").
         // - Damas/4raya: salida blanda (no abandonar), permite reentrada/continuar.
         try {
             const gameType = cw._normalizeResumeGameType(cw._activeGameType || cw.juegoActual);
@@ -146,17 +146,12 @@ function ControlWeb() {
             const key = cw._activeGameStorageKeyFor(gameType);
 
             if (isUno) {
-                if (key) {
-                    try { localStorage.removeItem(key); } catch(e) {}
-                }
-                clearResumeEntry();
+                // Salida suave: usa room:detach en vez de game:leave
+                const roomId = String(gameId || "").trim();
+                const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
 
-                if (window.ws && ws.socket && gameId && email) {
-                    ws.socket.emit("game:leave", { gameType, gameId, email }, function(){
-                        if (window.cw && typeof cw.renderContinueGamesBar === "function") {
-                            cw.renderContinueGamesBar();
-                        }
-                    });
+                if (window.ws && ws.socket && roomId && userId) {
+                    ws.socket.emit("room:detach", { roomId, userId, email: email || undefined });
                 }
             } else {
                 const resumeEntry = window.resumeManager ? window.resumeManager.get() : null;
@@ -1209,11 +1204,17 @@ function ControlWeb() {
                 // Validación de formato de email
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 if (!emailRegex.test(email)) {
-                    cw.mostrarModal("El email no tiene un formato válido.");
+                    cw.mostrarModal("El email no tiene un formato válido");
                     return;
                 }
 
-                rest.registrarUsuario(email, pwd, nick);
+                rest.registrarUsuario(email, pwd, nick).then(response => {
+                    if (response.success && response.redirect) {
+                        window.location.href = response.redirect;
+                    }
+                }).catch(error => {
+                    cw.mostrarModal(error.message || 'Error inesperado al registrar usuario.');
+                });
             });
 
             // ensure main content visible after loading
@@ -1303,7 +1304,7 @@ function ControlWeb() {
     this.mostrarModal = function (m) {
         logger.debug("[Modal] mensaje recibido:", m);
         if (!$('#miModal').length) {
-            logger.error('[Modal] No se encuentra el modal #miModal en el DOM');
+            logger.error('[Modal] No se encuentra el modal #miModal en el DOM. Asegúrate de que el modal esté definido en index.html.');
             return;
         }
         // 1. vaciar el cuerpo del modal

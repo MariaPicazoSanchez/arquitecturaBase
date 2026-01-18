@@ -477,7 +477,8 @@ app.post("/registrarUsuario", function(req, res){
   };
 
   try {
-    sistema.registrarUsuario(req.body, function(out){
+    const { nick, email, password } = req.body; // Desestructurar los valores del cuerpo de la solicitud
+    sistema.registrarUsuario(nick, email, password, function(out){
       logger.debug("[/registrarUsuario] callback del modelo:", out);
       if (out && out.email && out.email !== -1){
         return send(201, { ok: true });

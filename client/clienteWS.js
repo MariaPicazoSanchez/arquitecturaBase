@@ -271,7 +271,7 @@ function ClienteWS() {
         if (!shouldShowMatchToast(codigo)) return;
         const myNick = getMyNick();
         if (myNick && nick.toLowerCase() === myNick.toLowerCase()) return;
-        const msg = `${nick} ha abandonado la partida ${codigo}${juego ? ` (${juego})` : ""}`;
+        const msg = `${nick} ha salido de la partida ${codigo}${juego ? ` (${juego})` : ""}`;
         if (window.appToast && typeof window.appToast.show === "function") {
           window.appToast.show(msg, { variant: "warning" });
         }
