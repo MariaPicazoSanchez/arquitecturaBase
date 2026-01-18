@@ -116,9 +116,9 @@
         <div class="col-lg-8">
           <h2 class="h5 mb-2">Empezar en 30 segundos</h2>
           <ul class="help-list mb-0">
-            <li><strong>Mi cuenta</strong> → cambia <strong>nombre</strong> o <strong>nick</strong> y guarda.</li>
-            <li>En el login, pulsa <strong>¿No te acuerdas de la contraseña?</strong> para recibir el enlace de recuperación.</li>
-            <li>Por privacidad, nunca mostramos el <strong>email</strong> como nombre visible.</li>
+            <li><strong>Mi cuenta</strong> → actualiza tu <strong>nombre</strong> y <strong>nick</strong> (visible en partidas).</li>
+            <li><strong>Jugar:</strong> elige un juego (Última Carta, 4 en raya o Damas) y desafía a otros jugadores.</li>
+            <li><strong>¿Contraseña olvidada?</strong> → En el login, pulsa <strong>¿No te acuerdas?</strong> y recibe un enlace de recuperación.</li>
           </ul>
         </div>
         <div class="col-lg-4 mt-3 mt-lg-0">
@@ -196,10 +196,35 @@
           <div class="card-body">
             <h3 class="h6 mb-2">Última Carta</h3>
             <ul class="help-list mb-3">
-              <li><strong>Objetivo:</strong> quedarte sin cartas.</li>
-              <li><strong>Jugada válida:</strong> mismo <strong>color</strong> o mismo <strong>valor</strong> que la carta en mesa.</li>
-              <li><strong>Cartas especiales:</strong> +2, +4, salto, reverse y comodín de color (según la partida pueden existir extras).</li>
-              <li>Cuando te quede <strong>1 carta</strong>, recuerda pulsar <strong>Última carta</strong> a tiempo.</li>
+              <li><strong>Objetivo:</strong> quedarte sin cartas (mano vacía = victoria).</li>
+              <li><strong>Jugada válida:</strong> mismo <strong>color</strong> o mismo <strong>valor</strong> que la carta en mesa, o comodín.</li>
+              
+              <li class="mt-2"><strong>Cartas numeradas:</strong> 0–9 en 4 colores (rojo, verde, azul, amarillo).</li>
+              
+              <li><strong>Cartas especiales (con color):</strong>
+                <ul class="small">
+                  <li><strong>+2:</strong> siguiente roba 2 cartas y pierde turno.</li>
+                  <li><strong>+6 / +8:</strong> siguiente roba 6 u 8 cartas (efectos avanzados).</li>
+                  <li><strong>Salto (Skip):</strong> se salta al siguiente jugador.</li>
+                  <li><strong>Reverse:</strong> invierte la dirección del juego.</li>
+                  <li><strong>Double:</strong> siguiente roba cartas = cantidad en su mano actual.</li>
+                </ul>
+              </li>
+
+              <li><strong>Comodines (sin color):</strong>
+                <ul class="small">
+                  <li><strong>Wild:</strong> cambia el color actual (solo cosmético).</li>
+                  <li><strong>+4:</strong> siguiente roba 4 cartas y debes elegir color nuevo.</li>
+                  <li><strong>Swap:</strong> intercambias mano completa con otro jugador.</li>
+                  <li><strong>Discard All:</strong> descartas todas tus cartas de 1 color elegido.</li>
+                </ul>
+              </li>
+
+              <li class="mt-2"><strong>Última Carta (UNO):</strong> cuando bajes a 1 carta, pulsa <strong>Última Carta</strong>. Es importante para el registro de juego.</li>
+              
+              <li><strong>Límite de mano:</strong> si alguien llega a 40 cartas → pierde (gana quien menos tenga).</li>
+              
+              <li><strong>Turno forzado:</strong> si no tienes cartas jugables, debes robar. Si no puedes robar, pierdes turno.</li>
             </ul>
 
             <h3 class="h6 mb-2">4 en raya</h3>
@@ -258,7 +283,7 @@
             </div>
           </div>
 
-          <div class="mb-0">
+          <div class="mb-2">
             <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq3" aria-expanded="false">
               En Damas, ¿por qué me obliga a comer?
             </button>
@@ -266,6 +291,54 @@
               <div class="help-muted mt-2">
                 Es una regla estándar: si existe una captura disponible, debes realizarla. Si tras capturar puedes seguir capturando,
                 debes continuar con la misma ficha.
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq4" aria-expanded="false">
+              En Última Carta, ¿cómo funcionan las cartas +2, +4, +6 y +8?
+            </button>
+            <div id="faq4" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                <strong>+2:</strong> el siguiente jugador roba 2 cartas automáticamente y pierde turno.<br>
+                <strong>+4:</strong> el siguiente roba 4 cartas (y tú eliges nuevo color). Comodín obligatorio.<br>
+                <strong>+6 / +8:</strong> similar a +2, pero el siguiente roba 6 u 8 cartas respectivamente.
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq5" aria-expanded="false">
+              ¿Qué pasa si no puedo jugar una carta en Última Carta?
+            </button>
+            <div id="faq5" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Debes robar 1 carta. Si la carta robada es jugable y quieres, puedes jugarla de inmediato (según reglas). Si no, pierdes turno.
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq6" aria-expanded="false">
+              ¿Qué es el "Swap" en Última Carta?
+            </button>
+            <div id="faq6" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Es un comodín que intercambia tu mano completa con la de otro jugador elegido. Si después de intercambiar 
+                el otro jugador gana (se queda sin cartas), <strong>¡él es el ganador!</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-0">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq7" aria-expanded="false">
+              ¿Cuál es el límite máximo de cartas en Última Carta?
+            </button>
+            <div id="faq7" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Si alguien llega a 40 cartas en mano, la partida termina y <strong>gana el jugador con menos cartas</strong>. 
+                Es una regla de protección para evitar partidas infinitas.
               </div>
             </div>
           </div>
