@@ -162,4 +162,135 @@ test.describe('Sistema de partidas', () => {
       ]);
     }
   });
+
+  test('Partida multiplayer PVP - 4 en raya', async ({ browser }) => {
+    const contextHost = await browser.newContext();
+    const contextGuest = await browser.newContext();
+    const host = await contextHost.newPage();
+    const guest = await contextGuest.newPage();
+
+    try {
+      // Host crea partida de 4 en raya
+      await host.goto('http://localhost:3000/');
+      await host.locator('#menuIniciarSesion').click();
+      await host.getByRole('textbox', { name: 'Email' }).fill('borrar@prueba.com');
+      await host.getByRole('textbox', { name: 'Contraseña' }).fill('Hola1234*');
+      await host.locator('#btnLogin').click();
+      await host.getByRole('button', { name: 'Entrar' }).nth(1).click(); // Botón de 4 en raya
+      await host.getByRole('button', { name: 'Crear partida' }).click();
+      await host.getByRole('button', { name: 'Crear', exact: true }).click();
+
+      // Guest se une a la partida
+      await guest.goto('http://localhost:3000/');
+      await guest.locator('#menuIniciarSesion').click();
+      await guest.getByRole('textbox', { name: 'Email' }).fill('usuario.prueba2@mail.com');
+      await guest.getByRole('textbox', { name: 'Contraseña' }).fill('Hola1234+');
+      await guest.locator('#btnLogin').click();
+      await guest.getByRole('button', { name: 'Entrar' }).nth(1).click(); // Botón de 4 en raya
+      await guest.locator('#tbody-partidas').getByRole('button', { name: 'Unirse' }).click();
+
+      // Host arranca la partida cuando ambos están listos
+      await host.waitForTimeout(1000);
+      await host.getByRole('button', { name: 'Jugar' }).click();
+
+      // Esperar a que el juego cargue
+      await host.waitForTimeout(2000);
+      await guest.waitForTimeout(2000);
+
+      // Verificar que ambos ven el tablero
+      const hostFrame = host.frameLocator('#iframe-juego');
+      const guestFrame = guest.frameLocator('#iframe-juego');
+      await hostFrame.getByRole('button', { name: /Soltar ficha en columna/ }).first().waitFor({ timeout: 5000 });
+      await guestFrame.locator('div').first().waitFor({ timeout: 5000 });
+
+      // Host juega primera ficha
+      const hostContent = await host.locator('#iframe-juego').contentFrame();
+      await hostContent.getByRole('button', { name: 'Soltar ficha en columna 4' }).click();
+
+      // Esperar turno de guest y jugar
+      await guest.waitForTimeout(1000);
+      const guestContent = await guest.locator('#iframe-juego').contentFrame();
+      await guestContent.getByRole('button', { name: 'Soltar ficha en columna 3' }).click();
+
+      // Host juega otra vez
+      await host.waitForTimeout(1000);
+      await hostContent.getByRole('button', { name: 'Soltar ficha en columna 4' }).click();
+
+      // Salir al lobby
+      await host.getByRole('button', { name: 'Salir al lobby' }).click();
+      await guest.getByRole('button', { name: 'Salir al lobby' }).click();
+
+    } finally {
+      await Promise.allSettled([
+        contextHost.close(),
+        contextGuest.close(),
+      ]);
+    }
+  });
+
+  test('Partida multiplayer PVP - Damas', async ({ browser }) => {
+    const contextHost = await browser.newContext();
+    const contextGuest = await browser.newContext();
+    const host = await contextHost.newPage();
+    const guest = await contextGuest.newPage();
+
+    try {
+      // Host crea partida de Damas
+      await host.goto('http://localhost:3000/');
+      await host.locator('#menuIniciarSesion').click();
+      await host.getByRole('textbox', { name: 'Email' }).fill('borrar@prueba.com');
+      await host.getByRole('textbox', { name: 'Contraseña' }).fill('Hola1234*');
+      await host.locator('#btnLogin').click();
+      await host.getByRole('button', { name: 'Entrar' }).nth(2).click(); // Botón de Damas
+      await host.getByRole('button', { name: 'Crear partida' }).click();
+      await host.getByRole('button', { name: 'Crear', exact: true }).click();
+
+      // Guest se une a la partida de Damas
+      await guest.goto('http://localhost:3000/');
+      await guest.locator('#menuIniciarSesion').click();
+      await guest.getByRole('textbox', { name: 'Email' }).fill('usuario.prueba2@mail.com');
+      await guest.getByRole('textbox', { name: 'Contraseña' }).fill('Hola1234+');
+      await guest.locator('#btnLogin').click();
+      await guest.getByRole('button', { name: 'Entrar' }).nth(2).click(); // Botón de Damas
+      await guest.locator('#tbody-partidas').getByRole('button', { name: 'Unirse' }).click();
+
+      // Host arranca la partida cuando ambos están listos
+      await host.waitForTimeout(1000);
+      await host.getByRole('button', { name: 'Jugar' }).click();
+
+      // Esperar a que el juego cargue
+      await host.waitForTimeout(2000);
+      await guest.waitForTimeout(2000);
+
+      // Verificar que ambos ven el tablero de Damas
+      await host.getByRole('heading', { name: 'Juego: Damas' }).click();
+      await guest.getByRole('heading', { name: 'Juego: Damas' }).click();
+
+      const hostContent = await host.locator('#iframe-juego').contentFrame();
+      const guestContent = await guest.locator('#iframe-juego').contentFrame();
+
+      // Verificar elementos del juego
+      await hostContent.locator('div').filter({ hasText: /^Turno: Blancas$/ }).waitFor({ timeout: 5000 });
+      await guestContent.locator('div').filter({ hasText: /^Turno: Blancas$/ }).waitFor({ timeout: 5000 });
+
+      // Verificar turnos Blancas/Negras
+      await hostContent.getByText('Blancas:').click();
+      await hostContent.getByText('Negras:').click();
+      await guestContent.getByText('Blancas:').click();
+      await guestContent.getByText('Negras:').click();
+
+      // Salir al lobby desde ambos
+      await host.getByRole('button', { name: 'Salir al lobby' }).click();
+      
+      // Guest puede continuar y luego salir
+      await guest.waitForTimeout(500);
+      await guest.getByRole('button', { name: 'Salir al lobby' }).click();
+
+    } finally {
+      await Promise.allSettled([
+        contextHost.close(),
+        contextGuest.close(),
+      ]);
+    }
+  });
 });
