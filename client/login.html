@@ -22,26 +22,8 @@
                 <label for="pwdLogin">Contraseña</label>
                 <div class="input-group">
                   <input id="pwdLogin" type="password" class="form-control" placeholder="Introduce tu contraseña" required>
-                  <div class="input-group-append">
-                    <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('pwdLogin')">
-                      <i class="fas fa-eye"></i>
-                    </button>
-                  </div>
                 </div>
               </div>
-
-              <script>
-                function togglePasswordVisibility(inputId) {
-                  const input = document.getElementById(inputId);
-                  const type = input.getAttribute('type') === 'password' ? 'text' : 'password';
-                  input.setAttribute('type', type);
-
-                  // Toggle the icon dynamically
-                  const icon = input.nextElementSibling.querySelector('i');
-                  icon.classList.toggle('fa-eye');
-                  icon.classList.toggle('fa-eye-slash');
-                }
-              </script>
 
               <div class="form-group d-flex justify-content-between align-items-center flex-wrap">
                 <a id="link-forgot-password" href="/forgot-password">¿Has olvidado la contraseña?</a>
