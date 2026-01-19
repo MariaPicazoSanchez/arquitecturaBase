@@ -91,7 +91,7 @@ export default function UnoGame() {
   const [actionEffect, setActionEffect] = useState(null);
   const overlayTimerRef = useRef(null);
 
-  const [events, setEvents] = useState([]);
+  const [_, setEvents] = useState([]);
   const pushEvent = useCallback((text) => {
     setEvents((prev) => {
       const next = [{ id: `${Date.now()}-${Math.random()}`, text }, ...prev];
@@ -311,27 +311,27 @@ export default function UnoGame() {
     isLocallyEliminatedRef.current = isLocallyEliminated;
   }, [isLocallyEliminated]);
 
-  useEffect(() => {
-    console.log('[UNO][client][DBG] mount', {
-      search: window.location.search,
-      players: engine?.players?.map((p) => p.name) ?? null,
-    });
-  }, []);
+  // useEffect(() => {
+  //   console.log('[UNO][client][DBG] mount', {
+  //     search: window.location.search,
+  //     players: engine?.players?.map((p) => p.name) ?? null,
+  //   });
+  // }, []);
 
-  useEffect(() => {
-    console.log('[UNO][client][DBG] engine update', {
-      players:
-        engine?.players?.map((p) => ({
-          id: p.id,
-          name: p.name,
-          cards: p.handCount ?? p.hand?.length ?? 0,
-        })) ?? null,
-      currentPlayerIndex: engine?.currentPlayerIndex ?? null,
-      status: engine?.status ?? null,
-      winnerIndex: engine?.winnerIndex ?? null,
-      lastAction: engine?.lastAction ?? null,
-    });
-  }, [engine]);
+  // useEffect(() => {
+  //   console.log('[UNO][client][DBG] engine update', {
+  //     players:
+  //       engine?.players?.map((p) => ({
+  //         id: p.id,
+  //         name: p.name,
+  //         cards: p.handCount ?? p.hand?.length ?? 0,
+  //       })) ?? null,
+  //     currentPlayerIndex: engine?.currentPlayerIndex ?? null,
+  //     status: engine?.status ?? null,
+  //     winnerIndex: engine?.winnerIndex ?? null,
+  //     lastAction: engine?.lastAction ?? null,
+  //   });
+  // }, [engine]);
 
   useEffect(() => {
     if (!engine) return;
@@ -543,7 +543,7 @@ export default function UnoGame() {
   const sendMultiplayerAction = (action) => {
     const api = unoNetRef.current;
     if (!api || typeof api.sendAction !== 'function') {
-      console.warn('[UNO] sendAction no disponible todavía', action);
+      // console.warn('[UNO] sendAction no disponible todavía', action);
       return;
     }
     api.sendAction(action);
@@ -565,9 +565,9 @@ export default function UnoGame() {
         reactionCooldownTimerRef.current = null;
       }, 2000);
 
-      if (import.meta?.env?.DEV) {
-        console.log('[UNO][client][DBG] reaction send', { toPlayerId, emoji });
-      }
+      // if (import.meta?.env?.DEV) {
+      //   console.log('[UNO][client][DBG] reaction send', { toPlayerId, emoji });
+      // }
 
       const localFromPlayerId = tableState?.myPlayerId ?? null;
       const localFromName =
@@ -582,12 +582,13 @@ export default function UnoGame() {
         emoji,
         fromPlayerId: localFromPlayerId,
         fromName: localFromName,
+        // eslint-disable-next-line react-hooks/purity
         ts: Date.now(),
       }).then((ack) => {
         if (ack && ack.ok) return;
-        if (import.meta?.env?.DEV) {
-          console.warn('[UNO] reacción rechazada', ack);
-        }
+        // if (import.meta?.env?.DEV) {
+        //   console.warn('[UNO] reacción rechazada', ack);
+        // }
       });
     },
     [codigoFromUrl, isMultiplayer, isReactionCooldownActive, tableState?.myPlayerId, engine?.players],
@@ -616,9 +617,9 @@ export default function UnoGame() {
       Number.isFinite(durationMsRaw) && durationMsRaw > 0 ? durationMsRaw : 7000;
     const expiresAt = Date.now() + durationMs;
 
-    if (import.meta?.env?.DEV) {
-      console.log('[UNO][client][DBG] reaction show', { id, toPlayerId, emoji, fromName, durationMs });
-    }
+    // if (import.meta?.env?.DEV) {
+    //   console.log('[UNO][client][DBG] reaction show', { id, toPlayerId, emoji, fromName, durationMs });
+    // }
 
     const prevTimeout = reactionTimeoutsRef.current?.[toPlayerId] ?? null;
     if (prevTimeout) {

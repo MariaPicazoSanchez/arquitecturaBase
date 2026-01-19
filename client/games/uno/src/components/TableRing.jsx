@@ -159,13 +159,13 @@ export default function TableRing({
   const turnIndexRaw = typeof gameState?.turnIndex === 'number' ? gameState.turnIndex : 0;
   const direction = gameState?.direction === -1 ? -1 : 1;
 
-  useEffect(() => {
-    if (!import.meta?.env?.DEV) return;
-    console.log('[UNO][client][DBG] TableRing', {
-      players: Array.isArray(players) ? players.length : 0,
-      canShowReactions,
-    });
-  }, [players?.length, canShowReactions]);
+  // useEffect(() => {
+  //   if (!import.meta?.env?.DEV) return;
+  //   console.log('[UNO][client][DBG] TableRing', {
+  //     players: Array.isArray(players) ? players.length : 0,
+  //     canShowReactions,
+  //   });
+  // }, [players?.length, canShowReactions]);
 
   useEffect(() => {
     if (!openReaction?.playerId) return undefined;
