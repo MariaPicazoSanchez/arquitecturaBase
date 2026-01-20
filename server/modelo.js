@@ -541,16 +541,36 @@ function Sistema() {
   // ===========================
   // REGISTRO con confirmación
   // ===========================
-  this.registrarUsuario = async function (nick, email, password) {
-    if (this.usuarios[email]) {
+  this.registrarUsuario = async function (nickOrObj, email, password) {
+    // Soporta tanto firma antigua (nick, email, password) como nueva (objeto)
+    let nick, finalEmail, finalPassword;
+    
+    if (typeof nickOrObj === 'object' && nickOrObj !== null) {
+      // Nuevo formato: objeto con {email, password, nick, ...}
+      nick = nickOrObj.nick;
+      finalEmail = nickOrObj.email;
+      finalPassword = nickOrObj.password;
+    } else {
+      // Formato antiguo: (nick, email, password)
+      nick = nickOrObj;
+      finalEmail = email;
+      finalPassword = password;
+    }
+
+    // Validaciones
+    if (!finalEmail || !finalPassword || !nick) {
+      return { email: -1, error: 'Datos incompletos' };
+    }
+
+    if (this.usuarios[finalEmail]) {
       throw new Error('El email ya está registrado');
     }
     if (Object.values(this.usuarios).some(user => user.nick === nick)) {
       throw new Error('El nick ya está en uso');
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    this.usuarios[email] = { nick, email, password: hashedPassword };
+    const hashedPassword = await bcrypt.hash(finalPassword, 10);
+    this.usuarios[finalEmail] = { nick, email: finalEmail, password: hashedPassword };
 
     // Simular redirección exitosa
     return { success: true, redirect: 'Inicio de sesión' };
@@ -1228,18 +1248,6 @@ function Sistema() {
     })();
   };
 
-}
-function getMaxJugPorJuego(juego) {
-  switch (juego) {
-    case 'uno':      // "Última carta"
-      return 4;      // aquí tienes tu juego de 3+ jugadores
-    case '4raya':
-      return 2;
-    case 'hundir':
-      return 2;
-    default:
-      return 2;      // por defecto, 2
-  }
 }
 
 
