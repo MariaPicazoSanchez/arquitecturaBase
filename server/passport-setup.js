@@ -2,12 +2,13 @@ require('dotenv').config();
 const passport=require("passport");
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { GoogleOneTapStrategy } = require("passport-google-one-tap");
+const logger = require("./logger");
 
 const ONE_TAP_CLIENT_ID = process.env.GOOGLE_ONE_TAP_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
 const ONE_TAP_CLIENT_SECRET = process.env.GOOGLE_ONE_TAP_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
 
 if (!ONE_TAP_CLIENT_ID || !ONE_TAP_CLIENT_SECRET) {
-  console.warn('[OneTap] Faltan CLIENT_ID/SECRET; se intentará con los de OAuth si están definidos');
+  logger.warn('[OneTap] Faltan CLIENT_ID/SECRET; se intentará con los de OAuth si están definidos');
 }
 
 passport.serializeUser(function(user, done) {
@@ -23,7 +24,7 @@ passport.use(new GoogleStrategy({
     callbackURL: process.env.GOOGLE_CALLBACK_URL
     },
     function(accessToken, refreshToken, profile, done) {
-        console.log('[GoogleStrategy] profile received:', { id: profile.id, displayName: profile.displayName, emails: profile.emails ? profile.emails.length : 0 });
+        logger.debug('[GoogleStrategy] profile received:', { id: profile.id, displayName: profile.displayName, emails: profile.emails ? profile.emails.length : 0 });
         return done(null, profile);
     }
 ));
@@ -35,7 +36,7 @@ passport.use(new GoogleOneTapStrategy(
     verifyCsrfToken: false // en prod con HTTPS activarlo
   },
   function (profile, done) {
-    console.log('[OneTapStrategy] perfil recibido en verify:', {
+    logger.debug('[OneTapStrategy] perfil recibido en verify:', {
       id: profile && (profile.id || profile.sub),
       emails: profile && (profile.emails || profile.email),
       displayName: profile && profile.displayName
@@ -44,4 +45,4 @@ passport.use(new GoogleOneTapStrategy(
   }
 ));
 
-console.log('[passport-setup] OneTapStrategy configurada, ONE_TAP_CLIENT_ID present?', !!ONE_TAP_CLIENT_ID);
+logger.debug('[passport-setup] OneTapStrategy configurada, ONE_TAP_CLIENT_ID present?', !!ONE_TAP_CLIENT_ID);

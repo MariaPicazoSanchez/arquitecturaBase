@@ -1,0 +1,331 @@
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #e5e7eb;
+  overflow: hidden;
+}
+
+.damasPage {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.damasHeader {
+  padding: 12px 12px 0;
+}
+
+.damasMain {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 12px;
+}
+
+.damasFooter {
+  padding: 0 12px 12px;
+}
+
+.damasFooterInner {
+  font-size: 12px;
+}
+
+.damasPanel.card {
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.damasPanelBody {
+  padding: 12px;
+}
+
+.damasPanelTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.damasTitle {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.damasSubtitle {
+  font-size: 13px;
+}
+
+.damasHeaderBtns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.damas-mute-toggle {
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(2, 6, 23, 0.2);
+  color: #e5e7eb;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.damas-mute-toggle--muted {
+  opacity: 0.75;
+}
+
+.damasMeta {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.damasPill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.damasAlerts {
+  margin-top: 10px;
+}
+
+.damasAlert {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #e5e7eb;
+}
+
+.damasStats {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.damasTurn {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.damasCounts {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.damasBadge {
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.damasBoardWrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.damasBoardSizer {
+  width: min(92vmin, 780px);
+  height: min(92vmin, 780px);
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.damasBoard {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.damasCell {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  position: relative;
+  outline: none;
+  user-select: none;
+  background: transparent;
+}
+
+.damasCell--light {
+  background: #1f2937;
+}
+
+.damasCell--dark {
+  background: #0b1220;
+  cursor: pointer;
+}
+
+.damasCell:disabled {
+  cursor: default;
+}
+
+.damasCell--selected {
+  box-shadow: inset 0 0 0 3px #f59e0b;
+}
+
+.damasCell--forced {
+  box-shadow: inset 0 0 0 3px #38bdf8;
+}
+
+.damasCell--dest::after {
+  content: "";
+  position: absolute;
+  width: 18%;
+  height: 18%;
+  border-radius: 999px;
+  background: #22c55e;
+}
+
+.damasCell--highlight {
+  box-shadow:
+    inset 0 0 0 3px rgba(250, 204, 21, 0.95),
+    0 0 22px rgba(250, 204, 21, 0.15);
+}
+
+.damasBoardSizer {
+  --cell: 64px;
+}
+
+.damasFicha {
+  width: 72%;
+  height: 72%;
+  border-radius: 999px;
+  display: block;
+  position: relative;
+}
+
+.damasFicha--blanca {
+  background: #e5e7eb;
+  border: 2px solid rgba(0, 0, 0, 0.25);
+}
+
+.damasFicha--negra {
+  background: #111827;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+}
+
+.damasFicha--coronada::after {
+  content: "K";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: calc(var(--cell) * 0.28);
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+}
+
+.damasFicha--blanca.damasFicha--coronada::after {
+  color: rgba(15, 23, 42, 0.9);
+}
+
+.damasModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.damasReviewBar {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 1100;
+}
+
+.damasReviewClose{
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(17, 24, 39, 0.85);
+  color: #e5e7eb;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.damasReviewClose:hover{
+  filter: brightness(1.06);
+}
+
+.damasModalCard {
+  width: min(520px, 100%);
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.damasModalTitle {
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.damasModalBody {
+  margin-top: 10px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.damasModalResult {
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+.damasModalNames {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.damasModalLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.damasModalValue {
+  color: #e5e7eb;
+}
+
+.damasModalActions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}

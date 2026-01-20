@@ -1,15 +1,67 @@
-    // Verifica si el usuario tiene una partida activa
+// Verifica si el usuario tiene una partida activa (no usar email en UI).
     this.tienePartidaPropia = function(lista) {
-        const me = ($.cookie("nick") || this.email || "").toLowerCase();
-        return Array.isArray(lista) && lista.some(p => p.propietario && p.propietario.toLowerCase() === me);
+        const norm = (v) => String(v || "").trim().toLowerCase();
+        const myUserId = norm($.cookie && $.cookie("uid"));
+        const myNick = norm($.cookie && $.cookie("nick"));
+        if (!myUserId && !myNick) return false;
+        return Array.isArray(lista) && lista.some(p =>
+            (myUserId && norm(p && p.hostUserId) === myUserId) ||
+            (!myUserId && myNick && norm(p && p.propietario) === myNick)
+        );
     };
 function ControlWeb() {
         // Verifica si el usuario tiene una partida activa
         this.tienePartidaPropia = function(lista) {
-            const me = ($.cookie("nick") || this.email || "").toLowerCase();
-            return Array.isArray(lista) && lista.some(p => p.propietario && p.propietario.toLowerCase() === me);
+            const norm = (v) => String(v || "").trim().toLowerCase();
+            const myUserId = norm($.cookie && $.cookie("uid"));
+            const myNick = norm($.cookie && $.cookie("nick"));
+            if (!myUserId && !myNick) return false;
+            return Array.isArray(lista) && lista.some(p =>
+                (myUserId && norm(p && p.hostUserId) === myUserId) ||
+                (!myUserId && myNick && norm(p && p.propietario) === myNick)
+            );
         };
     this.juegoActual = null;
+
+    // Theme (Light/Dark): persist + apply via documentElement.dataset.theme
+    this._getTheme = function(){
+        try {
+            const t = localStorage.getItem("theme");
+            if (t === "dark") return "dark";
+        } catch(e) {}
+        return "light";
+    };
+    this._applyTheme = function(theme){
+        const t = theme === "dark" ? "dark" : "light";
+        try { document.documentElement.dataset.theme = t; } catch(e) {}
+        try { localStorage.setItem("theme", t); } catch(e) {}
+        return t;
+    };
+
+    const clearResumeEntry = () => {
+        if (window.resumeManager) {
+            window.resumeManager.clear();
+        }
+    };
+
+    this.getStableUserId = function(){
+        const norm = (v) => String(v || "").trim().toLowerCase();
+        try {
+            const uid = norm(window.$ && $.cookie && $.cookie("uid"));
+            if (uid) return uid;
+        } catch (e) {}
+
+        try {
+            const existing = norm(localStorage.getItem("guestId"));
+            if (existing) return existing;
+            const created = ("g_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).toLowerCase();
+            localStorage.setItem("guestId", created);
+            try { if (window.$ && $.cookie) $.cookie("uid", created); } catch (e2) {}
+            return created;
+        } catch (e) {
+            return "";
+        }
+    };
 
     this._updateMainVisibility = function(){
         const a = $.trim($("#au").html());
@@ -27,16 +79,25 @@ function ControlWeb() {
         // Guardamos qué juego estamos mostrando
         this.juegoActual = juego || this.juegoActual || "uno";
 
+        // Track current match for "leave" / resume cleanups
+        this._activeCodigo = codigo || null;
+        this._activeGameType = this.juegoActual;
+
         const nombreBonito =
             this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
+            this.juegoActual === "damas" || this.juegoActual === "checkers" ? "Damas" :
             this.juegoActual === "hundir" ? "Hundir la flota" :
             this.juegoActual;
 
         $("#titulo-juego-actual").text("Juego: " + nombreBonito);
 
-        // URL del juego (por ahora solo UNO)
-        let url = "/uno";
+        // URL del juego (iframe)
+        let url =
+            this.juegoActual === "4raya" ? "/4raya" :
+            this.juegoActual === "damas" || this.juegoActual === "checkers" ? "/damas" :
+            this.juegoActual === "uno"   ? "/uno" :
+            "/uno";
         if (codigo){
             url += "?codigo=" + encodeURIComponent(codigo);
         }
@@ -48,6 +109,18 @@ function ControlWeb() {
 
         this._updateMainVisibility();
 
+        // Ensure the outer socket stays subscribed to the match room for system toasts / resume checks.
+        try {
+            const email =
+                cw.email ||
+                (window.ws && ws.email) ||
+                (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+                null;
+            if (window.ws && ws.socket && codigo && email) {
+                ws.socket.emit("match:resume", { matchCode: String(codigo), email: email });
+            }
+        } catch(e) {}
+
         // Scroll suave hasta el juego
         try {
             $("html, body").animate({
@@ -57,6 +130,47 @@ function ControlWeb() {
     };
 
     this.volverDesdeJuego = function(){
+        // Voluntary leave:
+        // - UNO: salida blanda (permite "Continuar partida").
+        // - Damas/4raya: salida blanda (no abandonar), permite reentrada/continuar.
+        try {
+            const gameType = cw._normalizeResumeGameType(cw._activeGameType || cw.juegoActual);
+            const gameId = String(cw._activeCodigo || (window.ws && ws.codigo) || "").trim();
+            const email =
+                cw.email ||
+                (window.ws && ws.email) ||
+                (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+                null;
+
+            const isUno = gameType === "uno";
+            const key = cw._activeGameStorageKeyFor(gameType);
+
+            if (isUno) {
+                // Salida suave: usa room:detach en vez de game:leave
+                const roomId = String(gameId || "").trim();
+                const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+
+                if (window.ws && ws.socket && roomId && userId) {
+                    ws.socket.emit("room:detach", { roomId, userId, email: email || undefined });
+                }
+            } else {
+                const resumeEntry = window.resumeManager ? window.resumeManager.get() : null;
+                const matchCode = String(resumeEntry?.roomId || gameId || "").trim();
+                const isBotMatch = !!resumeEntry?.isBotMatch;
+                const isPvpResumable =
+                    !isBotMatch && (gameType === "damas" || gameType === "4raya");
+                if (isPvpResumable && matchCode && email && window.ws && ws.socket) {
+                    ws.socket.emit("match:soft_disconnect", { matchCode, email });
+                }
+                if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                    cw.renderContinueGamesBar();
+                }
+            }
+        } catch(e) {}
+
+        cw._activeCodigo = null;
+        cw._activeGameType = null;
+
         // Paramos el juego (vaciamos el iframe)
         $("#iframe-juego").attr("src", "");
 
@@ -74,6 +188,94 @@ function ControlWeb() {
         }
 
         this._updateMainVisibility();
+        if (typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
+    };
+
+    // Salida desde la pantalla del juego (sin abandonar): permite "Continuar partida".
+    this.salirAlLobbyDesdeJuego = function(){
+        try {
+            const roomId = String(cw._activeCodigo || (window.ws && ws.codigo) || "").trim();
+            const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+            const email =
+                cw.email ||
+                (window.ws && ws.email) ||
+                (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+                null;
+
+            if (window.ws && ws.socket && roomId && userId) {
+                ws.socket.emit("room:detach", { roomId, userId, email: email || undefined });
+            }
+        } catch(e) {}
+
+        cw._activeCodigo = null;
+        cw._activeGameType = null;
+
+        $("#iframe-juego").attr("src", "");
+        $("#zona-juego").hide();
+        $("#selector-juegos").show();
+        $("#panel-partidas").show();
+
+        if (window.ws && typeof ws.pedirListaPartidas === "function"){
+            ws.pedirListaPartidas();
+        }
+        if (window._ultimaListaPartidas){
+            this.pintarPartidas(window._ultimaListaPartidas);
+        }
+
+        this._updateMainVisibility();
+        if (typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
+    };
+
+    // Abandono real: marca "left" y nunca permite continuar.
+    this.abandonarDesdeJuego = function(){
+        try {
+            const roomId = String(cw._activeCodigo || (window.ws && ws.codigo) || "").trim();
+            const gameType = cw._normalizeResumeGameType(cw._activeGameType || cw.juegoActual);
+            const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+            const email =
+                cw.email ||
+                (window.ws && ws.email) ||
+                (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+                null;
+
+            const key = cw._activeGameStorageKeyFor(gameType);
+            if (key) {
+                try { localStorage.removeItem(key); } catch(e2) {}
+            }
+            clearResumeEntry();
+
+            if (window.ws && ws.socket && roomId && userId) {
+                ws.socket.emit("room:leave", { roomId, userId, email: email || undefined }, function(){
+                    if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                        cw.renderContinueGamesBar();
+                    }
+                });
+            }
+        } catch(e) {}
+
+        cw._activeCodigo = null;
+        cw._activeGameType = null;
+
+        $("#iframe-juego").attr("src", "");
+        $("#zona-juego").hide();
+        $("#selector-juegos").show();
+        $("#panel-partidas").show();
+
+        if (window.ws && typeof ws.pedirListaPartidas === "function"){
+            ws.pedirListaPartidas();
+        }
+        if (window._ultimaListaPartidas){
+            this.pintarPartidas(window._ultimaListaPartidas);
+        }
+
+        this._updateMainVisibility();
+        if (typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
     };
 
 
@@ -114,25 +316,82 @@ function ControlWeb() {
     };
 
     this.comprobarSesion=function(){
-        let nick=$.cookie("nick");
-        if (nick){
-            cw.email = nick;
+        let email = $.cookie("email");
+        let nick = $.cookie("nick");
+        // Compatibilidad: antes `nick` guardaba el email. Si parece email y no hay cookie `email`, usarlo como legacy.
+        if (!email && nick && String(nick).includes("@")) email = nick;
+        if (email){
+            cw.email = String(email).toLowerCase();
             if (window.ws){
-                ws.email = nick;
+                ws.email = cw.email;
                 // if (ws.pedirListaPartidas){
                 //     ws.pedirListaPartidas();
                 // }
             }
+            // Verificar sesión real (cookie "nick" puede quedar "stale" si el servidor se reinicia)
+            if (window.userService && typeof userService.getMe === "function"){
+                userService.getMe()
+                    .done(function(me){
+                        const label = (me && me.nick) || (nick && !String(nick).includes("@") ? nick : "Usuario");
+                        try {
+                            // Autoupgrade cookies legacy: antes `nick` pod\u00eda ser el email.
+                            if (window.jQuery && $.cookie){
+                                if (!$.cookie("email") && cw.email) $.cookie("email", cw.email);
+                                if (me && me.nick && !String(me.nick).includes("@")) $.cookie("nick", me.nick);
+                                if (!$.cookie("uid") && cw.email) {
+                                    const e = String(cw.email || "").trim().toLowerCase();
+                                    let hash = 5381;
+                                    for (let i = 0; i < e.length; i += 1) {
+                                        hash = ((hash << 5) + hash + e.charCodeAt(i)) | 0;
+                                    }
+                                    $.cookie("uid", (hash >>> 0).toString(36));
+                                }
+                            }
+                        } catch(e2) {}
+                        cw._setNavToLogout();
+                        cw._setNavUserLabel(label);
+                        cw.mostrarSelectorJuegos();
+                        if (!sessionStorage.getItem("bienvenidaMostrada")){
+                            sessionStorage.setItem("bienvenidaMostrada","1");
+                            cw.mostrarMensaje("Bienvenido a Table Room, "+label, "success");
+                        }
+                    })
+                    .fail(function(xhr){
+                        if (xhr && xhr.status === 401){
+                            try { $.removeCookie('nick'); } catch(e) {}
+                            try { $.removeCookie('email'); } catch(e) {}
+                            try { $.removeCookie('uid'); } catch(e) {}
+                            cw.email = null;
+                            if (window.ws){ try { ws.email = null; } catch(e) {} }
+                            cw._setNavToLogin();
+                            cw.mostrarRegistro();
+                            cw.mostrarAviso("Tu sesión ha caducado. Inicia sesión de nuevo.", "error");
+                            return;
+                        }
+                        // fallback best-effort: mantener comportamiento antiguo
+                        cw.mostrarSelectorJuegos();
+                        cw._setNavToLogout();
+                    });
+                return;
+            }
+
             // cw.mostrarPartidas();
             cw.mostrarSelectorJuegos();
             if (!sessionStorage.getItem("bienvenidaMostrada")){
                 sessionStorage.setItem("bienvenidaMostrada","1");
-                cw.mostrarMensaje("Bienvenido a Table Room, "+nick, "success");
+                cw.mostrarMensaje("Bienvenido a Table Room, "+((nick && !String(nick).includes("@")) ? nick : "Usuario"), "success");
             } else {
                 cw._setNavToLogout();
             }
         }else{
             cw._setNavToLogin();
+            try {
+                const params = new URLSearchParams(window.location.search || "");
+                if (params.get("reset") === "1"){
+                    cw.mostrarLogin({ keepMessage: true, message: "Contraseña actualizada. Ya puedes iniciar sesión.", messageType: "success" });
+                    return;
+                }
+            } catch(e) {}
             cw.mostrarRegistro();
         }
     };
@@ -146,12 +405,233 @@ function ControlWeb() {
 
         // Ocultamos el panel de partidas hasta que elijan juego
         $("#panel-partidas").hide();
+        $("#panel-cuenta").hide();
+        this._cuentaVisible = false;
 
         // Mostramos el selector de juegos
         $("#selector-juegos").show();
 
         cw._updateMainVisibility();
+        if (typeof cw.renderContinueGamesBar === "function") {
+            cw.renderContinueGamesBar();
+        }
     };
+
+    this._normalizeResumeGameType = function(gameType){
+        const t = String(gameType || "").trim().toLowerCase();
+        if (t === "checkers") return "damas";
+        return t;
+    };
+
+    this._activeGameStorageKeyFor = function(gameType){
+        const t = cw._normalizeResumeGameType(gameType);
+        if (t === "uno") return "activeGame:UNO";
+        if (t === "damas") return "activeGame:DAMAS";
+        return null;
+    };
+
+    this.renderContinueGamesBar = function(){
+        const $hosts = $("#continue-games-bar, #continue-games-bar-partidas");
+        if (!$hosts.length) return;
+
+        const renderEmpty = () => $hosts.hide().empty();
+        const setLoading = (msg) => {
+            const text = msg || "Comprobando partidas para continuar...";
+            $hosts.show().html('<div class="text-muted small"></div>');
+            $hosts.find("div").text(text);
+        };
+
+        const email =
+            cw.email ||
+            (window.ws && ws.email) ||
+            (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+            null;
+
+        const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+        if (!userId) return renderEmpty();
+
+        if (!window.ws || !ws.socket) {
+            setTimeout(() => cw.renderContinueGamesBar(), 150);
+            return;
+        }
+
+        setLoading("Comprobando partidas para continuar...");
+
+        const TRANSIENT_FAILURE_REASONS = new Set(["TIMEOUT", "CLIENT_ERROR", "NO_RESPONSE"]);
+        const CAN_RESUME_TIMEOUT_MS = 6000;
+        const emitWithTimeout = (event, payload, timeoutMs = CAN_RESUME_TIMEOUT_MS) =>
+            new Promise((resolve) => {
+                let done = false;
+                const t = setTimeout(() => {
+                    if (done) return;
+                    done = true;
+                    resolve({ ok: false, reason: "TIMEOUT", ...payload });
+                }, timeoutMs);
+
+                try {
+                    ws.socket.emit(event, payload, (res) => {
+                        if (done) return;
+                        done = true;
+                        clearTimeout(t);
+                        resolve(res || { ok: false, reason: "NO_RESPONSE", ...payload });
+                    });
+                } catch (e) {
+                    if (done) return;
+                    done = true;
+                    clearTimeout(t);
+                    resolve({ ok: false, reason: "CLIENT_ERROR", ...payload });
+                }
+            });
+
+        const prettyGameName = (gameKey) => {
+            const key = String(gameKey || "").trim().toLowerCase();
+            if (key === "uno") return "Última Carta";
+            if (key === "4raya") return "4 en raya";
+            if (key === "damas" || key === "checkers") return "Damas";
+            return key || "Juego";
+        };
+
+        const renderRooms = (rooms) => {
+            if (!Array.isArray(rooms) || rooms.length === 0) return renderEmpty();
+
+            const $wrap = $('<div class="d-flex flex-column" style="gap:0.5rem;"></div>');
+            rooms.forEach((r) => {
+                const roomId = String(r.roomId || r.matchCode || r.codigo || "").trim();
+                const gameKey = String(r.gameType || r.gameKey || r.juego || "").trim().toLowerCase();
+                if (!roomId) return;
+                const creatorNick = String(r.ownerNick || r.creatorNick || r.propietario || "Anfitrión").trim();
+                const prettyGame = prettyGameName(gameKey);
+
+                const $card = $('<div class="card shadow-sm"></div>');
+                const $body = $('<div class="card-body py-2"></div>');
+                const $row = $('<div class="d-flex flex-wrap align-items-center justify-content-between"></div>');
+                const $left = $('<div class="text-muted small mb-2 mb-md-0"></div>')
+                    .text(`Continuar partida: ${prettyGame} · Código: ${roomId} · Creador: ${creatorNick}`);
+                const $btn = $('<button type="button" class="btn btn-outline-primary btn-sm mb-2 continue-room-btn"></button>');
+                $btn.attr("data-game-key", gameKey);
+                $btn.attr("data-room-id", roomId);
+                $btn.text("Continuar");
+
+                $row.append($left);
+                $row.append($btn);
+                $body.append($row);
+                $card.append($body);
+                $wrap.append($card);
+            });
+
+            $hosts.empty().append($wrap).show();
+        };
+
+        emitWithTimeout("resume:list", { userId, email: email || undefined })
+            .then((res) => {
+                if (res && res.ok && Array.isArray(res.rooms)) {
+                    return renderRooms(res.rooms);
+                }
+
+                const reason = (res && typeof res.reason === "string" ? res.reason : "");
+                if (TRANSIENT_FAILURE_REASONS.has(reason)) {
+                    setLoading("No se pudo verificar la partida. Reintentando...");
+                    setTimeout(() => cw.renderContinueGamesBar(), 3000);
+                    return;
+                }
+
+                return renderEmpty();
+            })
+            .catch(() => renderEmpty());
+    };
+    $(document).on("click", ".continue-room-btn", function(){
+        const gameKey = String($(this).data("game-key") || "").trim().toLowerCase();
+        const roomId = String($(this).data("room-id") || $(this).data("match-code") || "").trim();
+        if (!roomId) return;
+
+        const email =
+            cw.email ||
+            (window.ws && ws.email) ||
+            (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+            null;
+
+        const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+
+        if (!window.ws || !ws.socket) return;
+
+        ws.socket.emit("room:resume", { roomId, matchCode: roomId, gameKey, email, userId }, function(res){
+            if (!res || !res.ok) {
+                const reason = res && res.reason ? String(res.reason) : "NO_RESPONSE";
+                if (reason === "MATCH_NOT_FOUND" || reason === "MATCH_EMPTY") {
+                    clearResumeEntry();
+                    if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                        cw.renderContinueGamesBar();
+                    }
+                }
+                if (window.cw && cw.mostrarAviso) {
+                    cw.mostrarAviso("No se pudo continuar la partida.", "error", 5000);
+                }
+                return;
+            }
+
+            const status = String(res.status || "").trim().toUpperCase();
+            const resolvedGameKey = String(res.gameKey || gameKey || "").trim().toLowerCase();
+            if (window.ws){
+                ws.gameType = resolvedGameKey;
+                ws.codigo = roomId;
+            }
+
+            if (status === "IN_PROGRESS") {
+                if (window.cw && typeof cw.mostrarJuegoEnApp === "function") {
+                    cw.mostrarJuegoEnApp(resolvedGameKey, roomId);
+                }
+            } else {
+                if (window.cw && typeof cw.seleccionarJuego === "function") {
+                    cw.seleccionarJuego(resolvedGameKey);
+                }
+                if (window.cw && cw.mostrarAviso) {
+                    cw.mostrarAviso(
+                        status === "WAITING_START"
+                            ? "Sala completa. Esperando a que el creador inicie..."
+                            : "Partida aún no iniciada.",
+                        "info"
+                    );
+                }
+            }
+        });
+    });
+
+    $(document).on("click", ".btn-abandonar", function(event){
+        event.preventDefault();
+        const matchCode = String($(this).data("codigo") || "").trim();
+        if (!matchCode) return;
+
+        const email =
+            cw.email ||
+            (window.ws && ws.email) ||
+            (window.$ && $.cookie && ($.cookie("email") || (($.cookie("nick") && String($.cookie("nick")).includes("@")) ? $.cookie("nick") : ""))) ||
+            null;
+        if (!email || !window.ws || !ws.socket) return;
+
+        const userId = cw.getStableUserId ? String(cw.getStableUserId() || "").trim().toLowerCase() : "";
+        ws.socket.emit("room:leave", { roomId: matchCode, userId, email }, function(res){
+            if (!res || !res.ok) {
+                const reason = res && typeof res.reason === "string" ? res.reason : "";
+                const message =
+                    reason === "NOT_ALLOWED"
+                        ? "No puedes abandonar esa partida."
+                        : "No se pudo abandonar la partida.";
+                if (window.cw && cw.mostrarAviso) cw.mostrarAviso(message, "error");
+                return;
+            }
+
+            clearResumeEntry();
+            if (window.cw && typeof cw.renderContinueGamesBar === "function") {
+                cw.renderContinueGamesBar();
+            }
+            if (window.ws && typeof ws.pedirListaPartidas === "function") {
+                ws.pedirListaPartidas();
+            }
+            if (window.cw && cw.mostrarAviso) {
+                cw.mostrarAviso("Has abandonado la partida.", "info");
+            }
+        });
+    });
 
     this.seleccionarJuego = function(juegoId){
         this.juegoActual = juegoId || "uno";
@@ -163,6 +643,7 @@ function ControlWeb() {
         const nombreBonito =
             this.juegoActual === "uno"    ? "Última carta" :
             this.juegoActual === "4raya"  ? "4 en raya" :
+            this.juegoActual === "damas" || this.juegoActual === "checkers" ? "Damas" :
             this.juegoActual === "hundir" ? "Hundir la flota" :
             this.juegoActual;
 
@@ -172,6 +653,8 @@ function ControlWeb() {
         $("#selector-juegos").show();
         $("#panel-partidas").show();
         $("#zona-juego").hide();
+        $("#panel-cuenta").hide();
+        this._cuentaVisible = false;
 
         if (window.ws && typeof ws.pedirListaPartidas === "function"){
             ws.pedirListaPartidas();
@@ -186,6 +669,8 @@ function ControlWeb() {
 
 
 
+
+    this._avisoTimer = null;
 
     this.mostrarMensaje=function(msg, tipo="info"){
         $("#au").empty();
@@ -203,11 +688,27 @@ function ControlWeb() {
         }
     };
 
-    this.mostrarAviso=function(msg, tipo="info"){
+    this.mostrarAviso=function(msg, tipo="info", duracion=0){
+        if (this._avisoTimer) {
+            clearTimeout(this._avisoTimer);
+            this._avisoTimer = null;
+        }
+        if (!msg) {
+            $("#msg").empty();
+            cw._updateMainVisibility();
+            return;
+        }
         let alertClass = "alert-" + (tipo === "error" ? "danger" : tipo === "success" ? "success" : "info");
         let cadena='<div class="alert '+alertClass+'" role="alert">'+msg+'</div>';
         $("#msg").html(cadena);
         cw._updateMainVisibility();
+        if (duracion && Number.isFinite(duracion) && duracion > 0) {
+            this._avisoTimer = setTimeout(() => {
+                $("#msg").empty();
+                cw._updateMainVisibility();
+                this._avisoTimer = null;
+            }, duracion);
+        }
     };
 
     this.limpiar=function(){
@@ -227,31 +728,117 @@ function ControlWeb() {
             cw.mostrarMensaje("Hasta pronto, " + nick);
         }
         try { sessionStorage.removeItem("bienvenidaMostrada"); } catch(e){}
+        $("#panel-cuenta").hide();
+        this._cuentaVisible = false;
         rest.salidaDeUsuario();
     };
 
     this._setNavToLogout = function(){
-        let $login = $("#menuIniciarSesion");
-        if ($login.length){
-            let $wrap = $("<span id='navUserActions'></span>");
-            let $btnAct = $("<button id='btnVerActividad' class='btn btn-outline-primary btn-sm mr-2'>Actividad</button>");
-            let $btnSalir = $("<button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button>");
-            $wrap.append($btnAct).append($btnSalir);
-            $login.replaceWith($wrap);
-            $btnSalir.on('click', function(){ cw.salir(); });
-            $btnAct.on('click', function(){ cw.mostrarActividad(); });
-        } else {
-            let $nav = $(".navbar-nav.ml-auto");
-            if ($nav.length && $nav.find('#btnSalirNav').length===0){
-                $nav.append("<li class='nav-item mr-2'><button id='btnVerActividad' class='btn btn-outline-primary btn-sm'>Actividad</button></li>");
-                $nav.append("<li class='nav-item'><button id='btnSalirNav' class='btn btn-logout btn-sm'>Salir</button></li>");
-                $("#btnSalirNav").on('click', function(){ cw.salir(); });
-                $("#btnVerActividad").on('click', function(){ cw.mostrarActividad(); });
-            }
-        }
+        const $nav = $(".navbar-nav.ml-auto");
+        if (!$nav.length) return;
+
+        // Ayuda visible siempre
+        try { $("#menuHelp").closest("li").show(); } catch(e) {}
+        try { $("#menuIniciarSesion").closest("li").hide(); } catch(e) {}
+
+        $("#navUserDropdown").remove();
+        $("#navUserActions").remove();
+        $("#btnSalirNav").closest("li").remove();
+        $("#btnVerActividad").closest("li").remove();
+        $("#btnMiCuenta").closest("li").remove();
+        $("#navUserLabel").remove();
+
+        const $dropdown = $(`
+          <li class="nav-item dropdown" id="navUserDropdown">
+            <a class="nav-link dropdown-toggle nav-user-toggle" href="#" id="navUserToggle" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"></a>
+            <div class="dropdown-menu dropdown-menu-right" aria-labelledby="navUserToggle">
+              <a class="dropdown-item" href="#" id="navGestionarCuenta">Mi cuenta</a>
+              <a class="dropdown-item" href="#" id="navActividad">Actividad</a>
+              <a class="dropdown-item" href="#" id="navAyuda">Ayuda</a>
+              <button type="button" class="dropdown-item theme-toggle-item" id="navThemeToggle" aria-label="Cambiar tema">
+                <span class="theme-toggle-left">
+                  <span class="theme-toggle-icon" aria-hidden="true" id="navThemeIcon">☀</span>
+                  <span class="theme-toggle-label">Tema</span>
+                </span>
+                <span class="theme-switch">
+                  <input type="checkbox" id="navThemeSwitch" role="switch" aria-label="Tema oscuro">
+                  <span class="theme-switch-track" aria-hidden="true">
+                    <span class="theme-switch-thumb" aria-hidden="true"></span>
+                  </span>
+                </span>
+              </button>
+              <div class="dropdown-divider"></div>
+              <a class="dropdown-item text-danger" href="#" id="navSalir">Salir</a>
+            </div>
+          </li>
+        `);
+
+        $nav.append($dropdown);
+
+        $("#navGestionarCuenta").off("click").on("click", function(e){
+            e.preventDefault();
+            try { window.location.hash = "#/mi-cuenta"; } catch(ex) {}
+            cw.mostrarMiCuenta();
+        });
+        $("#navActividad").off("click").on("click", function(e){
+            e.preventDefault();
+            try { window.location.hash = "#/actividad"; } catch(ex) {}
+            cw.mostrarActividad();
+        });
+        $("#navAyuda").off("click").on("click", function(e){
+            e.preventDefault();
+            try { window.location.href = "/help"; } catch(ex) {}
+        });
+
+        // Theme toggle wiring
+        (function(){
+            const current = cw._applyTheme(cw._getTheme());
+            const $switch = $("#navThemeSwitch");
+            const $icon = $("#navThemeIcon");
+            $switch.prop("checked", current === "dark");
+            $icon.text(current === "dark" ? "☾" : "☀");
+
+            const syncUi = (t) => {
+                $switch.prop("checked", t === "dark");
+                $icon.text(t === "dark" ? "☾" : "☀");
+            };
+
+            $("#navThemeToggle").off("click").on("click", function(e){
+                // keep dropdown open while toggling
+                e.preventDefault();
+                e.stopPropagation();
+                $switch.prop("checked", !$switch.prop("checked"));
+                $switch.trigger("change");
+            });
+
+            $switch.off("click").on("click", function(e){
+                e.stopPropagation();
+            });
+
+            $switch.off("change").on("change", function(){
+                const next = cw._applyTheme($switch.prop("checked") ? "dark" : "light");
+                syncUi(next);
+            });
+        })();
+
+        $("#navSalir").off("click").on("click", function(e){
+            e.preventDefault();
+            cw.salir();
+        });
+
+        try {
+            const label = ($.cookie && $.cookie("nick")) ? $.cookie("nick") : "Usuario";
+            this._setNavUserLabel(label);
+        } catch(e) {}
     };
 
     this._setNavToLogin = function(){
+        // Navbar nuevo: dropdown de usuario (restaurar estado "no logueado")
+        $("#navUserDropdown").remove();
+        try { $("#menuHelp").closest("li").show(); } catch(e) {}
+        try { $("#menuIniciarSesion").closest("li").show(); } catch(e) {}
+        $("#menuIniciarSesion").off("click").on("click", function(){ cw.mostrarLogin(); });
+        return;
         let $salir = $("#btnSalirNav");
         if ($salir.length){
             let $btn = $("<button type='button' class='btn btn-ignition' id='menuIniciarSesion'>Iniciar sesión</button>");
@@ -266,9 +853,23 @@ function ControlWeb() {
         }
     };
 
+    this._setNavUserLabel = function(text){
+        const tNew = String(text || "").trim();
+        const $toggle = $("#navUserToggle");
+        if ($toggle.length) { $toggle.text(tNew); return; }
+        const t = String(text || "").trim();
+        const $label = $("#navUserLabel");
+        if ($label.length){
+            $label.text(t);
+        }
+    };
+
     // Mostrar actividad del usuario
     // Estado de visibilidad del panel de actividad
     this._actividadVisible = false;
+    this._cuentaVisible = false;
+    this._perfil = null;
+    this._cargandoCuenta = false;
 
     this.mostrarActividad = function(){
         // Toggle: si ya está visible, ocultar
@@ -276,12 +877,12 @@ function ControlWeb() {
             $("#au").empty();
             this._actividadVisible = false;
             // Restaurar etiqueta del botón
-            const $btn = $("#btnVerActividad");
+            const $btn = $("#btnVerActividad, #navActividad");
             if ($btn.length) { $btn.text("Actividad"); }
             this._updateMainVisibility();
             return;
         }
-        const email = ($.cookie('nick') || this.email || '').toLowerCase();
+        const email = ($.cookie('email') || (((($.cookie('nick') || '') + '').includes('@')) ? $.cookie('nick') : '') || this.email || '').toLowerCase();
         if (!email){
             this.mostrarAviso('Debes iniciar sesión para ver la actividad', 'error');
             return;
@@ -289,6 +890,246 @@ function ControlWeb() {
         if (window.rest && typeof rest.obtenerActividad === 'function'){
             rest.obtenerActividad(email);
         }
+    };
+
+    // ---------------------------
+    // Mi cuenta
+    // ---------------------------
+
+    this._setAccountAlert = function(msg, tipo){
+        const t = tipo || "info";
+        const cls = "alert-" + (t === "error" ? "danger" : t === "success" ? "success" : "info");
+        if (!msg){
+            $("#account-alert").empty();
+            return;
+        }
+        $("#account-alert").html("<div class='alert " + cls + "' role='alert'>" + msg + "</div>");
+    };
+
+    this._renderCuenta = function(user){
+        if (!user) return;
+        this._perfil = user;
+
+        const name = user.nombre || user.displayName || "";
+        const nick = user.nick || "";
+
+        $("#account-nombre").text(name || "—");
+        $("#account-nick").text(nick || "—");
+        $("#account-email").text(user.email || "Correo no disponible");
+
+        // Mostrar la primera letra del nick en el avatar
+        const avatarLetter = user.nick ? user.nick.charAt(0).toUpperCase() : "?";
+        $(".avatar").text(avatarLetter);
+
+        $("#input-nombre").val(name);
+        $("#input-nick").val(nick);
+        $("#input-password-code").val("");
+        $("#input-newPassword").val("");
+        $("#input-newPassword2").val("");
+        $("#password-change-form").hide();
+
+        const label = (name || nick);
+        if (label) this._setNavUserLabel(label);
+
+        const canChangePassword = !!user.canChangePassword;
+        if (canChangePassword){
+            $("#card-password").show();
+            $("#btn-request-password-change").prop("disabled", false);
+            $("#password-disabled").hide();
+            $("#delete-password-group").show();
+            $("#delete-account-hint").text("");
+        } else {
+            $("#btn-request-password-change").prop("disabled", true);
+            $("#password-disabled").show();
+            $("#delete-password-group").hide();
+            $("#delete-account-hint").text("Cuenta Google: la eliminación solo requiere confirmación.");
+        }
+    };
+
+    this._cargarCuenta = function(){
+        if (this._cargandoCuenta) return;
+        this._cargandoCuenta = true;
+        this._setAccountAlert("Cargando tu perfil...", "info");
+
+        if (window.rest && typeof rest.obtenerMiCuenta === "function"){
+            rest.obtenerMiCuenta(function(user){
+                cw._cargandoCuenta = false;
+                cw._setAccountAlert("", "info");
+                cw._renderCuenta(user);
+            }, function(errMsg){
+                cw._cargandoCuenta = false;
+                cw._setAccountAlert(errMsg || "No se pudo cargar tu cuenta.", "error");
+            });
+        } else {
+            this._cargandoCuenta = false;
+            this._setAccountAlert("Servicio de cuenta no disponible.", "error");
+        }
+    };
+
+    this._wireCuentaHandlers = function(){
+        $("#btn-volver-cuenta").off("click").on("click", function(){
+            cw._cuentaVisible = false;
+            $("#panel-cuenta").hide();
+            cw.mostrarSelectorJuegos();
+        });
+
+        $("#form-editar-perfil").off("submit").on("submit", function(e){
+            e.preventDefault();
+            const nombre = ($("#input-nombre").val() || "").trim();
+            let nick = ($("#input-nick").val() || "").trim();
+            // Normalizar espacios para evitar errores de validación
+            nick = nick.replace(/\s+/g, "_");
+            $("#input-nick").val(nick);
+            const $btn = $("#btn-guardar-perfil");
+            $btn.prop("disabled", true).text("Guardando...");
+            cw._setAccountAlert("", "info");
+
+            if (window.rest && typeof rest.actualizarMiCuenta === "function"){
+                rest.actualizarMiCuenta({ nombre, nick }, function(user){
+                    $btn.prop("disabled", false).text("Guardar cambios");
+                    cw._setAccountAlert("Perfil actualizado.", "success");
+                    try {
+                        if (user && user.nick){
+                            if (window.jQuery && $.cookie) $.cookie("nick", user.nick);
+                        }
+                    } catch(e2) {}
+                    cw._renderCuenta(user);
+                }, function(errMsg){
+                    $btn.prop("disabled", false).text("Guardar cambios");
+                    cw._setAccountAlert(errMsg || "No se pudo actualizar el perfil.", "error");
+                });
+            } else {
+                $btn.prop("disabled", false).text("Guardar cambios");
+                cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
+            }
+        });
+
+        $("#btn-request-password-change").off("click").on("click", function(){
+            const $btn = $("#btn-request-password-change");
+            $btn.prop("disabled", true).text("Enviando...");
+            cw._setAccountAlert("", "info");
+
+            if (window.rest && typeof rest.solicitarCambioPasswordMiCuenta === "function"){
+                rest.solicitarCambioPasswordMiCuenta(function(){
+                    $btn.prop("disabled", false).text("Cambiar contraseña");
+                    $("#password-change-form").hide();
+                    cw._setAccountAlert("Correo enviado. Revisa tu bandeja y abre el enlace para restablecer la contraseña.", "success");
+                }, function(errMsg){
+                    $btn.prop("disabled", false).text("Cambiar contraseña");
+                    cw._setAccountAlert(errMsg || "No se pudo enviar el correo.", "error");
+                });
+            } else {
+                $btn.prop("disabled", false).text("Cambiar contraseña");
+                cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
+            }
+        });
+
+        $("#form-confirm-password-change").off("submit").on("submit", function(e){
+            e.preventDefault();
+            const code = ($("#input-password-code").val() || "").trim();
+            const newPassword = ($("#input-newPassword").val() || "");
+            const newPassword2 = ($("#input-newPassword2").val() || "");
+            if (!code){
+                cw._setAccountAlert("Introduce el código del correo.", "error");
+                return;
+            }
+            if (!newPassword){
+                cw._setAccountAlert("Introduce la nueva contraseña.", "error");
+                return;
+            }
+            if (newPassword !== newPassword2){
+                cw._setAccountAlert("Las contraseñas no coinciden.", "error");
+                return;
+            }
+
+            const $btn = $("#btn-confirm-password-change");
+            $btn.prop("disabled", true).text("Confirmando...");
+            cw._setAccountAlert("", "info");
+
+            if (window.rest && typeof rest.confirmarCambioPasswordMiCuenta === "function"){
+                rest.confirmarCambioPasswordMiCuenta({ codeOrToken: code, newPassword: newPassword }, function(){
+                    $btn.prop("disabled", false).text("Confirmar cambio");
+                    $("#input-password-code").val("");
+                    $("#input-newPassword").val("");
+                    $("#input-newPassword2").val("");
+                    cw._setAccountAlert("Contraseña actualizada.", "success");
+                }, function(errMsg){
+                    $btn.prop("disabled", false).text("Confirmar cambio");
+                    cw._setAccountAlert(errMsg || "No se pudo cambiar la contraseña.", "error");
+                });
+            } else {
+                $btn.prop("disabled", false).text("Confirmar cambio");
+                cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
+            }
+        });
+
+        $("#btn-confirmar-eliminar-cuenta").off("click").on("click", function(){
+            const confirmText = ($("#input-confirmDelete").val() || "").trim();
+            const password = ($("#input-deletePassword").val() || "");
+            const irreversible = $("#check-irrevocable").is(":checked");
+            if (confirmText !== "ELIMINAR"){
+                cw._setAccountAlert("Escribe ELIMINAR para confirmar.", "error");
+                return;
+            }
+            if (!irreversible){
+                cw._setAccountAlert("Debes marcar la casilla de confirmación.", "error");
+                return;
+            }
+
+            const canChangePassword = !!(cw._perfil && cw._perfil.canChangePassword);
+            if (canChangePassword && !password){
+                cw._setAccountAlert("Introduce tu contraseña para confirmar.", "error");
+                return;
+            }
+            const payload = canChangePassword ? { password } : { confirm: true };
+
+            const $btn = $("#btn-confirmar-eliminar-cuenta");
+            $btn.prop("disabled", true).text("Eliminando...");
+
+            if (window.rest && typeof rest.eliminarMiCuenta === "function"){
+                rest.eliminarMiCuenta(payload, function(){
+                    $("#modalEliminarCuenta").modal("hide");
+                    cw._setAccountAlert("Cuenta eliminada. Cerrando sesión...", "success");
+                    try { sessionStorage.removeItem("bienvenidaMostrada"); } catch(e){}
+                    setTimeout(function(){ window.location.href = "/"; }, 600);
+                }, function(errMsg){
+                    $btn.prop("disabled", false).text("Eliminar definitivamente");
+                    cw._setAccountAlert(errMsg || "No se pudo eliminar la cuenta.", "error");
+                });
+            } else {
+                $btn.prop("disabled", false).text("Eliminar definitivamente");
+                cw._setAccountAlert("Servicio de cuenta no disponible.", "error");
+            }
+        });
+    };
+
+    this.mostrarMiCuenta = function(){
+        if (this._cuentaVisible){
+            this._cuentaVisible = false;
+            $("#panel-cuenta").hide();
+            this.mostrarSelectorJuegos();
+            return;
+        }
+        const nick = $.cookie("nick");
+        if (!nick){
+            this.mostrarAviso("Debes iniciar sesión para acceder a tu cuenta.", "error");
+            return;
+        }
+
+        $("#selector-juegos").hide();
+        $("#panel-partidas").hide();
+        $("#zona-juego").hide();
+        $("#registro").empty();
+        $("#au").empty();
+        $("#msg").empty();
+
+        this._actividadVisible = false;
+        $("#panel-cuenta").show();
+        this._cuentaVisible = true;
+        this._updateMainVisibility();
+
+        this._wireCuentaHandlers();
+        this._cargarCuenta();
     };
 
     // Render de la actividad en el panel principal
@@ -316,7 +1157,7 @@ function ControlWeb() {
         $("#au").append(html);
         this._actividadVisible = true;
         // Cambiar etiqueta del botón mientras está visible
-        const $btn = $("#btnVerActividad");
+        const $btn = $("#btnVerActividad, #navActividad");
         if ($btn.length) { $btn.text("Cerrar actividad"); }
         this._updateMainVisibility();
     };
@@ -330,7 +1171,7 @@ function ControlWeb() {
                 let email = $("#email").val().trim();
                 let pwd   = $("#pwd").val().trim();
                 let nick = $("#nick").val().trim();
-                console.log("[UI] Click Registrar:", { email, tienePwd: !!pwd, nick });
+                // No loggear emails.
                 
                 // Validación individual de campos
                 if (!email) {
@@ -354,13 +1195,26 @@ function ControlWeb() {
                 }
 
                 // Validación de contraseña: mínimo 8 caracteres, al menos una mayúscula, una minúscula y un número o símbolo
-                const pwdValida = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9\W_]).{8,}$/;
+                const pwdValida = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>\/?]).{8,}$/;
                 if (!pwdValida.test(pwd)) {
-                    cw.mostrarModal("La contraseña debe tener:\n• Mínimo 8 caracteres\n• Al menos una mayúscula\n• Al menos una minúscula\n• Al menos un número o símbolo");
+                    cw.mostrarModal("La contraseña debe tener:\n• Mínimo 8 caracteres\n• Al menos una mayúscula\n• Al menos una minúscula\n• Al menos un número\n• Al menos un símbolo");
                     return;
                 }
 
-                rest.registrarUsuario(email, pwd, nick);
+                // Validación de formato de email
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(email)) {
+                    cw.mostrarModal("El email no tiene un formato válido");
+                    return;
+                }
+
+                rest.registrarUsuario(email, pwd, nick).then(response => {
+                    if (response.success && response.redirect) {
+                        window.location.href = response.redirect;
+                    }
+                }).catch(error => {
+                    cw.mostrarModal(error.message || 'Error inesperado al registrar usuario.');
+                });
             });
 
             // ensure main content visible after loading
@@ -378,6 +1232,18 @@ function ControlWeb() {
             if (opts.email){
                 $("#emailLogin").val(opts.email);
             }
+
+            if (opts.message){
+                cw.mostrarAviso(opts.message, opts.messageType || "info");
+                try {
+                    // limpiar query para que no se repita al recargar
+                    if (window.history && window.history.replaceState){
+                        const clean = window.location.pathname + window.location.hash;
+                        window.history.replaceState({}, document.title, clean);
+                    }
+                } catch(e) {}
+            }
+
             $("#btnLogin").on("click", function(e){
             e.preventDefault();
             let email = $("#emailLogin").val();
@@ -386,6 +1252,48 @@ function ControlWeb() {
                 rest.loginUsuario(email, pwd);
             }
             });
+
+            $("#link-forgot-password").off("click").on("click", function(e){
+                e.preventDefault();
+                const email = ($("#emailLogin").val() || "").trim();
+                const qs = email ? ("?email=" + encodeURIComponent(email)) : "";
+                window.location.href = "/forgot-password" + qs;
+            });
+
+            $("#form-forgot-password").off("submit").on("submit", function(e){
+                e.preventDefault();
+                const email = ($("#forgot-email").val() || "").trim();
+                if (!email){
+                    $("#forgot-password-alert").text("Introduce un email válido.").show();
+                    return;
+                }
+
+                const $btn = $("#btn-forgot-send");
+                $btn.prop("disabled", true).text("Enviando...");
+                $("#forgot-password-alert").hide().text("");
+
+                const base = (window.APP_CONFIG && window.APP_CONFIG.SERVER_URL) ? String(window.APP_CONFIG.SERVER_URL) : "";
+                let url = "/api/auth/password-reset/request";
+                if (base) {
+                    try { url = new URL("/api/auth/password-reset/request", base).toString(); } catch(e2) {}
+                }
+
+                fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ email })
+                }).then(function(){
+                    $("#modalForgotPassword").modal("hide");
+                    cw.mostrarAviso("Si el correo existe, te hemos enviado instrucciones.", "success");
+                }).catch(function(){
+                    $("#modalForgotPassword").modal("hide");
+                    cw.mostrarAviso("Si el correo existe, te hemos enviado instrucciones.", "success");
+                }).finally(function(){
+                    $btn.prop("disabled", false).text("Enviar");
+                });
+            });
+
             // ensure navbar shows the login control when login form is visible
             cw._setNavToLogin();
             // ensure main content visible after loading
@@ -394,9 +1302,9 @@ function ControlWeb() {
     };
 
     this.mostrarModal = function (m) {
-        console.log("[Modal] mensaje recibido:", m);
+        logger.debug("[Modal] mensaje recibido:", m);
         if (!$('#miModal').length) {
-            console.error('[Modal] No se encuentra el modal #miModal en el DOM');
+            logger.error('[Modal] No se encuentra el modal #miModal en el DOM. Asegúrate de que el modal esté definido en index.html.');
             return;
         }
         // 1. vaciar el cuerpo del modal
@@ -406,7 +1314,7 @@ function ControlWeb() {
         $('#mBody').text(m || "");
 
         // 3. mostrar el modal
-        console.log('[Modal] Mostrando modal #miModal');
+        logger.debug('[Modal] Mostrando modal #miModal');
         $('#miModal').modal('show');
     };
 
@@ -475,46 +1383,84 @@ function ControlWeb() {
             return;
         }
 
+        const norm = (v) => String(v || "").trim().toLowerCase();
+        const myNick = norm($.cookie && $.cookie("nick"));
+        const myUserId = norm($.cookie && $.cookie("uid"));
+
         // Usar tarjetas visuales en vez de filas de tabla
         listaFiltrada.forEach(function(p){
-            const me = ($.cookie("nick") || cw.email || "").toLowerCase();
-            const esPropia = (p.propietario && p.propietario.toLowerCase() === me);
-            const jugadores = Array.isArray(p.jugadores)
-                ? p.jugadores.length
-                : (typeof p.jugadores === 'number'
-                    ? p.jugadores
-                    : (p.numJugadores || 0));
-            const maxJug = (typeof p.maxJug === 'number') ? p.maxJug : 2;
-            const partidaCompleta = jugadores >= maxJug;
-            const yaEstoy = Array.isArray(p.jugadores)
-                && p.jugadores.some(j => (j.email || j.nick || "").toLowerCase() === me);
-            const puedeUnirse = !partidaCompleta && !yaEstoy;
-            let textoBoton;
-            if (yaEstoy) {
-                textoBoton = 'En partida';
-            } else if (partidaCompleta) {
-                textoBoton = 'Completa';
-            } else {
-                textoBoton = 'Unirse';
-            }
+            const players = Array.isArray(p.players) ? p.players : [];
+            const jugadores = players.length > 0
+                ? players.length
+                : (Array.isArray(p.jugadores)
+                    ? p.jugadores.length
+                    : (typeof p.jugadores === 'number'
+                        ? p.jugadores
+                        : (p.numJugadores || 0)));
+            const maxPlayers = (typeof p.maxPlayers === 'number')
+                ? p.maxPlayers
+                : ((typeof p.maxJug === 'number') ? p.maxJug : 2);
+            const statusRaw =
+                (typeof p.matchStatus === 'string' && String(p.matchStatus).trim())
+                    ? String(p.matchStatus).trim()
+                    : (typeof p.status === 'string' && String(p.status).trim())
+                        ? String(p.status).trim()
+                        : (jugadores >= maxPlayers ? 'FULL' : 'OPEN');
+            const status = statusRaw;
+            const statusNorm = norm(statusRaw);
+            const started =
+                !!p.started ||
+                statusNorm === 'started' ||
+                statusNorm === 'in_progress';
+            const isFull = jugadores === maxPlayers;
+            const joined = !!myUserId && players.some(pl => norm(pl && pl.userId) === myUserId);
+            const isHost =
+                (!!myUserId && norm(p && p.hostUserId) === myUserId) ||
+                (!myUserId && !!myNick && norm(p && p.propietario) === myNick);
             const juego = p.juego || juegoActual || 'uno';
             const nombreJuego =
                 juego === 'uno'    ? 'Última carta' :
                 juego === '4raya'  ? '4 en raya' :
+                (juego === 'damas' || juego === 'checkers') ? 'Damas' :
                 juego === 'hundir' ? 'Hundir la flota' :
                 juego;
+            const statusClass =
+                statusNorm === 'started' || statusNorm === 'in_progress' ? 'status-active' :
+                statusNorm === 'open' || statusNorm === 'full' || statusNorm === 'waiting' || statusNorm === 'waiting_start' ? 'status-pending' :
+                'status-finished';
             let acciones = '';
-            if (esPropia){
+            if (isHost){
+                const startLabel = "Jugar";
+                const startDisabled = started || !isFull;
+                const startTitle = startDisabled ? "La sala debe estar completa para jugar" : "";
                 acciones += `
-                  <button class="btn btn-jugar btn-continuar" data-codigo="${p.codigo}">Jugar</button>
+                  <button class="btn btn-jugar btn-continuar" data-codigo="${p.codigo}" ${startDisabled ? 'disabled' : ''} ${startTitle ? 'title="' + startTitle + '"' : ''}>${startLabel}</button>
                   <button class="btn btn-eliminar btn-eliminar" data-codigo="${p.codigo}">Eliminar</button>
                 `;
-            } else {
+            } else if (joined) {
+                const waitStartHint = statusNorm === 'waiting_start'
+                    ? '<span class="text-muted small mr-2">Esperando a que el creador inicie...</span>'
+                    : '';
                 acciones += `
-                  <button class="btn btn-primary btn-unirse" data-codigo="${p.codigo}" ${puedeUnirse ? '' : 'disabled'}>${textoBoton}</button>
+                  ${waitStartHint}
+                  <span class="badge badge-pill badge-joined mr-2">Unido</span>
+                  <button class="btn btn-outline-secondary btn-abandonar" data-codigo="${p.codigo}">Abandonar</button>
+                `;
+            } else {
+                const joinDisabled = started || isFull;
+                acciones += `
+                  <button class="btn btn-primary btn-unirse" data-codigo="${p.codigo}" ${joinDisabled ? 'disabled' : ''}>Unirse</button>
                 `;
             }
-            const propietarioTexto = p.propietario || 'Desconocido';
+            let propietarioTexto = p.propietario || 'Anfitrión';
+            if (propietarioTexto.includes('@')) propietarioTexto = 'Anfitrión';
+            const playerList = Array.isArray(p.players)
+                ? p.players.filter((pl) => pl && !pl.isBot).map((pl) => String(pl.displayName || "").trim()).filter(Boolean)
+                : [];
+            const playerListMarkup = playerList.length
+                ? `<div class="text-muted small mb-1">Participantes: ${playerList.join(", ")}</div>`
+                : '';
+
             const card = `
               <tr><td colspan="2" style="padding:0; border:none; background:transparent;">
                 <div class="partida-card-row">
@@ -524,8 +1470,9 @@ function ControlWeb() {
                       <button class="btn btn-light btn-sm ml-1 btn-copiar-codigo" data-codigo="${p.codigo}" title="Copiar código">Copiar</button>
                     </div>
                     <small class="text-muted">
-                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto} · ${jugadores}/${maxJug} jugadores
+                      ${nombreJuego ? nombreJuego + ' · ' : ''}${propietarioTexto} · ${jugadores}/${maxPlayers} · <span class="badge-status ${statusClass}">${status}</span>
                     </small>
+                    ${playerListMarkup}
                   </div>
                   <div class="partida-acciones">${acciones}</div>
                 </div>

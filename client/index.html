@@ -5,16 +5,33 @@
   <!-- <title>Ignition</title> -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        t = (t === 'dark') ? 'dark' : 'light';
+        localStorage.setItem('theme', t);
+        document.documentElement.dataset.theme = t;
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28'/%3E%3Ctext x='32' y='38' font-size='28' text-anchor='middle' fill='white'%3EA%3C/text%3E%3C/svg%3E">
 
 
   <!-- Bootstrap -->
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
   <!-- Tema Ignition -->
-  <link rel="stylesheet" href="css/ignition.css">
+  <link rel="stylesheet" href="css/ignition.css?v=2">
+  <!-- Theme overrides (load after Bootstrap + ignition) -->
+  <link rel="stylesheet" href="assets/css/theme.css?v=2">
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+  <script src="./logger.js"></script>
+  <script src="./toast.js"></script>
+  <script src="./resumeManager.js"></script>
 
 
   <!-- jQuery -->
@@ -24,7 +41,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 
-  <div id="onetap-status" style="font:12px/1.2 sans-serif; color:#666; margin-top:8px;"></div>
+  <div id="onetap-status" style="font:12px/1.2 sans-serif; color:var(--muted); margin-top:8px;"></div>
 
 
   <!-- Socket.IO -->
@@ -32,11 +49,13 @@
   <script src="./clienteWS.js"></script>
 
   <!-- Tus scripts -->
+  <script src="./userService.js"></script>
   <script src="./clienteRest.js"></script>
   <script src="./controlWeb.js"></script>
 </head>
 <body>
-  <nav class="navbar navbar-expand-sm">
+  <div id="app-toast-host" aria-live="polite" aria-atomic="true"></div>
+  <nav class="navbar navbar-expand-sm navbar-light">
     <div class="container-fluid d-flex align-items-center justify-content-between" style="padding-top:0.25rem; padding-bottom:0.25rem;">
       <!-- Logo a la izquierda -->
       <a class="navbar-brand d-flex align-items-center" href="index.html" style="gap:10px; padding:0;">
@@ -76,7 +95,7 @@
     -->
         <ul class="navbar-nav ml-auto">
           <li class="nav-item mr-2">
-            <a class="nav-link nav-link-pill" href="#" id="menuHelp">Ayuda</a>
+            <a class="nav-link nav-link-pill" href="/help" id="menuHelp">Ayuda</a>
           </li>
           <li class="nav-item">
             <button type="button" class="btn btn-ignition" id="menuIniciarSesion">Iniciar sesión</button>
@@ -101,10 +120,12 @@
         setTimeout(initGIS, 100);
         return;
       }
-      // Evitar mostrar One Tap si ya hay cookie 'nick' (usuario ya logueado)
+      // Evitar mostrar One Tap si ya hay cookies de sesi\u00f3n (usuario ya logueado)
       try {
-        const hasNick = (window.jQuery && $.cookie && $.cookie('nick')) || document.cookie.split(';').map(s=>s.trim()).some(s=>s.indexOf('nick=')===0);
-        if (hasNick) return;
+        const hasAuthCookie =
+          (window.jQuery && $.cookie && ($.cookie('email') || ($.cookie('nick') && String($.cookie('nick')).includes('@')))) ||
+          document.cookie.split(';').map(s=>s.trim()).some(s=>s.indexOf('email=')===0);
+        if (hasAuthCookie) return;
       } catch(e) {}
       // Evitar inicializar/mostrar prompt más de una vez
       if (window._oneTapInitialized) return;
@@ -122,14 +143,14 @@
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(response),
                   credentials: 'same-origin'
-                }).then(r => { if (r.redirected) window.location = r.url; }).catch(e => console.error('[GSI] error enviando credential:', e));
-              } catch(e) { console.error('[GSI] callback error:', e); }
+                }).then(r => { if (r.redirected) window.location = r.url; }).catch(e => logger.error('[GSI] error enviando credential:', e));
+              } catch(e) { logger.error('[GSI] callback error:', e); }
             },
             auto_select: false
           });
           google.accounts.id.prompt();
         } catch (e) {
-          console.error('Error inicializando Google Identity:', e);
+          logger.error('Error inicializando Google Identity:', e);
         }
       } else {
         setTimeout(initGIS, 100);
@@ -168,9 +189,39 @@
 
       // Botones del panel de partidas
       $('#btn-crear-partida').on('click', function() {
+        const juego = (window.cw && cw.juegoActual) || (window.ws && ws.gameType) || 'uno';
+        const fixedTwo = (juego === '4raya' || juego === 'damas' || juego === 'checkers');
+
+        $('#select-match-mode').val('PVP');
+        $('#create-maxplayers-group').toggle(!fixedTwo);
+        $('#select-max-players').prop('disabled', fixedTwo);
+        $('#modalCrearPartida').modal('show');
+      });
+
+      $('#btn-confirmar-crear-partida').on('click', function() {
+        const juego = (window.cw && cw.juegoActual) || (window.ws && ws.gameType) || 'uno';
+        const mode = ($('#select-match-mode').val() || 'PVP').toString().trim().toUpperCase();
+        const vsBot = (mode === 'PVBOT');
+
+        const fixedTwo = (juego === '4raya' || juego === 'damas' || juego === 'checkers');
+        const maxPlayers = fixedTwo
+          ? 2
+          : (vsBot && juego === 'uno')
+            ? 1
+            : (parseInt($('#select-max-players').val(), 10) || 2);
         if (ws && ws.crearPartida) {
-          ws.crearPartida();
+          ws.crearPartida(maxPlayers, { mode });
         }
+        $('#modalCrearPartida').modal('hide');
+      });
+
+      $('#select-match-mode').on('change', function() {
+        const juego = (window.cw && cw.juegoActual) || (window.ws && ws.gameType) || 'uno';
+        const mode = ($(this).val() || 'PVP').toString().trim().toUpperCase();
+        const fixedTwo = (juego === '4raya' || juego === 'damas' || juego === 'checkers');
+        const disableMaxPlayers = fixedTwo || (mode === 'PVBOT');
+        $('#create-maxplayers-group').toggle(!disableMaxPlayers);
+        $('#select-max-players').prop('disabled', disableMaxPlayers);
       });
 
 
@@ -208,7 +259,7 @@
       // Handler para botón Unirse en la tabla
       $('#tbody-partidas').on('click', '.btn-unirse', function() {
         const codigo = $(this).data('codigo');
-        console.log('[UI] Click en Unirse, código:', codigo);
+        logger.debug('[UI] Click en Unirse, código:', codigo);
         if (ws && ws.unirAPartida) {
           ws.unirAPartida(codigo);
         }
@@ -233,10 +284,17 @@
       });
     });
 
-    // Botón "← Volver a las partidas" en la vista de juego
-    $(document).on("click", "#btn-volver-juegos", function(){
-        if (window.cw && typeof cw.volverDesdeJuego === "function") {
+    // Botones en la vista de juego
+    $(document).on("click", "#btn-salir-lobby", function(){
+        if (window.cw && typeof cw.salirAlLobbyDesdeJuego === "function") {
+            cw.salirAlLobbyDesdeJuego();
+        } else if (window.cw && typeof cw.volverDesdeJuego === "function") {
             cw.volverDesdeJuego();
+        }
+    });
+    $(document).on("click", "#btn-abandonar-partida", function(){
+        if (window.cw && typeof cw.abandonarDesdeJuego === "function") {
+            cw.abandonarDesdeJuego();
         }
     });
 
@@ -269,40 +327,73 @@
 
   </script>
 
-  <div class="container" id="mainContent">
+  <div class="container py-4" id="mainContent">
     <div id="au"></div>
     <div id="registro"></div>
     <div id="msg"></div>
   </div>
   <!-- Selector de juegos (se muestra tras el login) -->
-  <div class="container mt-4" id="selector-juegos" style="display:none;">
+  <div class="container py-4" id="selector-juegos" style="display:none;">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h5 class="card-title">Elige un juego</h5>
-        <div class="btn-group" role="group" aria-label="Selector de juego">
-          <button class="btn btn-outline-primary btn-juego" data-juego="uno">
-            Última carta
-          </button>
-          <button class="btn btn-outline-secondary btn-juego" data-juego="4raya" disabled>
-            4 en raya
-          </button>
-          <button class="btn btn-outline-secondary btn-juego" data-juego="hundir" disabled>
-            Hundir la flota
-          </button>
+        <div class="page-header">
+          <div>
+            <h5 class="card-title mb-1">Elige un juego</h5>
+            <p class="page-subtitle">Entra a un juego para ver y empezar la partida.</p>
+          </div>
         </div>
-        <small class="text-muted d-block mt-2">
-          (Por ahora solo está activo Última carta.)
-        </small>
+
+        <!-- ContinueGamesBar (visible only when a resumable match exists) -->
+        <div id="continue-games-bar" class="mb-3" style="display:none;"></div>
+
+        <div class="row">
+          <div class="col-12 col-md-4 mb-3">
+            <div class="card h-100">
+              <div class="card-body d-flex flex-column">
+                <h6 class="mb-2">Última carta</h6>
+                <p class="text-muted small mb-3">Partidas rápidas y perfectas para 2–8 jugadores.</p>
+                <button class="btn btn-outline-primary mt-auto btn-juego" data-juego="uno">Entrar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-md-4 mb-3">
+            <div class="card h-100">
+              <div class="card-body d-flex flex-column">
+                <h6 class="mb-2">4 en raya</h6>
+                <p class="text-muted small mb-3">Duelo directo: crea una partida y empieza al instante.</p>
+                <button class="btn btn-outline-primary mt-auto btn-juego" data-juego="4raya">Entrar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-md-4 mb-3">
+            <div class="card h-100">
+              <div class="card-body d-flex flex-column">
+                <h6 class="mb-2">Damas</h6>
+                <p class="text-muted small mb-3">Tablero 8x8 con capturas obligatorias y coronaci&oacute;n.</p>
+                <button class="btn btn-outline-primary mt-auto btn-juego" data-juego="damas">Entrar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
   <!-- Panel de partidas -->
-  <div class="container mt-4" id="panel-partidas" style="display:none;">
+  <div class="container py-4" id="panel-partidas" style="display:none;">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h5 id="titulo-partidas-juego" class="card-title mb-3">
-          Partidas de Última carta
-        </h5>
+        <div class="page-header">
+          <div>
+            <h5 id="titulo-partidas-juego" class="card-title mb-1">Partidas</h5>
+            <p class="page-subtitle">Crea una nueva partida o únete con un código.</p>
+          </div>
+        </div>
+
+        <!-- ContinueGamesBar (visible only when a resumable match exists) -->
+        <div id="continue-games-bar-partidas" class="mb-3" style="display:none;"></div>
 
         <!-- Botones crear / unirse -->
         <div class="d-flex flex-wrap align-items-center mb-3">
@@ -316,7 +407,7 @@
                    class="form-control mr-2"
                    placeholder="Introduce código">
             <button id="btn-unirse-partida"
-                    class="btn btn-outline-secondary">
+                    class="btn btn-outline-primary">
               Unirse
             </button>
           </div>
@@ -340,8 +431,186 @@
     </div>
   </div>
 
+  <!-- Gestionar cuenta (solo tras login) -->
+  <div class="container py-4" id="panel-cuenta" style="display:none;">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="page-header d-flex justify-content-between align-items-center">
+          <div>
+            <h5 class="card-title mb-1">Mi cuenta</h5>
+            <p class="page-subtitle text-muted">Gestiona tu información, credenciales y seguridad.</p>
+          </div>
+          <button id="btn-volver-cuenta" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left"></i> Volver
+          </button>
+        </div>
+
+        <div id="account-alert" class="alert alert-info mb-3" style="display:none;"></div>
+
+        <div class="row">
+          <!-- Información de la cuenta -->
+          <div class="col-12 col-lg-6 mb-3">
+            <div class="card h-100">
+              <div class="card-body">
+                <h6 class="mb-3"><i class="fas fa-user-circle"></i> Información de la cuenta</h6>
+                <div class="d-flex align-items-center mb-3">
+                  <div class="avatar bg-primary text-white rounded-circle d-flex justify-content-center align-items-center" style="width: 60px; height: 60px; font-size: 1.5rem;">
+                    <i class="fas fa-user"></i>
+                  </div>
+                  <div class="ml-3">
+                    <h5 id="account-nombre" class="mb-0">—</h5>
+                    <p id="account-email" class="text-muted small mb-0">Correo no disponible</p>
+                  </div>
+                </div>
+                <table class="table table-sm">
+                  <tbody>
+                    <tr>
+                      <th class="text-muted">Nick</th>
+                      <td id="account-nick">—</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Editar perfil -->
+          <div class="col-12 col-lg-6 mb-3">
+            <div class="card h-100">
+              <div class="card-body">
+                <h6 class="mb-3"><i class="fas fa-edit"></i> Editar perfil</h6>
+                <form id="form-editar-perfil">
+                  <div class="form-group">
+                    <label for="input-nombre">Nombre</label>
+                    <input id="input-nombre" class="form-control" placeholder="Tu nombre (opcional)" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="input-nick">Nick</label>
+                    <input id="input-nick" class="form-control" placeholder="Tu nick visible" required>
+                    <small class="form-text text-muted">Sin espacios. Debe ser único.</small>
+                  </div>
+                  <button id="btn-guardar-perfil" class="btn btn-primary btn-block" type="submit">
+                    <i class="fas fa-save"></i> Guardar cambios
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <!-- Seguridad -->
+          <div class="col-12 col-lg-6 mb-3">
+            <div class="card h-100">
+              <div class="card-body">
+                <h6 class="mb-3"><i class="fas fa-lock"></i> Seguridad</h6>
+                <button id="btn-request-password-change" class="btn btn-outline-primary btn-block" type="button">
+                  <i class="fas fa-key"></i> Cambiar contraseña
+                </button>
+                <p class="text-muted small mt-2">Te enviaremos un enlace por email para restablecerla.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Eliminar cuenta -->
+          <div class="col-12 col-lg-6 mb-3">
+            <div class="card h-100">
+              <div class="card-body">
+                <h6 class="mb-3 text-danger"><i class="fas fa-trash-alt"></i> Eliminar cuenta</h6>
+                <p class="text-muted small">Esta acción es irreversible.</p>
+                <button id="btn-abrir-eliminar-cuenta" class="btn btn-danger btn-block" type="button" data-toggle="modal" data-target="#modalEliminarCuenta">
+                  <i class="fas fa-exclamation-triangle"></i> Eliminar cuenta
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: eliminar cuenta -->
+  <div class="modal fade" id="modalEliminarCuenta" tabindex="-1" role="dialog" aria-labelledby="modalEliminarCuentaLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalEliminarCuentaLabel">Eliminar cuenta</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning">
+            Esta acción es irreversible.
+          </div>
+
+          <div class="form-group">
+            <label for="input-confirmDelete">Escribe ELIMINAR para confirmar</label>
+            <input id="input-confirmDelete" class="form-control" placeholder="ELIMINAR">
+          </div>
+
+          <div class="custom-control custom-checkbox mb-3">
+            <input type="checkbox" class="custom-control-input" id="check-irrevocable">
+            <label class="custom-control-label" for="check-irrevocable">Entiendo que es irreversible</label>
+          </div>
+
+          <div class="form-group" id="delete-password-group">
+            <label for="input-deletePassword">Contraseña (cuentas locales)</label>
+            <input id="input-deletePassword" type="password" class="form-control" autocomplete="current-password">
+            <small class="form-text text-muted">Si tu cuenta es Google, este campo no aplica.</small>
+          </div>
+
+          <div id="delete-account-hint" class="text-muted small"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-danger" id="btn-confirmar-eliminar-cuenta">Eliminar definitivamente</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: crear partida (selección de capacidad) -->
+  <div class="modal fade" id="modalCrearPartida" tabindex="-1" role="dialog" aria-labelledby="modalCrearPartidaLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalCrearPartidaLabel">Crear partida</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="select-match-mode">Modo</label>
+            <select id="select-match-mode" class="form-control mb-2">
+              <option value="PVP" selected>Contra jugador</option>
+              <option value="PVBOT">Contra bot</option>
+            </select>
+            <small class="text-muted d-block mb-3">En vs bot, la partida se inicia automáticamente.</small>
+            <div id="create-maxplayers-group">
+              <label for="select-max-players">Máximo de jugadores</label>
+              <select id="select-max-players" class="form-control">
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+              </select>
+              <small class="text-muted d-block mt-2">Rango: 2–8 jugadores.</small>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="btn-confirmar-crear-partida">Crear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Zona donde se incrusta el juego seleccionado (UNO, etc.) -->
-  <div class="container-fluid mt-4" id="zona-juego" style="display:none;">
+  <div class="container-fluid py-4" id="zona-juego" style="display:none;">
     <div class="card shadow-sm">
       <div class="card-body">
 
@@ -349,9 +618,14 @@
           <h5 id="titulo-juego-actual" class="card-title mb-0">
             Juego: Última carta
           </h5>
-          <button id="btn-volver-juegos" class="btn btn-outline-secondary btn-sm">
-            ← Volver a las partidas
-          </button>
+          <div class="d-flex flex-wrap" style="gap:0.5rem;">
+            <button id="btn-salir-lobby" class="btn btn-outline-secondary btn-sm">
+              Salir al lobby
+            </button>
+            <button id="btn-abandonar-partida" class="btn btn-outline-danger btn-sm">
+              Abandonar
+            </button>
+          </div>
         </div>
 
         <div class="uno-game-wrapper mt-2">
@@ -376,32 +650,22 @@
     </div>
   </div>
 
-
-
-
-  <!-- Modal genérico de la app -->
-  <div class="modal" id="miModal">
-    <div class="modal-dialog">
+  <!-- Modal para mostrar mensajes de error -->
+  <div id="miModal" class="modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
       <div class="modal-content">
-
-        <!-- Cabecera del modal -->
         <div class="modal-header">
           <h5 class="modal-title">Atención</h5>
-          <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
-
-        <!-- Cuerpo del modal -->
         <div class="modal-body" id="mBody">
 
         </div>
-
-        <!-- Pie del modal -->
         <div class="modal-footer">
-          <button type="button" class="btn btn-danger" data-dismiss="modal">Cerrar</button>
+          <button type="button" class="btn btn-primary" data-dismiss="modal">Cerrar</button>
         </div>
-
       </div>
     </div>
   </div>

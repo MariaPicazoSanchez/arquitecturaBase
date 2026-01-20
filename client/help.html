@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Centro de ayuda</title>
+
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        t = (t === 'dark') ? 'dark' : 'light';
+        localStorage.setItem('theme', t);
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    })();
+  </script>
+
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+  <link rel="stylesheet" href="css/ignition.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
+
+  <style>
+    /* Estilos locales (sólidos, sin degradados) */
+    .help-hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+    .help-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: .35rem .6rem;
+      border-radius: 999px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: .85rem;
+    }
+    .help-icon {
+      width: 18px;
+      height: 18px;
+      margin-right: .4rem;
+      flex: 0 0 auto;
+    }
+    .help-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .help-card .card-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .help-kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: .85rem;
+      padding: .15rem .35rem;
+      border-radius: .35rem;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .help-muted { color: var(--muted); }
+    .help-list li { margin-bottom: .35rem; }
+    .help-faq .btn {
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .help-faq .btn:focus { box-shadow: none; }
+    .shadow-soft { box-shadow: var(--shadow); }
+    .btn-help {
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 1.25rem 0;
+    }
+    .help-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container py-5">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-4">
+      <div>
+        <div class="help-badge">
+          <!-- icon: info -->
+          <svg class="help-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 22a10 10 0 1 0-10-10 10 10 0 0 0 10 10Z" stroke="currentColor" stroke-width="2"/>
+            <path d="M12 10v7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M12 7h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+          Centro de ayuda
+        </div>
+        <h1 class="h3 mt-3 mb-1">¿Necesitas ayuda?</h1>
+        <p class="help-muted mb-0">Guías rápidas sobre tu cuenta, recuperación de contraseña y reglas de juego.</p>
+      </div>
+
+      <a class="btn btn-outline-secondary btn-sm btn-help" href="/">
+        Volver
+      </a>
+    </div>
+
+    <!-- Hero -->
+    <div class="help-hero p-4 shadow-soft mb-4">
+      <div class="row">
+        <div class="col-lg-8">
+          <h2 class="h5 mb-2">Empezar en 30 segundos</h2>
+          <ul class="help-list mb-0">
+            <li><strong>Mi cuenta</strong> → actualiza tu <strong>nombre</strong> y <strong>nick</strong> (visible en partidas).</li>
+            <li><strong>Jugar:</strong> elige un juego (Última Carta, 4 en raya o Damas) y desafía a otros jugadores.</li>
+            <li><strong>¿Contraseña olvidada?</strong> → En el login, pulsa <strong>¿No te acuerdas?</strong> y recibe un enlace de recuperación.</li>
+          </ul>
+        </div>
+        <div class="col-lg-4 mt-3 mt-lg-0">
+          <div class="p-3 help-box">
+            <div class="d-flex align-items-center mb-2">
+              <svg class="help-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 1l9 4v6c0 5-4 9-9 12C7 20 3 16 3 11V5l9-4Z" stroke="currentColor" stroke-width="2"/>
+                <path d="M9 12l2 2 4-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <strong>Consejo</strong>
+            </div>
+            <p class="help-muted mb-2">Usa un <strong>nick</strong> que no incluya tu correo. Se mostrará en partidas y rankings.</p>
+            <div class="help-muted small mb-0">Atajo: en la cuenta, tu nick ideal es corto y fácil de leer.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Secciones principales -->
+    <div class="row">
+
+      <!-- Cuenta -->
+      <div class="col-lg-6 mb-4">
+        <div class="card help-card shadow-soft h-100">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center">
+              <svg class="help-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M12 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" stroke="currentColor" stroke-width="2"/>
+              </svg>
+              <h2 class="h5 mb-0">Cuenta</h2>
+            </div>
+            <span class="help-badge">Perfil</span>
+          </div>
+          <div class="card-body">
+            <h3 class="h6 mb-2">Cambiar nombre y nick</h3>
+            <ul class="help-list mb-3">
+              <li>Entra en <strong>Mi cuenta</strong> y edita tu <strong>Nombre</strong> (displayName) y/o tu <strong>Nick</strong>.</li>
+              <li>Pulsa <strong>Guardar</strong> para que se actualice en la base de datos.</li>
+              <li>Si un nick ya existe, se te avisará para que elijas otro.</li>
+            </ul>
+
+            <div class="divider"></div>
+
+            <h3 class="h6 mb-2">Recuperar contraseña sin iniciar sesión</h3>
+            <ul class="help-list mb-0">
+              <li>En el login, pulsa <strong>¿No te acuerdas de la contraseña?</strong>.</li>
+              <li>Recibirás un correo con un enlace de recuperación.</li>
+              <li>Abre el enlace, define una nueva contraseña y vuelve a iniciar sesión.</li>
+            </ul>
+           <h3 class="h6 mb-2 mt-4">Cambiar contraseña iniciando sesión</h3>
+
+            <ul>
+              <li>Una vez iniciado sesión, puedes cambiar tu contraseña desde <strong>Mi cuenta</strong>.</li>
+              <li>Recibirás un correo con un enlace para el cambio de contraseña.</li>
+              <li>Abre el enlace, define una nueva contraseña y vuelve a iniciar sesión.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Juegos -->
+      <div class="col-lg-6 mb-4">
+        <div class="card help-card shadow-soft h-100">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center">
+              <svg class="help-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M7 7h10v10H7Z" stroke="currentColor" stroke-width="2"/>
+                <path d="M4 4h16v16H4Z" stroke="currentColor" stroke-width="2" opacity=".4"/>
+              </svg>
+              <h2 class="h5 mb-0">Juegos</h2>
+            </div>
+            <span class="help-badge">Reglas rápidas</span>
+          </div>
+          <div class="card-body">
+            <h3 class="h6 mb-2">Última Carta</h3>
+            <ul class="help-list mb-3">
+              <li><strong>Objetivo:</strong> quedarte sin cartas (mano vacía = victoria).</li>
+              <li><strong>Jugada válida:</strong> mismo <strong>color</strong> o mismo <strong>valor</strong> que la carta en mesa, o comodín.</li>
+              
+              <li class="mt-2"><strong>Cartas numeradas:</strong> 0–9 en 4 colores (rojo, verde, azul, amarillo).</li>
+              
+              <li><strong>Cartas especiales (con color):</strong>
+                <ul class="small">
+                  <li><strong>+2:</strong> siguiente roba 2 cartas y pierde turno.</li>
+                  <li><strong>+6 / +8:</strong> siguiente roba 6 u 8 cartas (efectos avanzados).</li>
+                  <li><strong>Salto (Skip):</strong> se salta al siguiente jugador.</li>
+                  <li><strong>Reverse:</strong> invierte la dirección del juego.</li>
+                  <li><strong>Double:</strong> siguiente roba cartas = cantidad en su mano actual.</li>
+                </ul>
+              </li>
+
+              <li><strong>Comodines (sin color):</strong>
+                <ul class="small">
+                  <li><strong>Wild:</strong> cambia el color actual (solo cosmético).</li>
+                  <li><strong>+4:</strong> siguiente roba 4 cartas y debes elegir color nuevo.</li>
+                  <li><strong>Swap:</strong> intercambias mano completa con otro jugador.</li>
+                  <li><strong>Discard All:</strong> descartas todas tus cartas de 1 color elegido.</li>
+                </ul>
+              </li>
+
+              <li class="mt-2"><strong>Última Carta (UNO):</strong> cuando bajes a 1 carta, pulsa <strong>Última Carta</strong>. Es importante para el registro de juego.</li>
+              
+              <li><strong>Límite de mano:</strong> si alguien llega a 40 cartas → pierde (gana quien menos tenga).</li>
+              
+              <li><strong>Turno forzado:</strong> si no tienes cartas jugables, debes robar. Si no puedes robar, pierdes turno.</li>
+            </ul>
+
+            <h3 class="h6 mb-2">4 en raya</h3>
+            <ul class="help-list mb-3">
+              <li><strong>Objetivo:</strong> alinear 4 fichas en horizontal, vertical o diagonal.</li>
+              <li>Las fichas caen al fondo de la columna. Turnos alternos.</li>
+              <li>Si activas el sonido, podrás silenciarlo con el botón de mute.</li>
+            </ul>
+
+            <h3 class="h6 mb-2">Damas</h3>
+            <ul class="help-list mb-0">
+              <li><strong>Objetivo:</strong> capturar todas las fichas rivales o dejarle sin movimientos.</li>
+              <li><strong>Capturas:</strong> si puedes comer, debes comer. Algunas jugadas permiten comer varias seguidas.</li>
+              <li><strong>Coronación:</strong> al llegar al borde contrario, tu ficha se convierte en <strong>Reina (K)</strong>.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FAQ -->
+    <div class="card help-card shadow-soft mb-4 help-faq">
+      <div class="card-header">
+        <div class="d-flex align-items-center">
+          <svg class="help-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 22a10 10 0 1 0-10-10 10 10 0 0 0 10 10Z" stroke="currentColor" stroke-width="2"/>
+            <path d="M9.5 9a2.5 2.5 0 1 1 4.1 2c-.8.6-1.6 1.1-1.6 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M12 17h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+          <h2 class="h5 mb-0">Preguntas frecuentes</h2>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="faqAccordion">
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq1" aria-expanded="true">
+              No me llega el correo de recuperación, ¿qué hago?
+            </button>
+            <div id="faq1" class="collapse show" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Revisa spam/promociones. Si sigues sin recibirlo, vuelve a intentarlo y asegúrate de escribir bien el correo.
+                Si persiste, contacta con soporte.
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq2" aria-expanded="false">
+              ¿Por qué no se muestra mi email en la partida?
+            </button>
+            <div id="faq2" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Por privacidad. En partidas se muestra tu <strong>nick</strong> o tu <strong>nombre visible</strong>, nunca tu correo.
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq3" aria-expanded="false">
+              En Damas, ¿por qué me obliga a comer?
+            </button>
+            <div id="faq3" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Es una regla estándar: si existe una captura disponible, debes realizarla. Si tras capturar puedes seguir capturando,
+                debes continuar con la misma ficha.
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq4" aria-expanded="false">
+              En Última Carta, ¿cómo funcionan las cartas +2, +4, +6 y +8?
+            </button>
+            <div id="faq4" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                <strong>+2:</strong> el siguiente jugador roba 2 cartas automáticamente y pierde turno.<br>
+                <strong>+4:</strong> el siguiente roba 4 cartas (y tú eliges nuevo color). Comodín obligatorio.<br>
+                <strong>+6 / +8:</strong> similar a +2, pero el siguiente roba 6 u 8 cartas respectivamente.
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq5" aria-expanded="false">
+              ¿Qué pasa si no puedo jugar una carta en Última Carta?
+            </button>
+            <div id="faq5" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Debes robar 1 carta. Si la carta robada es jugable y quieres, puedes jugarla de inmediato (según reglas). Si no, pierdes turno.
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq6" aria-expanded="false">
+              ¿Qué es el "Swap" en Última Carta?
+            </button>
+            <div id="faq6" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Es un comodín que intercambia tu mano completa con la de otro jugador elegido. Si después de intercambiar 
+                el otro jugador gana (se queda sin cartas), <strong>¡él es el ganador!</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-0">
+            <button class="btn btn-link p-0" data-toggle="collapse" data-target="#faq7" aria-expanded="false">
+              ¿Cuál es el límite máximo de cartas en Última Carta?
+            </button>
+            <div id="faq7" class="collapse" data-parent="#faqAccordion">
+              <div class="help-muted mt-2">
+                Si alguien llega a 40 cartas en mano, la partida termina y <strong>gana el jugador con menos cartas</strong>. 
+                Es una regla de protección para evitar partidas infinitas.
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="d-flex align-items-center justify-content-between flex-wrap">
+          <div class="mb-2 mb-md-0">
+            <div class="font-weight-bold">Contacto</div>
+            <div class="help-muted">Cualquier inconveniente, consulte a:</div>
+            <a href="mailto:picazosanchezmaria@gmail.com">picazosanchezmaria@gmail.com</a>
+          </div>
+          <a class="btn btn-primary btn-help" href="mailto:picazosanchezmaria@gmail.com">
+            Escribir correo
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-center help-muted small">
+      © Table Room · Centro de ayuda
+    </div>
+
+  </div>
+
+  <!-- Bootstrap JS (para collapse/accordion) -->
+  <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+</body>
+</html>

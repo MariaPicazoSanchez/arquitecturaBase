@@ -1,26 +1,51 @@
-<div id="fmLogin">
-  <h2 class="gamezone-title">Game Zone</h2>
-  <h4 class="text-center mb-4" style="color:#3B3B98;">Inicio de sesión</h4>
-  <form>
-    <div class="form-group">
-      <label for="emailLogin">Email</label>
-      <input id="emailLogin" type="email" class="form-control" placeholder="Introduce email" required>
-    </div>
-    <div class="form-group">
-      <label for="pwdLogin">Password</label>
-      <input id="pwdLogin" type="password" class="form-control" placeholder="Introduce password" required>
-    </div>
-    <div class="form-group d-flex align-items-center justify-content-between flex-wrap">
-      <button id="btnLogin" class="btn btn-primary">Iniciar sesión</button>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
 
-      <a href="/auth/google" class="btn btn-google d-inline-flex align-items-center" role="button">
-        <img src="./img/G2.png" class="google-icon" alt="Google"> 
-        <span>Continuar con Google</span>
-      </a>
+<div id="fmLogin" class="auth-screen">
+  <div class="container py-4">
+    <div class="row justify-content-center">
+      <div class="col-12 col-md-7 col-lg-5">
+        <div class="card card-panel shadow-sm">
+          <div class="card-body">
+            <div class="text-center mb-4">
+              <h2 class="gamezone-title mb-1 text-primary">Game Zone</h2>
+              <p class="auth-subtitle">Accede para empezar a jugar.</p>
+            </div>
+
+            <h4 class="h5 text-center mb-4">Inicio de sesión</h4>
+
+            <form>
+              <div class="form-group">
+                <label for="emailLogin">Email</label>
+                <input id="emailLogin" type="email" class="form-control" placeholder="Introduce tu email" required>
+              </div>
+              <div class="form-group">
+                <label for="pwdLogin">Contraseña</label>
+                <div class="input-group">
+                  <input id="pwdLogin" type="password" class="form-control" placeholder="Introduce tu contraseña" required>
+                </div>
+              </div>
+
+              <div class="form-group d-flex justify-content-between align-items-center flex-wrap">
+                <a id="link-forgot-password" href="/forgot-password">¿Has olvidado la contraseña?</a>
+              </div>
+              <div class="form-group d-flex align-items-center justify-content-between flex-wrap">
+                <button id="btnLogin" class="btn btn-primary">Iniciar sesión</button>
+
+                <a href="/auth/google" class="btn btn-google d-inline-flex align-items-center" role="button">
+                  <img src="./img/G2.png" class="google-icon" alt="Google">
+                  <span>Continuar con Google</span>
+                </a>
+              </div>
+            </form>
+
+            <div class="mt-3 text-center">
+              <p class="text-muted mb-2">¿No tienes una cuenta?</p>
+              <button onclick="cw.mostrarRegistro()" class="btn btn-outline-primary">Registrarse</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-  </form>
-  <div class="mt-3 text-center">
-    <p>¿No tienes una cuenta?</p>
-    <button onclick="cw.mostrarRegistro()" class="btn btn-outline-primary">Registrarse</button>
   </div>
 </div>
+

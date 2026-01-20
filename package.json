@@ -1,12 +1,15 @@
 {
-  "name": "ignition",
+  "name": "table-room",
   "version": "1.0.0",
-  "description": "Ignition: interfaz con tema llamativo y colores neon.",
+  "description": "Web que permite jugar a juegos de mesa online con amigos.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "npx jasmine-node server",
-    "dev": "node --env-file .env index.js"
+    "build": "npm --prefix client/games/uno ci && npm --prefix client/games/uno run build && npm --prefix client/games/4raya ci && npm --prefix client/games/4raya run build",
+    "test": "npm --prefix server test",
+    "dev": "node --env-file .env index.js",
+    "test:all": "npm --prefix server test && npm --prefix client test",
+    "test:playwright": "npx playwright test"
   },
   "author": "María Picazo Sánchez",
   "license": "ISC",

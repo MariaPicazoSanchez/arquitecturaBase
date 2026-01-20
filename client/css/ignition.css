@@ -1,13 +1,14 @@
 .partida-card-row {
-  background: #dbe2ef;
+  background: var(--surface);
   border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(24,28,47,0.08);
+  box-shadow: var(--shadow-xs);
   margin-bottom: 14px;
   padding: 18px 22px;
-  color: #222F3E;
+  color: var(--text);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border: 1px solid var(--border);
 }
 
 /* Eliminar cualquier hover/sombra en la tarjeta de partida */
@@ -25,51 +26,65 @@
   font-weight: 700;
   font-size: 1.1rem;
   letter-spacing: 1px;
-  background: #232946;
+  background: var(--primary);
   border-radius: 8px;
   padding: 2px 10px;
   margin-right: 8px;
-  color: #F7B731;
+  color: #ffffff;
   display: inline-block;
 }
 .partida-acciones {
   display: flex;
   gap: 10px;
+  align-items: center;
+}
+.badge-joined{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0.35rem 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: rgba(45, 108, 223, 0.12);
+  color: var(--text);
+  border: 1px solid rgba(45, 108, 223, 0.22);
 }
 .btn-jugar {
-  background: #27ae60;
+  background: var(--primary);
   color: #fff !important;
   border: none;
   border-radius: 7px;
   padding: .5rem 1.2rem;
   font-weight: 700;
   font-size: 1rem;
-  box-shadow: 0 2px 8px rgba(39,174,96,0.13);
+  box-shadow: var(--shadow-xs);
   transition: background .15s, box-shadow .15s, transform .12s;
 }
 .btn-jugar:hover {
-  background: #219150;
-  box-shadow: 0 4px 16px rgba(39,174,96,0.22);
+  background: var(--primary-hover);
+  box-shadow: var(--shadow-sm);
   transform: translateY(-2px);
 }
 .btn-eliminar {
-  background: #e74c3c;
+  background: #dc3545 !important;
   color: #fff !important;
   border: none;
   border-radius: 7px;
   padding: .5rem 1.2rem;
   font-weight: 700;
   font-size: 1rem;
-  box-shadow: 0 2px 8px rgba(231,76,60,0.13);
+  box-shadow: var(--shadow-xs);
   transition: background .15s, box-shadow .15s, transform .12s;
 }
 .btn-eliminar:hover {
-  background: #c0392b;
-  box-shadow: 0 4px 16px rgba(231,76,60,0.22);
+  background: #c82333 !important;
+  box-shadow: var(--shadow-sm);
   transform: translateY(-2px);
 }
 
- :root {
+/* DEPRECATED: Variables are now defined in theme.css */
+/* :root {
   --bg-main: #e5e9f2;
   --primary: #3B3B98;
   --secondary: #F7B731;
@@ -81,6 +96,8 @@
   --card-bg: #f8f9fb;
   --input-bg: #f4f6fa;
   --input-border: #bfc9d1;
+} */
+
 .btn-salir, .btn-danger {
   background: var(--danger);
   color: var(--text-light) !important;
@@ -88,21 +105,20 @@
   border-radius: 8px;
   padding: .5rem 1.2rem;
   font-weight: 600;
-  box-shadow: 0 2px 8px rgba(231,76,60,0.08);
+  box-shadow: var(--shadow-xs);
   transition: background .15s, box-shadow .15s, transform .12s;
 }
 .btn-salir:hover, .btn-danger:hover {
   background: var(--danger-hover);
   color: var(--text-light) !important;
-  box-shadow: 0 4px 16px rgba(231,76,60,0.12);
+  box-shadow: var(--shadow-sm);
   transform: translateY(-2px);
-}
 }
 
 /* Page background */
 body {
-  background: var(--bg-main);
-  color: var(--text-main);
+  background: var(--bg) !important;
+  color: var(--text) !important;
   font-family: 'Segoe UI', Inter, Arial, sans-serif;
   min-height: 100vh;
 }
@@ -117,9 +133,9 @@ body {
 /* Navbar style */
 
 .navbar {
-  background: #fff;
-  border-bottom: 1px solid #e3e3e3;
-  box-shadow: 0 2px 8px rgba(34,47,62,0.03);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
   padding: 0.25rem 1.2rem;
 }
 .navbar .navbar-brand {
@@ -141,10 +157,11 @@ body {
 .navbar .nav-link{ color: var(--accent-2) !important; }
 
 /* Containers / cards */
-.container, .card{
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+.card{
+  background: var(--surface);
   border-radius: 12px;
   padding: 18px;
+  border: 1px solid var(--border);
 }
 
 /* Headings */
@@ -183,12 +200,12 @@ h1, h2, h3 { color: var(--primary); }
 /* Form controls */
 
 .form-control {
-  background: var(--input-bg);
-  border: 1.5px solid var(--input-border);
-  color: var(--text-main);
+  background: var(--input-bg) !important;
+  border: 1.5px solid var(--input-border) !important;
+  color: var(--text) !important;
   box-shadow: none;
 }
-.form-control::placeholder { color: #8a8a8a; }
+.form-control::placeholder { color: var(--muted); }
 
 /* Small glowing accent */
 .accent-glow{ text-shadow: 0 4px 18px rgba(0,212,255,0.08); }

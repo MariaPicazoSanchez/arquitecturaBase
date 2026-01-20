@@ -87,33 +87,43 @@ describe("Pruebas de las partidas", function(){
     let lista = sistema.obtenerPartidasDisponibles();
     expect(lista.length).toEqual(1);
     expect(lista[0].codigo).toEqual(codigo);
-    expect(lista[0].propietario).toEqual(usr.email);
+    expect(typeof lista[0].propietario).toEqual("string");
+    expect(lista[0].propietario.includes("@")).toBe(false);
   });
 
   it("Unir a partida y completar aforo", function(){
     let codigo = sistema.crearPartida(usr.email);
     let res = sistema.unirAPartida(usr2.email, codigo);
-    expect(res).toEqual(codigo);
+    expect(res.codigo).toEqual(codigo);
     // al estar llena (2 jugadores) ya no est�� disponible
-    expect(sistema.obtenerPartidasDisponibles().length).toEqual(0);
+    const lista = sistema.obtenerPartidasDisponibles();
+    expect(lista.length).toEqual(1);
+    expect(lista[0].codigo).toEqual(codigo);
+    expect(lista[0].status).toEqual("FULL");
     // un tercer jugador no puede unirse
     let res3 = sistema.unirAPartida(usr3.email, codigo);
-    expect(res3).toEqual(-1);
+    expect(res3.codigo).toEqual(-1);
+    expect(res3.reason).toEqual("FULL");
   });
 
   it("Un usuario no puede estar dos veces en la misma partida", function(){
     let codigo = sistema.crearPartida(usr.email);
     let res1 = sistema.unirAPartida(usr2.email, codigo);
     let res2 = sistema.unirAPartida(usr2.email, codigo);
-    expect(res1).toEqual(codigo);
-    expect(res2).toEqual(-1);
+    expect(res1.codigo).toEqual(codigo);
+    expect(res2.codigo).toEqual(-1);
+    expect(res2.reason).toEqual("ALREADY_IN");
   });
 
   it("Obtener partidas disponibles devuelve c��digo y propietario", function(){
     let codigo = sistema.crearPartida(usr.email);
     let lista = sistema.obtenerPartidasDisponibles();
-    expect(lista).toEqual(jasmine.arrayContaining([
-      jasmine.objectContaining({ codigo: codigo, propietario: usr.email })
-    ]));
+    const found = Array.isArray(lista) && lista.some(p =>
+      p &&
+      p.codigo === codigo &&
+      typeof p.propietario === "string" &&
+      !p.propietario.includes("@")
+    );
+    expect(found).toBe(true);
   });
 });

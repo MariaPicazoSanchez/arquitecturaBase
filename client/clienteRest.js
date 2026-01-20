@@ -102,10 +102,14 @@ function ClienteRest() {
             dataType: 'json',
             success: function(data) {
                 try { $.removeCookie('nick'); } catch(e) {}
+                try { $.removeCookie('email'); } catch(e) {}
+                try { $.removeCookie('uid'); } catch(e) {}
                 window.location.reload();
             },
             error: function() {
                 try { $.removeCookie('nick'); } catch(e) {}
+                try { $.removeCookie('email'); } catch(e) {}
+                try { $.removeCookie('uid'); } catch(e) {}
                 window.location.reload();
             }
         });
@@ -113,7 +117,7 @@ function ClienteRest() {
 
 
     this.registrarUsuario = function(email, password, nick){
-        console.log("[cliente] Iniciando registro para:", email);
+        // No loggear emails.
         $.ajax({
             type: 'POST',
             url: '/registrarUsuario',
@@ -122,38 +126,32 @@ function ClienteRest() {
             dataType: 'json',
             
             success: function(data, status, xhr){
-                console.log("[cliente] SUCCESS status:", xhr.status, "data:", data);
-                if (data.nick && data.nick !== -1){
+                if (data && data.ok){
                     cw.limpiar();
                     cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
                     cw.mostrarLogin({ email, keepMessage: true });
                 } else {
-                    console.log("[cliente] Registro fallido:", data);
                     const errorMsg = data.error || "No se ha podido registrar el usuario";
                     cw.mostrarModal(errorMsg);
                 }
             },
             error: function(xhr, status, error){
-                console.log("[cliente] ERROR status:", xhr.status, "responseText:", xhr.responseText);
                 let errorMsg = "Error al registrar el usuario";
                 
                 // Intentar parsear el JSON de la respuesta de error
                 try {
                     if (xhr.responseText) {
                         const resp = JSON.parse(xhr.responseText);
-                        console.log("[cliente] Parsed error response:", resp);
                         if (resp && resp.error) {
                             errorMsg = resp.error;
                         }
                     }
                 } catch(e) {
-                    console.log("[cliente] No se pudo parsear responseText:", e.message);
                 }
                 
                 cw.mostrarModal(errorMsg);
             },
             complete: function(xhr, textStatus){
-                console.log("[cliente] COMPLETE:", textStatus, "status:", xhr.status);
             }
         });
     };
@@ -166,18 +164,30 @@ function ClienteRest() {
             data: JSON.stringify({ email, password }),
             contentType: 'application/json',
             success: function(data){
-                if (data.nick && data.nick !== -1){
-                    $.cookie("nick", data.nick);
-                    cw.email = data.nick;
+                if (data && data.ok && data.email){
+                    try { $.cookie("email", data.email); } catch(e) {}
+                    try { if (data.nick) $.cookie("nick", data.nick); } catch(e) {}
+                    cw.email = data.email;
                     if (window.ws){
-                        ws.email = data.nick;
+                        ws.email = data.email;
                     }
                     cw.limpiar();
                     $("#msg").empty();
                     cw.mostrarSelectorJuegos();
                     
                     try { sessionStorage.setItem("bienvenidaMostrada","1"); } catch(e){}
-                    cw.mostrarMensaje("Bienvenido al sistema, " + data.nick, "success");
+                    if (window.userService && typeof userService.getMe === "function"){
+                        userService.getMe()
+                            .done(function(me){
+                                const label = (me && me.nick) ? me.nick : "";
+                                cw.mostrarMensaje(label ? ("Bienvenido a Table Room, " + label) : "Bienvenido a Table Room", "success");
+                            })
+                            .fail(function(){
+                                cw.mostrarMensaje("Bienvenido a Table Room", "success");
+                            });
+                    } else {
+                        cw.mostrarMensaje("Bienvenido a Table Room", "success");
+                    }
                 } else {
                     cw.mostrarAviso("Email o contraseña incorrectos.", "error");
                     cw.mostrarModal("No se ha podido iniciar sesión. Credenciales incorrectas o usuario inexistente.");
@@ -214,7 +224,97 @@ function ClienteRest() {
             }
         });
     };
-    
+
+    // --------------------
+    // Mi cuenta
+    // --------------------
+    this.obtenerMiCuenta = function(onOk, onErr){
+        if (window.userService && typeof userService.getMe === "function"){
+            userService.getMe()
+                .done(function(user){ if (typeof onOk === "function") onOk(user); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo cargar tu cuenta';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+
+    this.actualizarMiCuenta = function(payload, onOk, onErr){
+        if (window.userService && typeof userService.updateMe === "function"){
+            userService.updateMe(payload || {})
+                .done(function(user){ if (typeof onOk === "function") onOk(user); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo actualizar el perfil';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+
+    this.solicitarCambioPasswordMiCuenta = function(onOk, onErr){
+        if (window.userService && typeof userService.requestPasswordChange === "function"){
+            userService.requestPasswordChange()
+                .done(function(){ if (typeof onOk === "function") onOk(); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo enviar el correo';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+
+    this.confirmarCambioPasswordMiCuenta = function(payload, onOk, onErr){
+        const code = payload && (payload.code || payload.codeOrToken);
+        const newPassword = payload && payload.newPassword;
+        if (window.userService && typeof userService.confirmPasswordChange === "function"){
+            userService.confirmPasswordChange(code, newPassword)
+                .done(function(){ if (typeof onOk === "function") onOk(); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo cambiar la contraseña';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+
+    this.eliminarMiCuenta = function(payload, onOk, onErr){
+        if (window.userService && typeof userService.deleteMe === "function"){
+            userService.deleteMe(payload || {})
+                .done(function(){ if (typeof onOk === "function") onOk(); })
+                .fail(function(xhr){
+                    let msg = 'No se pudo eliminar la cuenta';
+                    try {
+                        const resp = xhr && xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                        if (resp && resp.error) msg = resp.error;
+                    } catch(e) {}
+                    if (typeof onErr === "function") onErr(msg);
+                });
+            return;
+        }
+        if (typeof onErr === "function") onErr("Servicio de cuenta no disponible.");
+    };
+     
 
 }
 

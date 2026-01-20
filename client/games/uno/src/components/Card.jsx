@@ -7,6 +7,51 @@ const COLOR_MAP = {
   yellow: '#facc15',
 };
 
+const COLOR_LABEL = {
+  red: 'rojo',
+  green: 'verde',
+  blue: 'azul',
+  yellow: 'amarillo',
+  wild: 'comodín',
+};
+
+function getCardTooltip(card) {
+  if (!card) return '';
+  const value = String(card.value ?? '');
+  const color = String(card.color ?? '');
+
+  if (/^\d+$/.test(value)) {
+    return `Número ${value} · Color ${COLOR_LABEL[color] ?? color}`;
+  }
+
+  if (value === 'skip') return 'Salta el turno del siguiente jugador.';
+  if (value === 'reverse') return 'Cambia el sentido de juego.';
+  if (value === '+2') return 'El siguiente roba 2 y pierde el turno.';
+  if (value === '+6') return 'El siguiente roba 6 y pierde el turno.';
+  if (value === '+8') return 'El siguiente roba 8 y pierde el turno.';
+
+  if (value === 'wild') {
+    const chosen =
+      color !== 'wild' ? ` (color elegido: ${COLOR_LABEL[color] ?? color})` : '';
+    return `Comodín: elige un color.${chosen}`;
+  }
+
+  if (value === '+4') {
+    const chosen =
+      color !== 'wild' ? ` (color elegido: ${COLOR_LABEL[color] ?? color})` : '';
+    return `Comodín +4: elige un color. El siguiente roba 4 y pierde el turno.${chosen}`;
+  }
+
+  if (value === 'double') {
+    return 'Double (x2): el siguiente roba tantas cartas como tenga en ese momento y pierde el turno.';
+  }
+  if (value === 'swap') return 'Intercambia tu mano con otro jugador y elige color.';
+  if (value === 'discard_all') return 'Elige un color y descartas todas las cartas de ese color.';
+  if (value === 'skip_all') return 'Saltas a todos y juegas otra vez.';
+
+  return `${value} · Color ${COLOR_LABEL[color] ?? color}`;
+}
+
 export default function Card({
   card,
   onClick,
@@ -15,12 +60,17 @@ export default function Card({
   isPlayable = false,
   isLastPlayed = false,
 }) {
-  const isWildType = card.value === 'wild' || card.value === '+4';
+
+  const isColorlessSpecial = card.color === 'wild' || card.value === 'swap' || card.value === 'discard_all';
 
   let displayValue = card.value;
   if (card.value === 'skip') displayValue = '⏭';
   else if (card.value === 'reverse') displayValue = '↺';
   else if (card.value === 'wild') displayValue = '★';
+  else if (card.value === 'double') displayValue = 'x2';
+  else if (card.value === 'swap') displayValue = '⇄';
+  else if (card.value === 'discard_all') displayValue = '✖';
+  else if (card.value === 'skip_all') displayValue = '⦸';
 
   const classes = [
     'uno-card',
@@ -28,57 +78,41 @@ export default function Card({
     disabled && 'uno-card--disabled',
     isPlayable && 'uno-card--playable',
     isLastPlayed && 'uno-card--last-played',
-    isWildType && 'uno-card--wild',
+    (card.value === 'wild' || card.value === '+4') && 'uno-card--wild',
   ]
     .filter(Boolean)
     .join(' ');
 
-  // Caso 1: carta normal o comodín ya con color elegido
   const baseColor = COLOR_MAP[card.color];
+  
+  const rainbow =
+  'linear-gradient(135deg, #ef4444 0 25%, #facc15 25% 50%, #22c55e 50% 75%, #3b82f6 75% 100%)';
+  
 
-  let innerStyle;
-
-  if (isWildType) {
-    if (card.color === 'wild') {
-      // Comodín en la mano (sin color decidido): multicolor
-      innerStyle = {
-        background:
-          'conic-gradient(from 45deg, #ef4444, #facc15, #22c55e, #3b82f6, #ef4444)',
+  const innerStyle = isColorlessSpecial
+    ? {
+        backgroundColor: '#111827',
+        backgroundImage: rainbow,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
+        backgroundPosition: 'center',
+      }
+    : {
+        backgroundColor: baseColor || '#111827',
+        backgroundImage:
+          'linear-gradient(180deg, rgba(255,255,255,0.22), rgba(0,0,0,0.10))',
       };
-    } else {
-      // Comodín ya jugado: usa el color elegido
-      innerStyle = {
-        background:
-          `radial-gradient(circle at 30% 20%, rgba(248,250,252,0.55), transparent 55%),` +
-          `radial-gradient(circle at 70% 80%, rgba(15,23,42,0.4), transparent 60%),` +
-          `linear-gradient(135deg, ${baseColor || '#e5e7eb'}, ${baseColor || '#e5e7eb'})`,
-      };
-    }
-  } else {
-    // Carta normal de color
-    innerStyle = {
-      background:
-        `radial-gradient(circle at 30% 20%, rgba(248,250,252,0.55), transparent 55%),` +
-        `radial-gradient(circle at 70% 80%, rgba(15,23,42,0.4), transparent 60%),` +
-        `linear-gradient(135deg, ${baseColor || '#e5e7eb'}, ${baseColor || '#e5e7eb'})`,
-    };
-  }
 
   return (
     <div
       className={classes}
       onClick={disabled ? undefined : onClick}
+      title={getCardTooltip(card)}
     >
       <div className="uno-card__inner" style={innerStyle}>
-        <div className="uno-card__corner uno-card__corner--tl">
-          {displayValue}
-        </div>
-
+        <div className="uno-card__corner uno-card__corner--tl">{displayValue}</div>
         <div className="uno-card__center">{displayValue}</div>
-
-        <div className="uno-card__corner uno-card__corner--br">
-          {displayValue}
-        </div>
+        <div className="uno-card__corner uno-card__corner--br">{displayValue}</div>
       </div>
     </div>
   );
