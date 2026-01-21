@@ -1,52 +1,27 @@
 const nodemailer = require('nodemailer');
+
 let transporter;
-// PRODUCCIÓN
-if (process.env.NODE_ENV == 'production') {
-  const gv = require('./gestorVariables.js');
+let options = { user: '', pass: '' };
+let initPromise;
 
-  let options = {
-    user: "",
-    pass: ""
-  };
-
-
-  gv.obtenerOptions(function (res) {
-    options = res;
-
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: options
-    });
-
-    console.log("[email] Transporter inicializado con correo de:", options.user);
-  });
-} else {
-// DESARROLLO LOCAL
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.MAIL_FROM,
-      pass: process.env.MAIL_PASS
+async function initTransporter() {
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    if (process.env.NODE_ENV === 'production') {
+      const gv = require('./gestorVariables.js');
+      options = await gv.obtenerOptions();
+      transporter = nodemailer.createTransport({ service: 'gmail', auth: options });
+      console.log('[email] Transporter inicializado con correo de:', options.user);
+    } else {
+      options = { user: process.env.MAIL_FROM, pass: process.env.MAIL_PASS };
+      transporter = nodemailer.createTransport({ service: 'gmail', auth: options });
     }
-  });
+  })();
+  return initPromise;
 }
 
 module.exports.enviarEmail = async function(direccion, key, men) {
-  // Si no hay transporter, esperar a que esté listo
-  if (!transporter) {
-    await new Promise(resolve => {
-      const checkInterval = setInterval(() => {
-        if (transporter) {
-          clearInterval(checkInterval);
-          resolve();
-        }
-      }, 100);
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        resolve();
-      }, 5000); // timeout de 5 segundos
-    });
-  }
+  await initTransporter();
 
   const APP_URL = process.env.APP_URL;
   const confirmUrl = `${APP_URL}/confirmarUsuario/${encodeURIComponent(direccion)}/${encodeURIComponent(key)}`;
@@ -72,7 +47,7 @@ module.exports.enviarEmail = async function(direccion, key, men) {
     </div>
   `;
 
-  const fromEmail = process.env.NODE_ENV === 'production' ? process.env.MAIL_FROM : process.env.MAIL_FROM;
+  const fromEmail = options.user || process.env.MAIL_FROM;
 
   await transporter.sendMail({
     from: fromEmail,
