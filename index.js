@@ -532,13 +532,13 @@ app.get("/confirmarUsuario/:email/:key", (req, res) => {
         if (err) {
           logger.error("[/confirmarUsuario] Error guardando sesión:", err);
         }
-        // Redirigir al home - el cliente detectará la sesión y mostrará el lobby
+        // Redirigir directamente al lobby una vez confirmada la cuenta
         res.redirect('/');
       });
     } else {
       logger.debug("[/confirmarUsuario] confirmación fallida:", usr);
       // Redirigir a login si falla
-      res.redirect('/login.html');
+      res.redirect('/');
     }
   };
 
