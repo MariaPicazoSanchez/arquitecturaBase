@@ -1,14 +1,44 @@
-const nodemailer = require("nodemailer");
+const nodemailer = require('nodemailer');
+const gv = require('./gestorVariables.js');
+const logger = require('./logger.js');
 
-function getTransporter() {
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: {
+let options = {
+  user: "",
+  pass: ""
+};
+
+let transporter;
+
+// Inicializar transporter desde Google Cloud Secret Manager (producción) o variables de entorno (desarrollo)
+async function initTransporter() {
+  try {
+    // Intentar obtener desde Google Cloud Secret Manager (producción)
+    const res = await gv.obtenerOptions();
+    options = res;
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: options
+    });
+    logger.info("[email] Transporter inicializado desde Secret Manager con correo de:", options.user);
+  } catch (err) {
+    // Si falla (desarrollo local), usar variables de entorno
+    logger.debug("[email] Secret Manager no disponible, usando variables de entorno para email", err && err.message);
+    options = {
       user: process.env.MAIL_FROM,
-      pass: process.env.MAIL_PASS,
-    },
-  });
+      pass: process.env.MAIL_PASS
+    };
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: options
+    });
+    logger.info("[email] Transporter inicializado desde variables de entorno con correo de:", options.user);
+  }
 }
+
+// Inicializar transporter al cargar el módulo
+initTransporter().catch(err => {
+  logger.error("[email] Error crítico inicializando transporter:", err);
+});
 
 function buildAbsoluteUrl(pathname, baseUrl) {
   const base = (baseUrl || "").toString().trim();
@@ -47,20 +77,13 @@ module.exports.enviarEmail = async function (direccion, key, men) {
     </div>
   `;
 
-  // Enviar email en todos los ambientes (desarrollo y producción)
-  try {
-    const transporter = getTransporter();
-    await transporter.sendMail({
-      from: process.env.MAIL_FROM,
-      to: direccion,
-      subject: men || "Confirmar cuenta",
-      text: `Bienvenido.\n\nConfirma tu cuenta aquí:\n${confirmUrl}\n`,
-      html,
-    });
-  } catch (err) {
-    // Re-lanzar el error para que sea capturado en modelo.js
-    throw err;
-  }
+  await transporter.sendMail({
+    from: options.user,
+    to: direccion,
+    subject: men || "Confirmar cuenta",
+    text: `Bienvenido.\n\nConfirma tu cuenta aquí:\n${confirmUrl}\n`,
+    html,
+  });
 };
 
 module.exports.enviarEmailCambioPassword = async function (direccion, payloadOrCode) {
@@ -85,19 +108,12 @@ module.exports.enviarEmailCambioPassword = async function (direccion, payloadOrC
     </div>
   `;
 
-  // Enviar email en todos los ambientes (desarrollo y producción)
-  try {
-    const transporter = getTransporter();
-    await transporter.sendMail({
-      from: process.env.MAIL_FROM,
-      to: direccion,
-      subject: "Cambiar contraseña",
-      text: `Codigo para cambiar contraseña: ${codeStr}\n${resetLink ? `\nEnlace de reset: ${resetLink}\n` : ""}\nSi no has sido tu, ignora este correo.\n`,
-      html,
-    });
-  } catch (err) {
-    // Re-lanzar el error para que sea capturado en modelo.js
-    throw err;
-  }
+  await transporter.sendMail({
+    from: options.user,
+    to: direccion,
+    subject: "Cambiar contraseña",
+    text: `Codigo para cambiar contraseña: ${codeStr}\n${resetLink ? `\nEnlace de reset: ${resetLink}\n` : ""}\nSi no has sido tu, ignora este correo.\n`,
+    html,
+  });
 };
 
