@@ -541,39 +541,105 @@ function Sistema() {
   // ===========================
   // REGISTRO con confirmación
   // ===========================
-  this.registrarUsuario = async function (nickOrObj, email, password) {
-    // Soporta tanto firma antigua (nick, email, password) como nueva (objeto)
-    let nick, finalEmail, finalPassword;
+  this.registrarUsuario = function (nickOrObj, email, password, callback) {
+    logger.debug("[modelo.registrarUsuario] entrada:", { nickOrObj, email });
+    const modelo = this;
+    let responded = false;
+    
+    // Soporta tanto firma antigua (nick, email, password, callback) como nueva (objeto, callback)
+    let nick, finalEmail, finalPassword, finalCallback;
     
     if (typeof nickOrObj === 'object' && nickOrObj !== null) {
       // Nuevo formato: objeto con {email, password, nick, ...}
       nick = nickOrObj.nick;
       finalEmail = nickOrObj.email;
       finalPassword = nickOrObj.password;
+      finalCallback = email; // El callback está en el segundo parámetro
     } else {
-      // Formato antiguo: (nick, email, password)
+      // Formato antiguo: (nick, email, password, callback)
       nick = nickOrObj;
       finalEmail = email;
       finalPassword = password;
+      finalCallback = callback;
     }
+
+    const finish = (result) => {
+      if (!responded) {
+        responded = true;
+        logger.debug("[modelo.registrarUsuario] respuesta:", result);
+        if (finalCallback) finalCallback(result);
+      }
+    };
+
+    // Timeout de seguridad
+    setTimeout(() => finish({ email: -1, reason: "timeout" }), 8000);
 
     // Validaciones
     if (!finalEmail || !finalPassword || !nick) {
-      return { email: -1, error: 'Datos incompletos' };
+      return finish({ email: -1, reason: "datos_incompletos" });
     }
 
-    if (this.usuarios[finalEmail]) {
-      throw new Error('El email ya está registrado');
-    }
-    if (Object.values(this.usuarios).some(user => user.nick === nick)) {
-      throw new Error('El nick ya está en uso');
-    }
+    // Verificar si ya existe
+    this.cad.buscarUsuario({ email: finalEmail }, function (usuarioExistente) {
+      if (usuarioExistente) {
+        modelo.registrarActividad("registrarUsuarioFallido_emailDuplicado", finalEmail);
+        return finish({ email: -1, reason: "email_ya_registrado" });
+      }
 
-    const hashedPassword = await bcrypt.hash(finalPassword, 10);
-    this.usuarios[finalEmail] = { nick, email: finalEmail, password: hashedPassword };
+      // Verificar si el nick está en uso
+      modelo.cad.buscarUsuario({ nick }, function (usuarioConNick) {
+        if (usuarioConNick) {
+          modelo.registrarActividad("registrarUsuarioFallido_nickDuplicado", nick);
+          return finish({ email: -1, reason: "nick_ya_registrado" });
+        }
 
-    // Simular redirección exitosa
-    return { success: true, redirect: 'Inicio de sesión' };
+        // Hashear la contraseña antes de guardarla
+        bcrypt.hash(finalPassword, 10, function(err, hashedPassword) {
+          if (err) {
+            logger.error("[modelo.registrarUsuario] error al hashear contraseña:", err);
+            modelo.registrarActividad("registrarUsuarioFallido_hash", finalEmail);
+            return finish({ email: -1, reason: "error_hash" });
+          }
+
+          // Generar clave de confirmación
+          const key = crypto.randomBytes(32).toString("hex");
+          
+          // Crear el usuario en la base de datos con la contraseña hasheada
+          const nuevoUsuario = {
+            email: finalEmail,
+            password: hashedPassword,
+            nick: nick,
+            key: key,
+            confirmada: false
+          };
+
+          modelo.cad.insertarUsuario(nuevoUsuario, function (usr) {
+            if (!usr || !usr.email) {
+              logger.error("[modelo.registrarUsuario] error al insertar usuario");
+              modelo.registrarActividad("registrarUsuarioFallido_insercion", finalEmail);
+              return finish({ email: -1, reason: "error_insercion" });
+            }
+
+            logger.debug("[modelo.registrarUsuario] usuario insertado, enviando email...");
+            
+            // Enviar email de confirmación
+            const correo = require("./email.js");
+            correo.enviarEmail(finalEmail, key, "Confirma tu cuenta")
+              .then(() => {
+                logger.info("[modelo.registrarUsuario] email enviado correctamente a", finalEmail);
+                modelo.registrarActividad("registrarUsuario", finalEmail);
+                finish({ email: finalEmail, nick: nick });
+              })
+              .catch(err => {
+                logger.error("[modelo.registrarUsuario] error al enviar email:", err);
+                // Aún así consideramos éxito porque el usuario fue creado
+                modelo.registrarActividad("registrarUsuario_sinEmail", finalEmail);
+                finish({ email: finalEmail, nick: nick });
+              });
+          });
+        });
+      });
+    });
   };
 
   // ===========================

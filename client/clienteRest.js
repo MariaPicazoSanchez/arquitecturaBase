@@ -118,41 +118,47 @@ function ClienteRest() {
 
     this.registrarUsuario = function(email, password, nick){
         // No loggear emails.
-        $.ajax({
-            type: 'POST',
-            url: '/registrarUsuario',
-            data: JSON.stringify({ email: email, password: password, nick: nick }),
-            contentType: 'application/json',
-            dataType: 'json',
-            
-            success: function(data, status, xhr){
-                if (data && data.ok){
-                    cw.limpiar();
-                    cw.mostrarAviso("Registro completado. Revisa el correo para verificar.", "success");
-                    cw.mostrarLogin({ email, keepMessage: true });
-                } else {
-                    const errorMsg = data.error || "No se ha podido registrar el usuario";
-                    cw.mostrarModal(errorMsg);
-                }
-            },
-            error: function(xhr, status, error){
-                let errorMsg = "Error al registrar el usuario";
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                type: 'POST',
+                url: '/registrarUsuario',
+                data: JSON.stringify({ email: email, password: password, nick: nick }),
+                contentType: 'application/json',
+                dataType: 'json',
                 
-                // Intentar parsear el JSON de la respuesta de error
-                try {
-                    if (xhr.responseText) {
-                        const resp = JSON.parse(xhr.responseText);
-                        if (resp && resp.error) {
-                            errorMsg = resp.error;
-                        }
+                success: function(data, status, xhr){
+                    if (data && data.ok){
+                        cw.limpiar();
+                        cw.mostrarLogin({ 
+                            email, 
+                            message: "Registro completado. Revisa tu correo electrónico para verificar tu cuenta.", 
+                            messageType: "success"
+                        });
+                        resolve({ success: true, redirect: null });
+                    } else {
+                        const errorMsg = data.error || "No se ha podido registrar el usuario";
+                        reject(new Error(errorMsg));
                     }
-                } catch(e) {
+                },
+                error: function(xhr, status, error){
+                    let errorMsg = "Error al registrar el usuario";
+                    
+                    // Intentar parsear el JSON de la respuesta de error
+                    try {
+                        if (xhr.responseText) {
+                            const resp = JSON.parse(xhr.responseText);
+                            if (resp && resp.error) {
+                                errorMsg = resp.error;
+                            }
+                        }
+                    } catch(e) {
+                    }
+                    
+                    reject(new Error(errorMsg));
+                },
+                complete: function(xhr, textStatus){
                 }
-                
-                cw.mostrarModal(errorMsg);
-            },
-            complete: function(xhr, textStatus){
-            }
+            });
         });
     };
 
