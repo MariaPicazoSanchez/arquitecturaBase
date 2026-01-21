@@ -50,13 +50,19 @@ module.exports.enviarEmail = async function (direccion, key, men) {
     </div>
   `;
 
-  await transporter.sendMail({
-    from: options.user || process.env.MAIL_FROM,
-    to: direccion,
-    subject: men || "Confirmar cuenta",
-    text: `Bienvenido.\n\nConfirma tu cuenta aquí:\n${confirmUrl}\n`,
-    html,
-  });
+  // Enviar email en todos los ambientes (desarrollo y producción)
+  try {
+    await transporter.sendMail({
+      from: options.user || process.env.MAIL_FROM,
+      to: direccion,
+      subject: men || "Confirmar cuenta",
+      text: `Bienvenido.\n\nConfirma tu cuenta aquí:\n${confirmUrl}\n`,
+      html,
+    });
+  } catch (err) {
+    // Re-lanzar el error para que sea capturado en modelo.js
+    throw err;
+  }
 };
 
 module.exports.enviarEmailCambioPassword = async function (direccion, payloadOrCode) {
@@ -81,12 +87,18 @@ module.exports.enviarEmailCambioPassword = async function (direccion, payloadOrC
     </div>
   `;
 
-  await transporter.sendMail({
-    from: options.user || process.env.MAIL_FROM,
-    to: direccion,
-    subject: "Cambiar contraseña",
-    text: `Codigo para cambiar contraseña: ${codeStr}\n${resetLink ? `\nEnlace de reset: ${resetLink}\n` : ""}\nSi no has sido tu, ignora este correo.\n`,
-    html,
-  });
+  // Enviar email en todos los ambientes (desarrollo y producción)
+  try {
+    await transporter.sendMail({
+      from: options.user || process.env.MAIL_FROM,
+      to: direccion,
+      subject: "Cambiar contraseña",
+      text: `Codigo para cambiar contraseña: ${codeStr}\n${resetLink ? `\nEnlace de reset: ${resetLink}\n` : ""}\nSi no has sido tu, ignora este correo.\n`,
+      html,
+    });
+  } catch (err) {
+    // Re-lanzar el error para que sea capturado en modelo.js
+    throw err;
+  }
 };
 
