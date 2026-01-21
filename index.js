@@ -529,7 +529,7 @@ app.get("/confirmarUsuario/:email/:key", (req, res) => {
   let responded = false;
   const base = getAppBaseUrl();
   const successRedirect = base ? `${base}/` : '/';
-  const failRedirect = base ? `${base}/login?confirm=fail` : '/';
+  const failRedirect = base ? `${base}/` : '/';
 
   const sendResponse = (usr) => {
     if (responded) return;
