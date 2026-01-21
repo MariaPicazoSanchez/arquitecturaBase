@@ -13,6 +13,7 @@ describe('Authentication - Integration Tests with Mocked CAD', () => {
     // Crear un mock CAD con persistencia en memoria
     mockCAD = new CAD();
     mockCAD._memoryUsers = {}; // Simulación de base de datos
+    mockCAD.usuarios = {}; // Propiedad necesaria para verificar que DB está conectada
     
     // Mock buscarUsuario - implementar búsqueda en memoria
     mockCAD.buscarUsuario = function(criterio, callback) {
@@ -89,6 +90,40 @@ describe('Authentication - Integration Tests with Mocked CAD', () => {
       return { insertedId: `log_${Date.now()}` };
     };
 
+    // Mock buscarUsuarioRaw - similar a buscarUsuario pero devuelve el objeto completo
+    mockCAD.buscarUsuarioRaw = function(criterio, callback) {
+      if (!criterio || typeof criterio !== 'object') {
+        callback(undefined);
+        return;
+      }
+
+      for (const user of Object.values(mockCAD._memoryUsers)) {
+        if (criterio.email && user.email === criterio.email) {
+          if (criterio.confirmada !== undefined && user.confirmada !== criterio.confirmada) {
+            continue;
+          }
+          if (criterio.key && user.key !== criterio.key) {
+            continue;
+          }
+          callback(user);
+          return;
+        }
+      }
+      callback(undefined);
+    };
+
+    // Mock actualizarUsuarioPorEmail
+    mockCAD.actualizarUsuarioPorEmail = function(email, patch, callback) {
+      for (const user of Object.values(mockCAD._memoryUsers)) {
+        if (user.email === email) {
+          Object.assign(user, patch);
+          callback(user);
+          return;
+        }
+      }
+      callback(undefined);
+    };
+
     // Reemplazar el CAD del sistema
     sistema.cad = mockCAD;
   });
@@ -116,19 +151,17 @@ describe('Authentication - Integration Tests with Mocked CAD', () => {
       const result1 = await sistema.registrarUsuario(userData1);
       expect(result1).toBeDefined();
 
-      // Intentar registrar con mismo email - should throw
+      // Intentar registrar con mismo email - debe fallar
       const userData2 = {
         email: 'duplicate@example.com',
         password: 'DifferentPass123',
         nick: 'user2'
       };
 
-      try {
-        await sistema.registrarUsuario(userData2);
-        expect.fail('Should have thrown error for duplicate email');
-      } catch (err) {
-        expect(err.message).toContain('ya está registrado');
-      }
+      const result2 = await sistema.registrarUsuario(userData2);
+      expect(result2).toBeDefined();
+      expect(result2.email).toBe(-1);
+      expect(result2.reason).toContain('email');
     });
 
     it('should prevent duplicate nick registration', async () => {
@@ -141,19 +174,17 @@ describe('Authentication - Integration Tests with Mocked CAD', () => {
       const result1 = await sistema.registrarUsuario(userData1);
       expect(result1).toBeDefined();
 
-      // Intentar registrar con mismo nick - should throw
+      // Intentar registrar con mismo nick - debe fallar
       const userData2 = {
         email: 'user2@example.com',
         password: 'Pass123',
         nick: 'samenick'
       };
 
-      try {
-        await sistema.registrarUsuario(userData2);
-        expect.fail('Should have thrown error for duplicate nick');
-      } catch (err) {
-        expect(err.message).toContain('ya está en uso');
-      }
+      const result2 = await sistema.registrarUsuario(userData2);
+      expect(result2).toBeDefined();
+      expect(result2.email).toBe(-1);
+      expect(result2.reason).toContain('nick');
     });
 
     it('should hash password and not store plain text', async () => {

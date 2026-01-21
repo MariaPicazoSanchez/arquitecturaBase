@@ -201,12 +201,13 @@ function buildResetContent(email, payload) {
   const subject = "Cambiar contraseña";
   const html = `
     <div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#111">
+      <p><strong>Table Room</strong></p>
       <p>Hola,</p>
       <p>Usa este código para cambiar tu contraseña:</p>
       <div style="margin:12px 0;padding:12px 16px;background:#f4f6fb;border:1px solid #e5e7eb;border-radius:8px;">
         <div style="font-size:20px;letter-spacing:2px;font-weight:800;color:#111;text-align:center;">${code}</div>
       </div>
-      ${resetUrl ? `<p>O haz click en este enlace:</p><p><a href="${resetUrl}" target="_blank">${resetUrl}</a></p>` : ""}
+      ${resetUrl ? `<p>O haz click en este enlace:</p><p><a href="${resetUrl}" target="_blank">${resetUrl}</a></p>` : (base ? `<p>Visita: <a href="${base}" target="_blank">${base}</a></p>` : "")}
       ${token ? `<p>Token: <code style="font-family:monospace;">${token}</code></p>` : ""}
       <p style="color:#6b7280;">El código expira en 15 minutos.</p>
       <p style="color:#6b7280;">Si no has sido tú, ignora este mensaje.</p>
@@ -220,7 +221,7 @@ function buildResetContent(email, payload) {
     token ? `Token: ${token}` : null,
     resetUrl ? `Enlace: ${resetUrl}` : null,
     "El código expira en 15 minutos.",
-    "Si no has sido tu, ignora este mensaje.",
+    "Si no has sido tú, ignora este mensaje.",
   ].filter(Boolean);
 
   return { to: email, subject, html, text: textLines.join("\n") };

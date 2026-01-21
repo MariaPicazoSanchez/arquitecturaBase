@@ -249,7 +249,7 @@ describe('Email Service - enviarEmail', () => {
 
       const mailOptions = mockSendMailFn.mock.calls[0][0];
       expect(mailOptions.html).toContain('Si no has sido tú');
-      expect(mailOptions.text).toContain('Si no has sido tu');
+      expect(mailOptions.text).toContain('Si no has sido tú');
     });
 
     it('should handle code-only string parameter', async () => {
@@ -273,7 +273,7 @@ describe('Email Service - enviarEmail', () => {
 
       const mailOptions = mockSendMailFn.mock.calls[0][0];
       expect(mailOptions.text).toContain('CODE555');
-      expect(mailOptions.text).toContain('cambiar contraseña');
+      expect(mailOptions.text).toContain('cambiar tu contraseña');
     });
 
     it('should fallback to APP_URL when no token', async () => {

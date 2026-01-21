@@ -546,12 +546,21 @@ function Sistema() {
     const modelo = this;
     let responded = false;
 
+    // Si no se proporciona callback, retornar una promesa
+    const hasCallback = typeof callback === "function" || typeof email === "function";
+    let promiseResolve, promiseReject;
+    const promiseWrapper = !hasCallback ? new Promise((resolve, reject) => {
+      promiseResolve = resolve;
+      promiseReject = reject;
+    }) : null;
+
     const finish = (result) => {
       if (responded) return;
       responded = true;
       logger.debug("[modelo.registrarUsuario] respuesta:", result);
       if (typeof callback === "function") callback(result);
       if (typeof email === "function") email(result); // compat firma (obj, cb)
+      if (promiseResolve) promiseResolve(result);
     };
 
     (async () => {
@@ -658,6 +667,8 @@ function Sistema() {
       logger.error("[modelo.registrarUsuario] error inesperado:", err && err.stack ? err.stack : err);
       finish({ email: -1, reason: "unexpected_error" });
     });
+
+    return promiseWrapper;
   };
   // ===========================
   // CONFIRMAR cuenta
@@ -667,11 +678,20 @@ function Sistema() {
     const modelo = this;
     let responded = false;
 
+    // Si no se proporciona callback, retornar una promesa
+    const hasCallback = typeof callback === "function";
+    let promiseResolve, promiseReject;
+    const promiseWrapper = !hasCallback ? new Promise((resolve, reject) => {
+      promiseResolve = resolve;
+      promiseReject = reject;
+    }) : null;
+
     const finish = (result) => {
       if (responded) return;
       responded = true;
       logger.debug("[modelo.confirmarUsuario] respuesta:", result);
-      callback(result);
+      if (typeof callback === "function") callback(result);
+      if (promiseResolve) promiseResolve(result);
     };
 
     (async () => {
@@ -718,6 +738,8 @@ function Sistema() {
       logger.error("[modelo.confirmarUsuario] error inesperado:", err && err.stack ? err.stack : err);
       finish({ email: -1, reason: "unexpected_error" });
     });
+
+    return promiseWrapper;
   };
   // LOGIN local (exige confirmada: true)
   // ===========================
