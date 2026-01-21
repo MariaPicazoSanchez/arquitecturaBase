@@ -1,17 +1,14 @@
 const nodemailer = require("nodemailer");
 
-const options = {
-  user: process.env.MAIL_FROM || "",
-  pass: process.env.MAIL_PASS || "",
-};
-
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.MAIL_FROM,
-    pass: process.env.MAIL_PASS,
-  },
-});
+function getTransporter() {
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.MAIL_FROM,
+      pass: process.env.MAIL_PASS,
+    },
+  });
+}
 
 function buildAbsoluteUrl(pathname, baseUrl) {
   const base = (baseUrl || "").toString().trim();
@@ -52,8 +49,9 @@ module.exports.enviarEmail = async function (direccion, key, men) {
 
   // Enviar email en todos los ambientes (desarrollo y producción)
   try {
+    const transporter = getTransporter();
     await transporter.sendMail({
-      from: options.user || process.env.MAIL_FROM,
+      from: process.env.MAIL_FROM,
       to: direccion,
       subject: men || "Confirmar cuenta",
       text: `Bienvenido.\n\nConfirma tu cuenta aquí:\n${confirmUrl}\n`,
@@ -89,8 +87,9 @@ module.exports.enviarEmailCambioPassword = async function (direccion, payloadOrC
 
   // Enviar email en todos los ambientes (desarrollo y producción)
   try {
+    const transporter = getTransporter();
     await transporter.sendMail({
-      from: options.user || process.env.MAIL_FROM,
+      from: process.env.MAIL_FROM,
       to: direccion,
       subject: "Cambiar contraseña",
       text: `Codigo para cambiar contraseña: ${codeStr}\n${resetLink ? `\nEnlace de reset: ${resetLink}\n` : ""}\nSi no has sido tu, ignora este correo.\n`,
