@@ -6,17 +6,23 @@ let initPromise;
 
 async function initTransporter() {
   if (initPromise) return initPromise;
-  initPromise = (async () => {
+  
+  initPromise = new Promise((resolve, reject) => {
     if (process.env.NODE_ENV === 'production') {
       const gv = require('./gestorVariables.js');
-      options = await gv.obtenerOptions();
-      transporter = nodemailer.createTransport({ service: 'gmail', auth: options });
-      console.log('[email] Transporter inicializado con correo de:', options.user);
+      gv.obtenerOptions(function(res) {
+        options = res;
+        transporter = nodemailer.createTransport({ service: 'gmail', auth: options });
+        console.log('[email] Transporter inicializado con correo de:', options.user);
+        resolve();
+      });
     } else {
       options = { user: process.env.MAIL_FROM, pass: process.env.MAIL_PASS };
       transporter = nodemailer.createTransport({ service: 'gmail', auth: options });
+      resolve();
     }
-  })();
+  });
+  
   return initPromise;
 }
 
