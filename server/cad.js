@@ -520,8 +520,9 @@ function buscarConProyeccion(col, criterio, projection, cb) {
 function insertar(col, elem, cb) {
   logger.debug("[cad.insertar] col?", !!col, "elem.email:", elem && elem.email);
   if (!col) {
-    logger.warn("[cad.insertar] MODO MEMORIA: NO persiste en Mongo");
-    cb({ email: elem && elem.email ? elem.email : -1 });
+    const email = elem && elem.email ? elem.email : null;
+    logger.error("[cad.insertar] SIN CONEXION A MONGO: cancelando insercion", { email });
+    cb({ email: -1, reason: "db_unavailable" });
     return;
   }
   col
@@ -535,8 +536,8 @@ function insertar(col, elem, cb) {
         logger.warn("[cad.insertar] duplicado email");
         cb({ email: -1, reason: "duplicado" });
       } else {
-        logger.error("[cad.insertar] error:", err.message);
-        cb({ email: -1 });
+        logger.error("[cad.insertar] error:", err && err.message ? err.message : err);
+        cb({ email: -1, reason: "db_error" });
       }
     });
 }

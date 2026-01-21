@@ -539,153 +539,186 @@ function Sistema() {
   };
 
   // ===========================
-  // REGISTRO con confirmación
+  // REGISTRO con confirmacion
   // ===========================
   this.registrarUsuario = function (nickOrObj, email, password, callback) {
     logger.debug("[modelo.registrarUsuario] entrada:", { nickOrObj, email });
     const modelo = this;
     let responded = false;
-    
-    // Soporta tanto firma antigua (nick, email, password, callback) como nueva (objeto, callback)
-    let nick, finalEmail, finalPassword, finalCallback;
-    
-    if (typeof nickOrObj === 'object' && nickOrObj !== null) {
-      // Nuevo formato: objeto con {email, password, nick, ...}
-      nick = nickOrObj.nick;
-      finalEmail = nickOrObj.email;
-      finalPassword = nickOrObj.password;
-      finalCallback = email; // El callback está en el segundo parámetro
-    } else {
-      // Formato antiguo: (nick, email, password, callback)
-      nick = nickOrObj;
-      finalEmail = email;
-      finalPassword = password;
-      finalCallback = callback;
-    }
 
     const finish = (result) => {
-      if (!responded) {
-        responded = true;
-        logger.debug("[modelo.registrarUsuario] respuesta:", result);
-        if (finalCallback) finalCallback(result);
-      }
+      if (responded) return;
+      responded = true;
+      logger.debug("[modelo.registrarUsuario] respuesta:", result);
+      if (typeof callback === "function") callback(result);
+      if (typeof email === "function") email(result); // compat firma (obj, cb)
     };
 
-    // Timeout de seguridad
-    setTimeout(() => finish({ email: -1, reason: "timeout" }), 8000);
+    (async () => {
+      const tStart = Date.now();
+      let nick;
+      let finalEmail;
+      let finalPassword;
 
-    // Validaciones
-    if (!finalEmail || !finalPassword || !nick) {
-      return finish({ email: -1, reason: "datos_incompletos" });
-    }
+      if (typeof nickOrObj === "object" && nickOrObj !== null) {
+        nick = nickOrObj.nick;
+        finalEmail = nickOrObj.email;
+        finalPassword = nickOrObj.password;
+      } else {
+        nick = nickOrObj;
+        finalEmail = email;
+        finalPassword = password;
+      }
 
-    // Verificar si ya existe
-    this.cad.buscarUsuario({ email: finalEmail }, function (usuarioExistente) {
-      if (usuarioExistente) {
-        modelo.registrarActividad("registrarUsuarioFallido_emailDuplicado", finalEmail);
+      const cadCall = (method, ...args) =>
+        new Promise((resolve, reject) => {
+          try {
+            modelo.cad[method].apply(modelo.cad, [...args, resolve]);
+          } catch (err) {
+            reject(err);
+          }
+        });
+
+      const safeEmail = normalizarEmail(finalEmail);
+      const safeNick = nick ? String(nick).trim() : "";
+      if (!safeEmail || !finalPassword || !safeNick) {
+        return finish({ email: -1, reason: "datos_incompletos" });
+      }
+
+      if (!modelo.cad || !modelo.cad.usuarios) {
+        logger.error("[modelo.registrarUsuario] DB no conectada (usuarios indefinido)");
+        return finish({ email: -1, reason: "db_unavailable" });
+      }
+
+      const dupEmail = await cadCall("buscarUsuario", { email: safeEmail });
+      if (dupEmail) {
+        modelo.registrarActividad("registrarUsuarioFallido_emailDuplicado", safeEmail);
         return finish({ email: -1, reason: "email_ya_registrado" });
       }
 
-      // Verificar si el nick está en uso
-      modelo.cad.buscarUsuario({ nick }, function (usuarioConNick) {
-        if (usuarioConNick) {
-          modelo.registrarActividad("registrarUsuarioFallido_nickDuplicado", nick);
-          return finish({ email: -1, reason: "nick_ya_registrado" });
-        }
+      const dupNick = await cadCall("buscarUsuario", { nick: safeNick });
+      if (dupNick) {
+        modelo.registrarActividad("registrarUsuarioFallido_nickDuplicado", safeNick);
+        return finish({ email: -1, reason: "nick_ya_registrado" });
+      }
 
-        // Hashear la contraseña antes de guardarla
-        bcrypt.hash(finalPassword, 10, function(err, hashedPassword) {
-          if (err) {
-            logger.error("[modelo.registrarUsuario] error al hashear contraseña:", err);
-            modelo.registrarActividad("registrarUsuarioFallido_hash", finalEmail);
-            return finish({ email: -1, reason: "error_hash" });
-          }
+      let hashedPassword;
+      try {
+        const tHash = Date.now();
+        hashedPassword = await bcrypt.hash(finalPassword, 10);
+        logger.info(`[modelo.registrarUsuario] hash listo en ${Date.now() - tHash}ms`);
+      } catch (err) {
+        logger.error("[modelo.registrarUsuario] error al hashear contrasena:", err && err.stack ? err.stack : err);
+        modelo.registrarActividad("registrarUsuarioFallido_hash", safeEmail);
+        return finish({ email: -1, reason: "error_hash" });
+      }
 
-          // Generar clave de confirmación
-          const key = crypto.randomBytes(32).toString("hex");
-          
-          // Crear el usuario en la base de datos con la contraseña hasheada
-          const nuevoUsuario = {
-            email: finalEmail,
-            password: hashedPassword,
-            nick: nick,
-            key: key,
-            confirmada: false
-          };
+      const key = crypto.randomBytes(32).toString("hex");
+      const nuevoUsuario = {
+        email: safeEmail,
+        password: hashedPassword,
+        nick: safeNick,
+        key,
+        confirmada: false,
+        verified: false,
+        createdAt: new Date(),
+      };
 
-          modelo.cad.insertarUsuario(nuevoUsuario, function (usr) {
-            if (!usr || !usr.email) {
-              logger.error("[modelo.registrarUsuario] error al insertar usuario");
-              modelo.registrarActividad("registrarUsuarioFallido_insercion", finalEmail);
-              return finish({ email: -1, reason: "error_insercion" });
-            }
+      const tInsert = Date.now();
+      const inserted = await cadCall("insertarUsuario", nuevoUsuario);
+      logger.info(`[modelo.registrarUsuario] insertarUsuario t=${Date.now() - tInsert}ms ok=${!!(inserted && inserted.email && inserted.email !== -1)}`);
 
-            logger.debug("[modelo.registrarUsuario] usuario insertado, enviando email...");
-            
-            // Enviar email de confirmación
-            const correo = require("./email.js");
-            correo.enviarEmail(finalEmail, key, "Confirma tu cuenta")
-              .then(() => {
-                logger.info("[modelo.registrarUsuario] email enviado correctamente a", finalEmail);
-                modelo.registrarActividad("registrarUsuario", finalEmail);
-                finish({ email: finalEmail, nick: nick });
-              })
-              .catch(err => {
-                logger.error("[modelo.registrarUsuario] error al enviar email:", err);
-                // Aún así consideramos éxito porque el usuario fue creado
-                modelo.registrarActividad("registrarUsuario_sinEmail", finalEmail);
-                finish({ email: finalEmail, nick: nick });
-              });
-          });
-        });
+      if (!inserted || inserted.email === -1) {
+        const reason = inserted && inserted.reason ? inserted.reason : "error_insercion";
+        logger.error("[modelo.registrarUsuario] error al insertar usuario:", reason);
+        modelo.registrarActividad("registrarUsuarioFallido_insercion", safeEmail);
+        return finish({ email: -1, reason });
+      }
+
+      let emailSent = false;
+      try {
+        const tMail = Date.now();
+        await correo.enviarEmail(safeEmail, key, "Confirma tu cuenta");
+        emailSent = true;
+        logger.info(`[modelo.registrarUsuario] email enviado en ${Date.now() - tMail}ms a ${safeEmail}`);
+      } catch (err) {
+        logger.error("[modelo.registrarUsuario] error al enviar email:", err && err.stack ? err.stack : err);
+      }
+
+      modelo.registrarActividad(emailSent ? "registrarUsuario" : "registrarUsuario_sinEmail", safeEmail);
+      finish({
+        email: safeEmail,
+        nick: safeNick,
+        emailSent,
+        reason: emailSent ? undefined : "email_failed",
+        createdAt: nuevoUsuario.createdAt,
+        durationMs: Date.now() - tStart,
       });
+    })().catch((err) => {
+      logger.error("[modelo.registrarUsuario] error inesperado:", err && err.stack ? err.stack : err);
+      finish({ email: -1, reason: "unexpected_error" });
     });
   };
-
   // ===========================
   // CONFIRMAR cuenta
   // ===========================
   this.confirmarUsuario = function (obj, callback) {
     logger.debug("[modelo.confirmarUsuario] entrada:", obj);
-    let modelo = this;
+    const modelo = this;
     let responded = false;
+
     const finish = (result) => {
-      if (!responded) {
-        responded = true;
-        logger.debug("[modelo.confirmarUsuario] respuesta:", result);
-        callback(result);
-      }
+      if (responded) return;
+      responded = true;
+      logger.debug("[modelo.confirmarUsuario] respuesta:", result);
+      callback(result);
     };
 
-    setTimeout(() => finish({ email: -1, reason: "timeout" }), 8000);
-
-    this.cad.buscarUsuario(
-      { email: obj.email, key: obj.key, confirmada: false },
-      function (usr) {
-        logger.debug("[modelo.confirmarUsuario] usuario encontrado:", usr ? { _id: usr._id } : null);
-        if (!usr) {
-          modelo.registrarActividad("confirmarUsuarioFallido", obj.email);
-          return finish({ email: -1 });
-        }
-
-        usr.confirmada = true;
-        modelo.cad.actualizarUsuario(usr, function (res) {
-          if (res && res.email) {
-            modelo._obtenerOcrearUsuarioEnMemoria(usr.email, usr.nick);
-            return finish({
-              email: usr.email,
-              nick: usr.nick,
-              displayName: usr.displayName ? String(usr.displayName).trim() : "",
-            });
-          }
-          return finish({ email: -1 });
-        });
-        modelo.registrarActividad("confirmarUsuario", usr.email);
+    (async () => {
+      const email = normalizarEmail(obj && obj.email);
+      const key = String((obj && obj.key) || "").trim();
+      if (!email || !key) {
+        modelo.registrarActividad("confirmarUsuarioFallido", email || (obj && obj.email));
+        return finish({ email: -1, reason: "datos_invalidos" });
       }
-    );
-  };
 
-  // ===========================
+      const cadCall = (method, ...args) =>
+        new Promise((resolve, reject) => {
+          try {
+            modelo.cad[method].apply(modelo.cad, [...args, resolve]);
+          } catch (err) {
+            reject(err);
+          }
+        });
+
+      const usr = await cadCall("buscarUsuarioRaw", { email, key, confirmada: false });
+      logger.debug("[modelo.confirmarUsuario] usuario encontrado:", usr ? { _id: usr._id } : null);
+      if (!usr) {
+        modelo.registrarActividad("confirmarUsuarioFallido", email);
+        return finish({ email: -1, status: 404 });
+      }
+
+      const patch = { confirmada: true, verified: true, key: null, confirmadaEn: new Date() };
+      const updated = await cadCall("actualizarUsuarioPorEmail", email, patch);
+      logger.info(`[modelo.confirmarUsuario] actualizarUsuarioPorEmail ok=${!!(updated && updated.email)}`);
+
+      if (updated && updated.email) {
+        modelo._obtenerOcrearUsuarioEnMemoria(updated.email, updated.nick || usr.nick);
+        modelo.registrarActividad("confirmarUsuario", updated.email);
+        return finish({
+          email: updated.email,
+          nick: updated.nick || usr.nick,
+          displayName: updated.displayName ? String(updated.displayName).trim() : "",
+        });
+      }
+
+      modelo.registrarActividad("confirmarUsuarioFallido", email);
+      return finish({ email: -1, status: 500 });
+    })().catch((err) => {
+      logger.error("[modelo.confirmarUsuario] error inesperado:", err && err.stack ? err.stack : err);
+      finish({ email: -1, reason: "unexpected_error" });
+    });
+  };
   // LOGIN local (exige confirmada: true)
   // ===========================
   this.loginUsuario = function (obj, callback) {
@@ -962,7 +995,9 @@ function Sistema() {
 
     try {
       const e = normalizarEmail(email);
+      logger.debug(`[modelo.solicitarPasswordReset] email normalizado: ${e}, silent: ${silent}`);
       if (!e) {
+        logger.warn(`[modelo.solicitarPasswordReset] email inválido`);
         callback(silent ? { ok: true } : { ok: false, status: 400, message: "Email inválido." });
         return;
       }
@@ -970,14 +1005,22 @@ function Sistema() {
       if (!this.cad
         || typeof this.cad.buscarUsuarioRaw !== "function"
         || typeof this.cad.insertarPasswordResetToken !== "function") {
+        logger.warn(`[modelo.solicitarPasswordReset] CAD no disponible`);
         callback(silent ? { ok: true } : { ok: false, status: 503, message: "Reset de contraseña no disponible sin base de datos." });
         return;
       }
 
       const modelo = this;
       this.cad.buscarUsuarioRaw({ email: e }, function(usr) {
-        if (!usr) return callback(silent ? { ok: true } : { ok: false, status: 404, message: "Usuario no encontrado." });
-        if (!usr.password) return callback(silent ? { ok: true } : { ok: false, status: 409, message: "No disponible para cuentas Google." });
+        logger.debug(`[modelo.solicitarPasswordReset] usuario encontrado: ${!!usr}`);
+        if (!usr) {
+          logger.warn(`[modelo.solicitarPasswordReset] usuario no encontrado para ${e}`);
+          return callback(silent ? { ok: true } : { ok: false, status: 404, message: "Usuario no encontrado." });
+        }
+        if (!usr.password) {
+          logger.warn(`[modelo.solicitarPasswordReset] cuenta Google, no disponible para ${e}`);
+          return callback(silent ? { ok: true } : { ok: false, status: 409, message: "No disponible para cuentas Google." });
+        }
 
         const token = generarResetToken();
         const code = generarResetCode();
@@ -993,15 +1036,25 @@ function Sistema() {
           usedAt: null,
         };
 
+        const tInsert = Date.now();
         modelo.cad.insertarPasswordResetToken(doc, function(saved) {
-          if (!saved) return callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo iniciar el reset de contraseña." });
+          logger.debug(`[modelo.solicitarPasswordReset] token insertado: ${!!saved} en ${Date.now() - tInsert}ms`);
+          if (!saved) {
+            logger.error(`[modelo.solicitarPasswordReset] fallo al insertar token para ${e}`);
+            return callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo iniciar el reset de contrasena." });
+          }
 
+          logger.info(`[modelo.solicitarPasswordReset] enviando email a ${e}`);
+          const tMail = Date.now();
           Promise.resolve()
             .then(() => correo.enviarEmailCambioPassword(e, { code, token }))
-            .then(() => callback({ ok: true }))
+            .then(() => {
+              logger.info(`[password-reset] email enviado correctamente a ${e} en ${Date.now() - tMail}ms`);
+              callback({ ok: true });
+            })
             .catch((err) => {
-              logger.warn("[password-reset] fallo enviando email:", err && err.message ? err.message : err);
-              callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo enviar el correo de reset de contraseña." });
+              logger.error("[password-reset] fallo enviando email:", err && err.stack ? err.stack : err);
+              callback(silent ? { ok: true } : { ok: false, status: 500, message: "No se pudo enviar el correo de reset de contrasena." });
             });
         });
       });

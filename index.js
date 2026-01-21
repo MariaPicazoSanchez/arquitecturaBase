@@ -7,6 +7,7 @@ const httpServer = http.Server(app);
 const { Server } = require("socket.io");
 const logger = require("./server/logger");
 
+const emailService = require("./server/emailService");
 
 require('dotenv').config();
 const PORT = Number.parseInt(process.env.PORT, 10) || 3000;
@@ -62,6 +63,12 @@ function clearAuthCookies(res) {
   try { res.clearCookie('email', { path: '/' }); } catch (e) {}
   try { res.clearCookie('nick', { path: '/' }); } catch (e) {}
   try { res.clearCookie('uid', { path: '/' }); } catch (e) {}
+}
+
+
+function getAppBaseUrl() {
+  const raw = String(process.env.APP_URL || process.env.FRONTEND_URL || "").trim();
+  return raw ? raw.replace(/\/+$/, "") : "";
 }
 
 process.on('uncaughtException', (err) => {
@@ -159,10 +166,10 @@ app.use(function(req, res, next){
   next();
 });
 
-// Configurar Express: servir archivos estÃ¡ticos desde /client
+// Configurar Express: servir archivos est+íticos desde /client
 app.use(express.static(path.join(__dirname, 'client')));
 
-// PÃ¡gina de reset password (link desde email)
+// P+ígina de reset password (link desde email)
 app.get('/reset-password', function(req, res){
   return res.sendFile(path.join(__dirname, 'client', 'reset-password.html'));
 });
@@ -192,11 +199,11 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    // Cloud Run y HTTPS: secure=true en producciÃ³n
+    // Cloud Run y HTTPS: secure=true en producci+¦n
     secure: IN_PROD,
     httpOnly: true,
     sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 1 dÃ­a
+    maxAge: 24 * 60 * 60 * 1000 // 1 d+¡a
   }
 }));
 
@@ -204,7 +211,7 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// CORS (solo para /api) cuando el cliente estÃ¡ en otro origen y APP_URL estÃ¡ configurada.
+// CORS (solo para /api) cuando el cliente est+í en otro origen y APP_URL est+í configurada.
 app.use('/api', function(req, res, next){
   const origin = req.headers && req.headers.origin;
   const appUrl = process.env.APP_URL || "";
@@ -295,13 +302,13 @@ app.get("/good", function(req, res) {
   }
 
   const displayName = req.user.displayName || '';
-  logger.debug("[/good] email extraÃ­do:", email, "displayName:", displayName);
+  logger.debug("[/good] email extra+¡do:", email, "displayName:", displayName);
 
   process.nextTick(() => {
     sistema.usuarioGoogle({ email, displayName }, function(obj) {
-      logger.debug("[/good] usuarioGoogle retornÃ³:", obj);
+      logger.debug("[/good] usuarioGoogle retorn+¦:", obj);
       if (!obj || !obj.email) {
-        logger.error("[/good] ERROR: objeto invÃ¡lido de usuarioGoogle");
+        logger.error("[/good] ERROR: objeto inv+ílido de usuarioGoogle");
         return res.redirect('/fallo');
       }
       try {
@@ -352,22 +359,22 @@ app.get("/eliminarUsuario/:nick", haIniciado, function(request, response) {
 });
 
 app.get('/salir', function(req, res){
-  logger.debug('[/salir] peticiÃ³n de cierre de sesiÃ³n, user?', !!req.user);
+  logger.debug('[/salir] petici+¦n de cierre de sesi+¦n, user?', !!req.user);
   try{
-    // Passport: intenta logout si estÃ¡ disponible
+    // Passport: intenta logout si est+í disponible
     if (typeof req.logout === 'function'){
       // En algunas versiones puede requerir callback
       try { req.logout(); } catch(e) { logger.warn('[/salir] req.logout fallo:', e && e.message); }
     }
   }catch(e){ logger.warn('[/salir] error al llamar logout:', e && e.message); }
 
-  // Destruir la sesiÃ³n
+  // Destruir la sesi+¦n
   if (req.session){
     req.session.destroy(function(err){
-      if (err) logger.warn('[/salir] error destruyendo sesiÃ³n:', err && err.message);
-      // Borrar cookie de sesiÃ³n y cookie 'nick'
+      if (err) logger.warn('[/salir] error destruyendo sesi+¦n:', err && err.message);
+      // Borrar cookie de sesi+¦n y cookie 'nick'
       clearAuthCookies(res);
-      // Responder segÃºn tipo de peticiÃ³n
+      // Responder seg+¦n tipo de petici+¦n
       const acceptsJson = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') !== -1);
       if (acceptsJson) return res.json({ ok: true });
       return res.redirect('/');
@@ -437,7 +444,7 @@ app.post('/oneTap/callback', (req, res, next) => {
   })(req, res, next);
 });
 
-// Diagnostic endpoint: listar archivos estÃ¡ticos desplegados (Ãºtil en producciÃ³n)
+// Diagnostic endpoint: listar archivos est+íticos desplegados (+¦til en producci+¦n)
 app.get('/assets-debug', (req, res) => {
   const dir = path.join(__dirname, 'client');
   const walk = (dirPath) => {
@@ -477,20 +484,32 @@ app.post("/registrarUsuario", function(req, res){
   };
 
   try {
-    const { nick, email, password } = req.body; // Desestructurar los valores del cuerpo de la solicitud
+    const { nick, email, password } = req.body;
     sistema.registrarUsuario(nick, email, password, function(out){
       logger.debug("[/registrarUsuario] callback del modelo:", out);
       if (out && out.email && out.email !== -1){
-        return send(201, { ok: true });
-      } else {
-        // Devolver reason si existe para mejor feedback al cliente
-        const reason = (out && out.reason) || "unknown";
-        const errorMsg = reason === "email_ya_registrado" ? "El email ya estÃ¡ registrado" :
-                        reason === "nick_ya_registrado" ? "El nick ya estÃ¡ en uso" :
-                        reason === "nick_vacio" ? "El nick no puede estar vacÃ­o" :
-                        "No se ha podido registrar el usuario";
-        return send(409, { ok: false, reason, error: errorMsg });
+        if (out.emailSent === false) {
+          return send(202, {
+            ok: true,
+            emailSent: false,
+            warning: "email_failed",
+            message: "Usuario creado pero el correo de confirmacion fallo. Reintenta enviar el correo desde el login."
+          });
+        }
+        return send(201, { ok: true, emailSent: true });
       }
+
+      const reason = (out && out.reason) || "unknown";
+      const errorMsg = reason === "email_ya_registrado" ? "El email ya esta registrado" :
+                      reason === "nick_ya_registrado" ? "El nick ya esta en uso" :
+                      reason === "datos_incompletos" ? "Faltan datos obligatorios" :
+                      reason === "db_unavailable" ? "Base de datos no disponible" :
+                      "No se ha podido registrar el usuario";
+      const status = reason === "email_ya_registrado" || reason === "nick_ya_registrado" ? 409
+                    : reason === "datos_incompletos" ? 400
+                    : reason === "db_unavailable" ? 503
+                    : 500;
+      return send(status, { ok: false, reason, error: errorMsg });
     });
 
     setTimeout(() => {
@@ -501,68 +520,57 @@ app.post("/registrarUsuario", function(req, res){
     }, 10000);
 
   } catch (err) {
-    logger.error("[/registrarUsuario] EXCEPCIÃ“N sin capturar:", err);
+    logger.error("[/registrarUsuario] EXCEPCION sin capturar:", err);
     send(500, { ok: false, error: "Error interno del servidor" });
   }
 });
-
 app.get("/confirmarUsuario/:email/:key", (req, res) => {
   const { email, key } = req.params;
   let responded = false;
+  const base = getAppBaseUrl();
+  const successRedirect = base ? `${base}/` : '/';
+  const failRedirect = base ? `${base}/login?confirm=fail` : '/';
 
-  // FunciÃ³n para enviar una Ãºnica respuesta
   const sendResponse = (usr) => {
     if (responded) return;
     responded = true;
 
     if (usr && usr.email && usr.email !== -1) {
-      logger.debug("[/confirmarUsuario] confirmaciÃ³n exitosa para:", usr.email);
-      
-      // Establecer la sesiÃ³n
-      req.session.user = { 
+      logger.debug("[/confirmarUsuario] confirmacion exitosa para:", usr.email);
+      req.session.user = {
         email: usr.email,
         nick: usr.nick || usr.displayName || "Usuario"
       };
-      
-      // Establecer cookies de autenticaciÃ³n
       setAuthCookies(res, usr.email, usr.nick || usr.displayName || "Usuario");
-      
-      // Guardar sesiÃ³n explÃ­citamente antes de redirigir
       req.session.save((err) => {
         if (err) {
-          logger.error("[/confirmarUsuario] Error guardando sesiÃ³n:", err);
+          logger.error("[/confirmarUsuario] Error guardando sesion:", err);
         }
-        // Redirigir directamente al lobby una vez confirmada la cuenta
-        res.redirect('/');
+        res.redirect(successRedirect);
       });
     } else {
-      logger.debug("[/confirmarUsuario] confirmaciÃ³n fallida:", usr);
-      // Redirigir a login si falla
-      res.redirect('/');
+      logger.debug("[/confirmarUsuario] confirmacion fallida:", usr);
+      res.redirect(failRedirect);
     }
   };
 
-  // Procesar la confirmaciÃ³n
   sistema.confirmarUsuario({ email, key }, (usr) => {
     logger.debug("[/confirmarUsuario] resultado confirmarUsuario:", usr);
     sendResponse(usr);
   });
 
-  // Timeout de seguridad
   setTimeout(() => {
     logger.warn("[/confirmarUsuario] timeout alcanzado");
     sendResponse({ email: -1, reason: "timeout" });
   }, 5000);
 });
-
-// Servir configuraciÃ³n cliente (variables de entorno) como JS
 app.get('/config.js', (req, res) => {
   // Soporta varios nombres de variable en .env para compatibilidad
   const CLIENT_ID = process.env.CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '';
   const LOGIN_URI = process.env.LOGIN_URI || process.env.ONE_TAP_CALLBACK_URL || process.env.ONE_TAP_LOGIN_URI || process.env.GOOGLE_CALLBACK_URL || '';
   const SERVER_URL = process.env.SERVER_URL || '';
   const cfg = { CLIENT_ID, LOGIN_URI, SERVER_URL };
-  logger.debug('[config.js] sirviendo configuraciÃ³n al cliente:', cfg);
+  logger.debug('[config.js] sirviendo configuraci+¦n al cliente:', cfg);
   res.type('application/javascript');
   res.send(`window.APP_CONFIG = ${JSON.stringify(cfg)};`);
 });
@@ -649,11 +657,11 @@ app.post('/api/auth/password-reset/request', function(req, res) {
     const silent = !isAuthed;
 
     sistema.solicitarPasswordReset(email, { silent }, function(result) {
-      // Respuesta genÃ©rica 200, independientemente de si el email existe.
+      // Respuesta gen+®rica 200, independientemente de si el email existe.
       if (!result || result.ok === false) {
         if (!silent) {
           const status = result && result.status ? result.status : 500;
-          const message = result && result.message ? result.message : "No se pudo iniciar el reset de contraseÃ±a.";
+          const message = result && result.message ? result.message : "No se pudo iniciar el reset de contrase+¦a.";
           return res.status(status).json({ error: message });
         }
         return res.status(200).json({ ok: true });
@@ -671,14 +679,14 @@ app.post('/api/auth/password-reset/confirm', function(req, res) {
     sistema.confirmarPasswordReset(req.body, function(result) {
       if (!result || result.ok === false) {
         const status = result && result.status ? result.status : 500;
-        const message = result && result.message ? result.message : "No se pudo actualizar la contraseÃ±a.";
+        const message = result && result.message ? result.message : "No se pudo actualizar la contrase+¦a.";
         return res.status(status).json({ error: message });
       }
       return res.status(200).json({ ok: true });
     });
   } catch (err) {
     logger.error("[password-reset/confirm] error:", err && err.stack ? err.stack : err);
-    return res.status(500).json({ error: "No se pudo actualizar la contraseÃ±a." });
+    return res.status(500).json({ error: "No se pudo actualizar la contrase+¦a." });
   }
 });
 
@@ -718,7 +726,7 @@ app.put('/api/user/me/password', haIniciado, function(req, res) {
   sistema.cambiarPasswordUsuario(email, req.body, function(result) {
     if (!result || result.ok === false) {
       const status = result && result.status ? result.status : 500;
-      const message = result && result.message ? result.message : "Error cambiando contraseÃ±a";
+      const message = result && result.message ? result.message : "Error cambiando contrase+¦a";
       return res.status(status).json({ error: message });
     }
     return res.status(200).json({ ok: true });
@@ -731,7 +739,7 @@ app.post('/api/user/password-change/request', haIniciado, function(req, res) {
   sistema.solicitarCambioPasswordPorEmail(email, function(result) {
     if (!result || result.ok === false) {
       const status = result && result.status ? result.status : 500;
-      const message = result && result.message ? result.message : "Error solicitando cambio de contraseÃ±a";
+      const message = result && result.message ? result.message : "Error solicitando cambio de contrase+¦a";
       return res.status(status).json({ error: message });
     }
     return res.status(200).json({ ok: true });
@@ -744,7 +752,7 @@ app.post('/api/user/password-change/confirm', haIniciado, function(req, res) {
   sistema.confirmarCambioPasswordPorEmail(email, req.body, function(result) {
     if (!result || result.ok === false) {
       const status = result && result.status ? result.status : 500;
-      const message = result && result.message ? result.message : "Error confirmando cambio de contraseÃ±a";
+      const message = result && result.message ? result.message : "Error confirmando cambio de contrase+¦a";
       return res.status(status).json({ error: message });
     }
     return res.status(200).json({ ok: true });
@@ -843,6 +851,20 @@ function startServer(port, attempt = 0) {
 }
 
 logger.info('[START] llamando startServer(PORT)...');
-startServer(PORT);
-
-
+(async () => {
+  try {
+    const tDb = Date.now();
+    await sistema.cad.conectar();
+    logger.info(`[START] Mongo conectado en ${Date.now() - tDb}ms`);
+  } catch (err) {
+    logger.error('[START] Mongo no disponible:', err && err.message ? err.message : err);
+  }
+  try {
+    const t0 = Date.now();
+    await emailService.initEmailTransporter();
+    logger.warn(`[START] email transporter listo en ${Date.now() - t0}ms`);
+  } catch (err) {
+    logger.error('[START] email transporter no inicializado, se continua sin SMTP:', err && err.message ? err.message : err);
+  }
+  startServer(PORT);
+})();

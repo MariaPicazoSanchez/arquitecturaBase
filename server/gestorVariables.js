@@ -41,11 +41,11 @@ async function accessMONGOURI() {
 }
 
 module.exports.obtenerOptions = async function (callback) {
-  let options = { user: "", pass: "", mongoURI: "" };
+  const options = { user: "", pass: "", mongoURI: "" };
 
   // Lee los dos secretos
-  let user = await accessCORREOCUENTA();
-  let pass = await accessCLAVECORREO();
+  const user = await accessCORREOCUENTA();
+  const pass = await accessCLAVECORREO();
 
   options.user = user;
   options.pass = pass;
@@ -54,11 +54,26 @@ module.exports.obtenerOptions = async function (callback) {
 };
 
 module.exports.obtenerMongoUri = async function () {
-  // Desarrollo local
-  if (process.env.MONGO_URI) {
-    return process.env.MONGO_URI;
+  const env = (process.env.APP_ENV || process.env.NODE_ENV || "").toLowerCase() || "development";
+
+  // Desarrollo local / staging: usar primero variables de entorno estándar o con sufijo
+  const explicit =
+    process.env.MONGO_URI ||
+    process.env.MONGODB_URI ||
+    process.env[`MONGO_URI_${env.toUpperCase()}`] ||
+    process.env[`MONGODB_URI_${env.toUpperCase()}`];
+
+  if (explicit) {
+    logger.debug(`[gestorVariables] usando MONGO_URI de entorno para ${env}`);
+    return explicit.trim();
   }
 
-  // Producción
-  return await accessMONGOURI();
+  // Producción: Secret Manager
+  if (env === "production") {
+    logger.debug("[gestorVariables] obteniendo MONGO_URI desde Secret Manager");
+    return await accessMONGOURI();
+  }
+
+  logger.warn("[gestorVariables] MONGO_URI no definida; operando sin persistencia");
+  return "";
 };
