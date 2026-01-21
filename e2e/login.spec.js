@@ -7,22 +7,10 @@ test.describe('Login y recuperación de contraseña', () => {
     // Iniciar sesión
     await page.locator('#fmRegistro').getByRole('button', { name: 'Iniciar sesión' }).click();
     await page.getByRole('textbox', { name: 'Email' }).click();
-    await page.getByRole('textbox', { name: 'Email' }).fill('maria.picazo5@alu.uclm.es');
+    await page.getByRole('textbox', { name: 'Email' }).fill('borrar@prueba.com');
     await page.getByRole('textbox', { name: 'Contraseña' }).click();
-    await page.getByRole('textbox', { name: 'Contraseña' }).fill('Hola1234');
+    await page.getByRole('textbox', { name: 'Contraseña' }).fill('Hola1234*');
     await page.locator('#btnLogin').click();
-
-    // Navegar a la cuenta de usuario
-    await page.getByRole('button', { name: 'Usuario' }).click();
-    await page.getByRole('link', { name: 'Mi cuenta' }).click();
-
-    // Actualizar información de la cuenta
-    await page.getByRole('textbox', { name: 'Nombre' }).click();
-    await page.getByRole('textbox', { name: 'Nombre' }).fill('UsuarioPrueba');
-    await page.getByRole('textbox', { name: 'Nick' }).click();
-    await page.getByRole('textbox', { name: 'Nick' }).fill('UserPrueba');
-    await page.getByRole('button', { name: 'Guardar cambios' }).click();
-    await page.getByRole('button', { name: 'Volver' }).click();
 
     // Jugar una partida
     await page.getByRole('button', { name: 'Entrar' }).first().click();

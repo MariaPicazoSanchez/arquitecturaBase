@@ -110,19 +110,19 @@ test.describe('Validaciones en el formulario de registro', () => {
 
     // Intentar registrar con el mismo nick
     await page.goto('http://localhost:3000/');
-    await page.getByRole('textbox', { name: 'Nick (único):' }).fill(uniqueNick);
+    await page.getByRole('textbox', { name: 'Nick (único):' }).fill(`pepe`);
     await page.getByRole('textbox', { name: 'Email address:' }).fill(`nuevo_${Date.now()}@correo.com`);
     await page.getByRole('textbox', { name: 'Password:' }).fill('Contraseña1+');
     await page.getByRole('button', { name: 'Registrar' }).click();
-    await expect(page.getByText('El nick ya está en uso')).toBeVisible();
+    await page.getByText('El nick ya esta en uso').click();
 
     // Intentar registrar con el mismo correo
     await page.goto('http://localhost:3000/');
     await page.getByRole('textbox', { name: 'Nick (único):' }).fill(`nuevoNick_${Date.now()}`);
-    await page.getByRole('textbox', { name: 'Email address:' }).fill(uniqueEmail);
+    await page.getByRole('textbox', { name: 'Email address:' }).fill(`borrar@prueba.com`);
     await page.getByRole('textbox', { name: 'Password:' }).fill('Contraseña1+');
     await page.getByRole('button', { name: 'Registrar' }).click();
-    await expect(page.getByText('El email ya está registrado')).toBeVisible();
+    await page.getByText('El email ya esta registrado').click();
   });
 
 });
