@@ -166,10 +166,10 @@ app.use(function(req, res, next){
   next();
 });
 
-// Configurar Express: servir archivos est+íticos desde /client
+// Configurar Express: servir archivos est+ï¿½ticos desde /client
 app.use(express.static(path.join(__dirname, 'client')));
 
-// P+ígina de reset password (link desde email)
+// P+ï¿½gina de reset password (link desde email)
 app.get('/reset-password', function(req, res){
   return res.sendFile(path.join(__dirname, 'client', 'reset-password.html'));
 });
@@ -199,11 +199,11 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    // Cloud Run y HTTPS: secure=true en producci+¦n
+    // Cloud Run y HTTPS: secure=true en producci+ï¿½n
     secure: IN_PROD,
     httpOnly: true,
     sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 1 d+¡a
+    maxAge: 24 * 60 * 60 * 1000 // 1 d+ï¿½a
   }
 }));
 
@@ -211,7 +211,7 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// CORS (solo para /api) cuando el cliente est+í en otro origen y APP_URL est+í configurada.
+// CORS (solo para /api) cuando el cliente est+ï¿½ en otro origen y APP_URL est+ï¿½ configurada.
 app.use('/api', function(req, res, next){
   const origin = req.headers && req.headers.origin;
   const appUrl = process.env.APP_URL || "";
@@ -302,13 +302,13 @@ app.get("/good", function(req, res) {
   }
 
   const displayName = req.user.displayName || '';
-  logger.debug("[/good] email extra+¡do:", email, "displayName:", displayName);
+  logger.debug("[/good] email extra+ï¿½do:", email, "displayName:", displayName);
 
   process.nextTick(() => {
     sistema.usuarioGoogle({ email, displayName }, function(obj) {
-      logger.debug("[/good] usuarioGoogle retorn+¦:", obj);
+      logger.debug("[/good] usuarioGoogle retorn+ï¿½:", obj);
       if (!obj || !obj.email) {
-        logger.error("[/good] ERROR: objeto inv+ílido de usuarioGoogle");
+        logger.error("[/good] ERROR: objeto inv+ï¿½lido de usuarioGoogle");
         return res.redirect('/fallo');
       }
       try {
@@ -359,22 +359,22 @@ app.get("/eliminarUsuario/:nick", haIniciado, function(request, response) {
 });
 
 app.get('/salir', function(req, res){
-  logger.debug('[/salir] petici+¦n de cierre de sesi+¦n, user?', !!req.user);
+  logger.debug('[/salir] petici+ï¿½n de cierre de sesi+ï¿½n, user?', !!req.user);
   try{
-    // Passport: intenta logout si est+í disponible
+    // Passport: intenta logout si est+ï¿½ disponible
     if (typeof req.logout === 'function'){
       // En algunas versiones puede requerir callback
       try { req.logout(); } catch(e) { logger.warn('[/salir] req.logout fallo:', e && e.message); }
     }
   }catch(e){ logger.warn('[/salir] error al llamar logout:', e && e.message); }
 
-  // Destruir la sesi+¦n
+  // Destruir la sesi+ï¿½n
   if (req.session){
     req.session.destroy(function(err){
-      if (err) logger.warn('[/salir] error destruyendo sesi+¦n:', err && err.message);
-      // Borrar cookie de sesi+¦n y cookie 'nick'
+      if (err) logger.warn('[/salir] error destruyendo sesi+ï¿½n:', err && err.message);
+      // Borrar cookie de sesi+ï¿½n y cookie 'nick'
       clearAuthCookies(res);
-      // Responder seg+¦n tipo de petici+¦n
+      // Responder seg+ï¿½n tipo de petici+ï¿½n
       const acceptsJson = req.xhr || (req.headers.accept && req.headers.accept.indexOf('application/json') !== -1);
       if (acceptsJson) return res.json({ ok: true });
       return res.redirect('/');
@@ -444,7 +444,7 @@ app.post('/oneTap/callback', (req, res, next) => {
   })(req, res, next);
 });
 
-// Diagnostic endpoint: listar archivos est+íticos desplegados (+¦til en producci+¦n)
+// Diagnostic endpoint: listar archivos est+ï¿½ticos desplegados (+ï¿½til en producci+ï¿½n)
 app.get('/assets-debug', (req, res) => {
   const dir = path.join(__dirname, 'client');
   const walk = (dirPath) => {
@@ -570,7 +570,7 @@ app.get('/config.js', (req, res) => {
   const LOGIN_URI = process.env.LOGIN_URI || process.env.ONE_TAP_CALLBACK_URL || process.env.ONE_TAP_LOGIN_URI || process.env.GOOGLE_CALLBACK_URL || '';
   const SERVER_URL = process.env.SERVER_URL || '';
   const cfg = { CLIENT_ID, LOGIN_URI, SERVER_URL };
-  logger.debug('[config.js] sirviendo configuraci+¦n al cliente:', cfg);
+  logger.debug('[config.js] sirviendo configuraci+ï¿½n al cliente:', cfg);
   res.type('application/javascript');
   res.send(`window.APP_CONFIG = ${JSON.stringify(cfg)};`);
 });
@@ -657,11 +657,11 @@ app.post('/api/auth/password-reset/request', function(req, res) {
     const silent = !isAuthed;
 
     sistema.solicitarPasswordReset(email, { silent }, function(result) {
-      // Respuesta gen+®rica 200, independientemente de si el email existe.
+      // Respuesta gen+ï¿½rica 200, independientemente de si el email existe.
       if (!result || result.ok === false) {
         if (!silent) {
           const status = result && result.status ? result.status : 500;
-          const message = result && result.message ? result.message : "No se pudo iniciar el reset de contrase+¦a.";
+          const message = result && result.message ? result.message : "No se pudo iniciar el reset de contrase+ï¿½a.";
           return res.status(status).json({ error: message });
         }
         return res.status(200).json({ ok: true });
@@ -679,14 +679,14 @@ app.post('/api/auth/password-reset/confirm', function(req, res) {
     sistema.confirmarPasswordReset(req.body, function(result) {
       if (!result || result.ok === false) {
         const status = result && result.status ? result.status : 500;
-        const message = result && result.message ? result.message : "No se pudo actualizar la contrase+¦a.";
+        const message = result && result.message ? result.message : "No se pudo actualizar la contrase+ï¿½a.";
         return res.status(status).json({ error: message });
       }
       return res.status(200).json({ ok: true });
     });
   } catch (err) {
     logger.error("[password-reset/confirm] error:", err && err.stack ? err.stack : err);
-    return res.status(500).json({ error: "No se pudo actualizar la contrase+¦a." });
+    return res.status(500).json({ error: "No se pudo actualizar la contrase+ï¿½a." });
   }
 });
 
@@ -726,7 +726,7 @@ app.put('/api/user/me/password', haIniciado, function(req, res) {
   sistema.cambiarPasswordUsuario(email, req.body, function(result) {
     if (!result || result.ok === false) {
       const status = result && result.status ? result.status : 500;
-      const message = result && result.message ? result.message : "Error cambiando contrase+¦a";
+      const message = result && result.message ? result.message : "Error cambiando contrase+ï¿½a";
       return res.status(status).json({ error: message });
     }
     return res.status(200).json({ ok: true });
@@ -739,7 +739,7 @@ app.post('/api/user/password-change/request', haIniciado, function(req, res) {
   sistema.solicitarCambioPasswordPorEmail(email, function(result) {
     if (!result || result.ok === false) {
       const status = result && result.status ? result.status : 500;
-      const message = result && result.message ? result.message : "Error solicitando cambio de contrase+¦a";
+      const message = result && result.message ? result.message : "Error solicitando cambio de contrase+ï¿½a";
       return res.status(status).json({ error: message });
     }
     return res.status(200).json({ ok: true });
@@ -752,7 +752,7 @@ app.post('/api/user/password-change/confirm', haIniciado, function(req, res) {
   sistema.confirmarCambioPasswordPorEmail(email, req.body, function(result) {
     if (!result || result.ok === false) {
       const status = result && result.status ? result.status : 500;
-      const message = result && result.message ? result.message : "Error confirmando cambio de contrase+¦a";
+      const message = result && result.message ? result.message : "Error confirmando cambio de contrase+ï¿½a";
       return res.status(status).json({ error: message });
     }
     return res.status(200).json({ ok: true });
