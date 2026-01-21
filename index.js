@@ -517,12 +517,29 @@ app.get("/confirmarUsuario/:email/:key", (req, res) => {
 
     if (usr && usr.email && usr.email !== -1) {
       logger.debug("[/confirmarUsuario] confirmación exitosa para:", usr.email);
-      req.session.user = { email: usr.email };
+      
+      // Establecer la sesión
+      req.session.user = { 
+        email: usr.email,
+        nick: usr.nick || usr.displayName || "Usuario"
+      };
+      
+      // Establecer cookies de autenticación
       setAuthCookies(res, usr.email, usr.nick || usr.displayName || "Usuario");
+      
+      // Guardar sesión explícitamente antes de redirigir
+      req.session.save((err) => {
+        if (err) {
+          logger.error("[/confirmarUsuario] Error guardando sesión:", err);
+        }
+        // Redirigir al home - el cliente detectará la sesión y mostrará el lobby
+        res.redirect('/');
+      });
     } else {
       logger.debug("[/confirmarUsuario] confirmación fallida:", usr);
+      // Redirigir a login si falla
+      res.redirect('/login.html');
     }
-    res.redirect('/');
   };
 
   // Procesar la confirmación

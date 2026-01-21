@@ -1,35 +1,53 @@
 const nodemailer = require('nodemailer');
-// PRODUCCIÓN
-const gv = require('./gestorVariables.js');
-
-let options = {
-  user: "",
-  pass: ""
-};
-
 let transporter;
+// PRODUCCIÓN
+if (process.env.NODE_ENV == 'production') {
+  const gv = require('./gestorVariables.js');
 
-gv.obtenerOptions(function (res) {
-  options = res;
+  let options = {
+    user: "",
+    pass: ""
+  };
 
+
+  gv.obtenerOptions(function (res) {
+    options = res;
+
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: options
+    });
+
+    console.log("[email] Transporter inicializado con correo de:", options.user);
+  });
+} else {
+// DESARROLLO LOCAL
   transporter = nodemailer.createTransport({
     service: 'gmail',
-    auth: options
+    auth: {
+      user: process.env.MAIL_FROM,
+      pass: process.env.MAIL_PASS
+    }
   });
+}
 
-  console.log("[email] Transporter inicializado con correo de:", options.user);
-});
+module.exports.enviarEmail = async function(direccion, key, men) {
+  // Si no hay transporter, esperar a que esté listo
+  if (!transporter) {
+    await new Promise(resolve => {
+      const checkInterval = setInterval(() => {
+        if (transporter) {
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 100);
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        resolve();
+      }, 5000); // timeout de 5 segundos
+    });
+  }
 
-// DESARROLLO LOCAL
-// const transporter = nodemailer.createTransport({
-//   service: 'gmail',
-//   auth: {
-//     user: process.env.MAIL_FROM,
-//     pass: process.env.MAIL_PASS
-//   }
-// });
-
-module.exports.enviarEmail=async function(direccion, key,men) {
   const APP_URL = process.env.APP_URL;
   const confirmUrl = `${APP_URL}/confirmarUsuario/${encodeURIComponent(direccion)}/${encodeURIComponent(key)}`;
 
@@ -54,12 +72,13 @@ module.exports.enviarEmail=async function(direccion, key,men) {
     </div>
   `;
 
+  const fromEmail = process.env.NODE_ENV === 'production' ? process.env.MAIL_FROM : process.env.MAIL_FROM;
+
   await transporter.sendMail({
-    from: process.env.MAIL_FROM,
+    from: fromEmail,
     to: direccion,
     subject: men || "Confirmar cuenta",
-    text: `Bienvenido a Sistema\n\nConfirma tu cuenta aquí:\n${confirmUrl}\n`, // fallback de texto
+    text: `Bienvenido a Sistema\n\nConfirma tu cuenta aquí:\n${confirmUrl}\n`,
     html
   });
-
-}
+};
